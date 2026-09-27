@@ -2,7 +2,8 @@
  * textures3d.ts — بافت‌های رویه‌ای (Procedural) برای حالت سه‌بعدی
  * ============================================================
  * همه بافت‌ها با Canvas2D تولید می‌شوند — بدون Asset خارجی.
- * سبک: Low-Poly کارتونی روشن هم‌خانواده با رندر دوبعدی.
+ * فاز GTA-IR: آسفالت ترک‌خورده با وصله، خط عابر پیاده، تابلوهای فارسی،
+ * پلاک ایرانی، علامت تاکسی، بیلبورد طنز، آسمان گرادیانی تهران!
  * (کش یک‌بار در سازه؛ هیچ new در حلقه فریم)
  */
 
@@ -27,68 +28,181 @@ function toTex(c: HTMLCanvasElement, repeatX = 1, repeatY = 1): THREE.CanvasText
   return t;
 }
 
+/** فونت مشترک متن فارسی روی بافت‌ها */
+const FA_FONT = (size: number, weight = 900) => `${weight} ${size}px Vazirmatn, Tahoma, sans-serif`;
+
 let roadStraightTex: THREE.CanvasTexture | null = null;
+let crossroadTex: THREE.CanvasTexture | null = null;
 let asphaltPlainTex: THREE.CanvasTexture | null = null;
 let sidewalkTex: THREE.CanvasTexture | null = null;
 let grassTex: THREE.CanvasTexture | null = null;
+let skyTex: THREE.CanvasTexture | null = null;
+let plateTex: THREE.CanvasTexture | null = null;
+let taxiSignTex: THREE.CanvasTexture | null = null;
+let speedBumpTex: THREE.CanvasTexture | null = null;
 const facadeTexCache = new Map<string, THREE.CanvasTexture[]>();
+const labelTexCache = new Map<string, THREE.CanvasTexture>();
 
-/** آسفالت جاده با خط‌کشی وسط (چین‌چین سفید) — V در امتداد جاده */
+/** خطوط ترک آسفالت (پلی‌لاین‌های باریک تیره) */
+function drawCracks(ctx: CanvasRenderingContext2D, w: number, h: number, count: number): void {
+  for (let i = 0; i < count; i++) {
+    let x = Math.random() * w;
+    let y = Math.random() * h;
+    ctx.strokeStyle = 'rgba(20,18,16,0.30)';
+    ctx.lineWidth = 1 + Math.random() * 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    const segs = 4 + Math.floor(Math.random() * 5);
+    for (let s = 0; s < segs; s++) {
+      x += (Math.random() - 0.5) * 42;
+      y += (Math.random() - 0.5) * 42;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+/** وصله آسفالت (مستطیل تیره‌تر — تعمیر جاده‌های ایران!) */
+function drawPatches(ctx: CanvasRenderingContext2D, w: number, h: number, count: number): void {
+  for (let i = 0; i < count; i++) {
+    const pw = 26 + Math.random() * 40;
+    const ph = 18 + Math.random() * 34;
+    const px = Math.random() * (w - pw);
+    const py = Math.random() * (h - ph);
+    ctx.fillStyle = 'rgba(30,28,26,0.22)';
+    ctx.fillRect(px, py, pw, ph);
+    ctx.strokeStyle = 'rgba(15,13,11,0.28)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px, py, pw, ph);
+  }
+}
+
+/**
+ * آسفالت جاده با خط‌کشی وسط (چین‌چین سفید) + ترک + وصله + منهول
+ * — خیابان‌های واقعی ایران. V در امتداد جاده.
+ */
 export function getRoadStraightTexture(): THREE.CanvasTexture {
   if (roadStraightTex) return roadStraightTex;
-  const { c, ctx } = makeCanvas(256, 256);
-  // آسفالت
-  ctx.fillStyle = '#5c5c60';
-  ctx.fillRect(0, 0, 256, 256);
-  // نویز ملایم
-  for (let i = 0; i < 260; i++) {
-    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.05)';
-    const x = Math.random() * 256;
-    const y = Math.random() * 256;
-    ctx.fillRect(x, y, 3 + Math.random() * 5, 2 + Math.random() * 4);
+  const S = 512;
+  const { c, ctx } = makeCanvas(S, S);
+  // آسفالت پایه
+  ctx.fillStyle = '#58585c';
+  ctx.fillRect(0, 0, S, S);
+  // نویز دو رنگ
+  for (let i = 0; i < 700; i++) {
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+    ctx.fillRect(Math.random() * S, Math.random() * S, 2 + Math.random() * 5, 2 + Math.random() * 4);
   }
-  // خط‌کشی وسط (در جهت V = عمودی کانواس)
-  ctx.fillStyle = 'rgba(245,245,240,0.92)';
-  ctx.fillRect(124, 18, 8, 92);
-  ctx.fillRect(124, 146, 8, 92);
-  // لبه‌های زرد کم‌رنگ
-  ctx.fillStyle = 'rgba(230,190,70,0.65)';
-  ctx.fillRect(10, 0, 6, 256);
-  ctx.fillRect(240, 0, 6, 256);
+  drawCracks(ctx, S, S, 14);
+  drawPatches(ctx, S, S, 3);
+
+  // منهول (دایره تیره با حلقه)
+  const mx = 100, my = 170;
+  ctx.fillStyle = '#3c3a38';
+  ctx.beginPath(); ctx.arc(mx, my, 17, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(200,200,190,0.4)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(mx, my, 17, 0, Math.PI * 2); ctx.stroke();
+
+  // خط‌کشی وسط (در جهت V) — کمی ساییده
+  ctx.fillStyle = 'rgba(245,245,240,0.85)';
+  for (let y = 20; y < S; y += 120) {
+    ctx.fillRect(S / 2 - 5, y, 10, 84);
+  }
+  // لبه‌های زرد کم‌رنگ و ساییده
+  ctx.fillStyle = 'rgba(226,190,80,0.55)';
+  ctx.fillRect(16, 0, 7, S);
+  ctx.fillRect(S - 23, 0, 7, S);
+  // کثیفی لبه جاده
+  ctx.fillStyle = 'rgba(40,36,30,0.14)';
+  ctx.fillRect(0, 0, 12, S);
+  ctx.fillRect(S - 12, 0, 12, S);
+
   roadStraightTex = toTex(c);
   return roadStraightTex;
 }
 
-/** آسفالت ساده برای تقاطع */
+/**
+ * بافت تقاطع با خط عابر پیاده (زیبرا) در چهار طرف
+ * — امضای خیابان‌های ایران و حس GTA شهری.
+ */
+export function getCrossroadTexture(): THREE.CanvasTexture {
+  if (crossroadTex) return crossroadTex;
+  const S = 512;
+  const { c, ctx } = makeCanvas(S, S);
+  ctx.fillStyle = '#58585c';
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 560; i++) {
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.06)';
+    ctx.fillRect(Math.random() * S, Math.random() * S, 3, 3);
+  }
+  drawCracks(ctx, S, S, 10);
+  drawPatches(ctx, S, S, 2);
+
+  // زیبرا: نوارهای سفید در ۴ طرف (باند عرضی نزدیک لبه)
+  const bandDepth = 64;
+  const stripeW = 22;
+  const gap = 16;
+  const innerPad = 86; // فاصله از گوشه تا شروع زیبرا
+  ctx.fillStyle = 'rgba(242,242,238,0.88)';
+  // بالا و پایین (نوارها در جهت V)
+  for (let x = innerPad; x < S - innerPad - stripeW; x += stripeW + gap) {
+    ctx.fillRect(x, 14, stripeW, bandDepth);
+    ctx.fillRect(x, S - 14 - bandDepth, stripeW, bandDepth);
+  }
+  // چپ و راست (نوارها افقی)
+  for (let y = innerPad; y < S - innerPad - stripeW; y += stripeW + gap) {
+    ctx.fillRect(14, y, bandDepth, stripeW);
+    ctx.fillRect(S - 14 - bandDepth, y, bandDepth, stripeW);
+  }
+  // خط توقف قبل از زیبرا (نیمه عرض — سمت راست‌رانندگان)
+  ctx.fillStyle = 'rgba(242,242,238,0.7)';
+  ctx.fillRect(S - 14 - bandDepth - 26, innerPad, 12, S - innerPad * 2);
+
+  crossroadTex = toTex(c);
+  return crossroadTex;
+}
+
+/** آسفالت ساده برای کاشی‌های جنبی */
 export function getAsphaltPlainTexture(): THREE.CanvasTexture {
   if (asphaltPlainTex) return asphaltPlainTex;
   const { c, ctx } = makeCanvas(128, 128);
-  ctx.fillStyle = '#5c5c60';
+  ctx.fillStyle = '#58585c';
   ctx.fillRect(0, 0, 128, 128);
-  for (let i = 0; i < 90; i++) {
-    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)';
+  for (let i = 0; i < 110; i++) {
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.055)';
     ctx.fillRect(Math.random() * 128, Math.random() * 128, 2 + Math.random() * 4, 2 + Math.random() * 3);
   }
   asphaltPlainTex = toTex(c, 2, 2);
   return asphaltPlainTex;
 }
 
-/** پیاده‌روی سنگ‌فرش روشن */
+/** پیاده‌روی سنگ‌فرش با کاشی‌های قرمز تزئینی (خیابان‌های ایران) */
 export function getSidewalkTexture(): THREE.CanvasTexture {
   if (sidewalkTex) return sidewalkTex;
-  const { c, ctx } = makeCanvas(128, 128);
-  ctx.fillStyle = '#b9b3a6';
-  ctx.fillRect(0, 0, 128, 128);
+  const S = 128;
+  const { c, ctx } = makeCanvas(S, S);
+  ctx.fillStyle = '#b5afa2';
+  ctx.fillRect(0, 0, S, S);
   // درز سنگ‌ها
   ctx.strokeStyle = 'rgba(70,64,58,0.35)';
   ctx.lineWidth = 3;
   for (let i = 0; i <= 2; i++) {
-    ctx.beginPath(); ctx.moveTo(i * 64, 0); ctx.lineTo(i * 64, 128); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i * 64); ctx.lineTo(128, i * 64); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(i * 64, 0); ctx.lineTo(i * 64, S); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i * 64); ctx.lineTo(S, i * 64); ctx.stroke();
   }
-  for (let i = 0; i < 60; i++) {
-    ctx.fillStyle = 'rgba(0,0,0,0.03)';
-    ctx.fillRect(Math.random() * 128, Math.random() * 128, 3, 3);
+  // چند کاشی قرمز (الگوی معروف پیاده‌روی ایرانی)
+  const reds: Array<[number, number]> = [[0, 0], [64, 64]];
+  for (const [rx, ry] of reds) {
+    ctx.fillStyle = '#b85c4a';
+    ctx.fillRect(rx + 3, ry + 3, 58, 58);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(rx + 3, ry + 3, 58, 8);
+    ctx.strokeStyle = 'rgba(70,64,58,0.35)';
+    ctx.strokeRect(rx + 3, ry + 3, 58, 58);
+  }
+  for (let i = 0; i < 70; i++) {
+    ctx.fillStyle = 'rgba(0,0,0,0.035)';
+    ctx.fillRect(Math.random() * S, Math.random() * S, 3, 3);
   }
   sidewalkTex = toTex(c, 6, 6);
   return sidewalkTex;
@@ -108,8 +222,148 @@ export function getGrassTexture(): THREE.CanvasTexture {
   return grassTex;
 }
 
+/** آسمان گرادیانی با غبار گرم افق (تهران!) — scene.background */
+export function getSkyTexture(): THREE.CanvasTexture {
+  if (skyTex) return skyTex;
+  const { c, ctx } = makeCanvas(64, 256);
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#6db8e0');
+  grad.addColorStop(0.55, '#a3d2e6');
+  grad.addColorStop(0.85, '#d8e3d8');
+  grad.addColorStop(1, '#ece0c4'); // غبار افق
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  skyTex = t;
+  return t;
+}
+
+/** پلاک ایرانی — سفید با نوار آبی چپ و خانه‌های عدد */
+export function getPlateTexture(): THREE.CanvasTexture {
+  if (plateTex) return plateTex;
+  const { c, ctx } = makeCanvas(96, 32);
+  ctx.fillStyle = '#f5f5f0';
+  ctx.fillRect(0, 0, 96, 32);
+  ctx.fillStyle = '#1a5276';
+  ctx.fillRect(0, 0, 12, 32);
+  ctx.strokeStyle = '#22201e';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, 94, 30);
+  // خانه‌های عدد (شش بلوک تیره)
+  ctx.fillStyle = '#22201e';
+  for (let i = 0; i < 6; i++) {
+    ctx.fillRect(20 + i * 12, 8, 7, 16);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  plateTex = t;
+  return t;
+}
+
+/** علامت تاکسی روی سقف — «تاکسی» مشکی روی سفید */
+export function getTaxiSignTexture(): THREE.CanvasTexture {
+  if (taxiSignTex) return taxiSignTex;
+  const { c, ctx } = makeCanvas(96, 40);
+  ctx.fillStyle = '#fff9ec';
+  ctx.fillRect(0, 0, 96, 40);
+  ctx.strokeStyle = '#3a2e2a';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(2, 2, 92, 36);
+  ctx.fillStyle = '#3a2e2a';
+  ctx.font = FA_FONT(22);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('تاکسی', 48, 22);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  taxiSignTex = t;
+  return t;
+}
+
+/** بافت سرعت‌گیر — راه‌راه زرد/مشکی */
+export function getSpeedBumpTexture(): THREE.CanvasTexture {
+  if (speedBumpTex) return speedBumpTex;
+  const { c, ctx } = makeCanvas(64, 32);
+  ctx.fillStyle = '#e8b83a';
+  ctx.fillRect(0, 0, 64, 32);
+  ctx.fillStyle = '#2e2824';
+  for (let x = 0; x < 64; x += 16) ctx.fillRect(x, 0, 8, 32);
+  speedBumpTex = toTex(c);
+  return speedBumpTex;
+}
+
+/**
+ * تابلو برجسته (بیلبورد) با متن فارسی — دو خط
+ */
+export function getBillboardTexture(line1: string, line2: string, bg = '#F2B705'): THREE.CanvasTexture {
+  const key = `bb_${line1}_${line2}_${bg}`;
+  const cached = labelTexCache.get(key);
+  if (cached) return cached;
+  const { c, ctx } = makeCanvas(256, 128);
+  ctx.fillStyle = '#8f8f8a';
+  ctx.fillRect(0, 0, 256, 128);
+  ctx.fillStyle = bg;
+  ctx.fillRect(8, 8, 240, 112);
+  ctx.strokeStyle = '#3a2e2a';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(8, 8, 240, 112);
+  ctx.fillStyle = '#3a2e2a';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = FA_FONT(30);
+  ctx.fillText(line1, 128, 50);
+  ctx.font = FA_FONT(24, 700);
+  ctx.fillText(line2, 128, 88);
+  const t = toTex(c);
+  labelTexCache.set(key, t);
+  return t;
+}
+
+/** تابلوی خیابان آبی — نام خیابان‌های معروف */
+export function getStreetSignTexture(name: string): THREE.CanvasTexture {
+  const key = `st_${name}`;
+  const cached = labelTexCache.get(key);
+  if (cached) return cached;
+  const { c, ctx } = makeCanvas(192, 64);
+  ctx.fillStyle = '#2a6db5';
+  ctx.fillRect(0, 0, 192, 64);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(4, 4, 184, 56);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = FA_FONT(26);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(name, 96, 34);
+  const t = toTex(c);
+  labelTexCache.set(key, t);
+  return t;
+}
+
+/** تابلوی ایستگاه اتوبوس */
+export function getBusStopTexture(): THREE.CanvasTexture {
+  const key = 'busstop';
+  const cached = labelTexCache.get(key);
+  if (cached) return cached;
+  const { c, ctx } = makeCanvas(160, 56);
+  ctx.fillStyle = '#FFF9EC';
+  ctx.fillRect(0, 0, 160, 56);
+  ctx.fillStyle = '#2A9D8F';
+  ctx.fillRect(0, 0, 160, 18);
+  ctx.fillStyle = '#3a2e2a';
+  ctx.font = FA_FONT(22);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('ایستگاه اتوبوس', 80, 38);
+  const t = toTex(c);
+  labelTexCache.set(key, t);
+  return t;
+}
+
 /**
  * نمایه ساختمان (۶ وجه بکس) — بر اساس نوع
+ * فاز GTA-IR: خانه آجری با بالکن، مغازه با تابلو فارسی، تعمیرگاه
  * خروجی: [side, side, top, bottom, side, side] برای متریال آرایه‌ای BoxGeometry
  */
 export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
@@ -121,24 +375,29 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
   let winBg = '#9fc4d8';
   let awning: string | null = null;
   let doorColor = '#7a5c3d';
+  let signText: string | null = null;
+  let brick = false;
 
   switch (assetId) {
     case 'env_building_home_01':
-      wall = '#efdcc0'; trim = '#d8b98e'; winBg = '#a8cbe0';
+      wall = '#e8dcc2'; trim = '#b06a4a'; winBg = '#a8cbe0';
+      brick = true; // طبقه همکف آجر
       break;
     case 'env_building_shop_01':
       wall = '#f2c98c'; trim = '#c98d4b'; winBg = '#b8d8e8';
       awning = '#e2574c';
+      signText = 'سوپرمارکت';
       break;
     case 'env_building_garage_01':
-      wall = '#b8b8b4'; trim = '#8f8f8a'; winBg = '#7f96a8';
+      wall = '#c4c0b8'; trim = '#8f8f8a'; winBg = '#7f96a8';
       doorColor = '#5f6a75';
+      signText = 'تعمیرگاه';
       break;
     default:
       wall = '#e7d9b8'; trim = '#c9b98a'; winBg = '#9fc4d8';
   }
 
-  // --- وجه طبقات با پنجره ---
+  // --- وجه طبقات با پنجره + بالکن ---
   const { c: face, ctx: fx } = makeCanvas(256, 256);
   fx.fillStyle = wall;
   fx.fillRect(0, 0, 256, 256);
@@ -159,9 +418,21 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
       fx.strokeStyle = trim;
       fx.lineWidth = 5;
       fx.strokeRect(wx, wy, pw, ph);
+      // نرده بالکن (دو طبقه بالا)
+      if (j < rows - 1) {
+        fx.strokeStyle = 'rgba(50,44,40,0.75)';
+        fx.lineWidth = 3;
+        fx.beginPath();
+        fx.moveTo(wx - 6, wy + ph + 12);
+        fx.lineTo(wx + pw + 6, wy + ph + 12);
+        fx.stroke();
+        for (let b = 0; b <= 4; b++) {
+          const bx = wx - 6 + (b * (pw + 12)) / 4;
+          fx.beginPath(); fx.moveTo(bx, wy + ph + 2); fx.lineTo(bx, wy + ph + 12); fx.stroke();
+        }
+      }
     }
   }
-  // نوار پایین
   fx.fillStyle = trim;
   fx.fillRect(0, 236, 256, 20);
 
@@ -169,13 +440,40 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
   const { c: groundF, ctx: gx } = makeCanvas(256, 256);
   gx.fillStyle = wall;
   gx.fillRect(0, 0, 256, 256);
+  if (brick) {
+    // نیمه پایین: آجرچینی ایرانی
+    gx.fillStyle = '#a25a42';
+    gx.fillRect(0, 128, 256, 128);
+    gx.strokeStyle = 'rgba(240,230,215,0.35)';
+    gx.lineWidth = 2;
+    for (let row = 0; row < 8; row++) {
+      const y = 132 + row * 16;
+      gx.beginPath(); gx.moveTo(0, y); gx.lineTo(256, y); gx.stroke();
+      const offset = row % 2 === 0 ? 0 : 16;
+      for (let bx = offset; bx < 256; bx += 32) {
+        gx.beginPath(); gx.moveTo(bx, y); gx.lineTo(bx, y + 16); gx.stroke();
+      }
+    }
+  }
+  if (signText) {
+    // تابلوی فارسی بالای ورودی
+    gx.fillStyle = '#3a2e2a';
+    gx.fillRect(28, 96, 200, 42);
+    gx.fillStyle = '#FFF9EC';
+    gx.font = FA_FONT(26);
+    gx.textAlign = 'center';
+    gx.textBaseline = 'middle';
+    gx.fillText(signText, 128, 118);
+    gx.strokeStyle = '#FFF9EC';
+    gx.lineWidth = 3;
+    gx.strokeRect(28, 96, 200, 42);
+  }
   if (awning) {
     // آویز راه‌راه مغازه
     gx.fillStyle = awning;
     gx.fillRect(0, 148, 256, 26);
     gx.fillStyle = 'rgba(255,255,255,0.85)';
     for (let i = 0; i < 8; i++) gx.fillRect(i * 32 + 4, 148, 16, 26);
-    // شیشه بزرگ
     gx.fillStyle = winBg;
     gx.fillRect(20, 180, 216, 62);
     gx.fillStyle = 'rgba(255,255,255,0.35)';
@@ -186,33 +484,37 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
   } else if (assetId === 'env_building_garage_01') {
     // در بزرگ گاراژ
     gx.fillStyle = doorColor;
-    gx.fillRect(28, 130, 200, 112);
+    gx.fillRect(28, 150, 200, 92);
     gx.strokeStyle = 'rgba(0,0,0,0.28)';
     gx.lineWidth = 4;
     for (let i = 1; i < 5; i++) {
-      gx.beginPath(); gx.moveTo(28, 130 + i * 22); gx.lineTo(228, 130 + i * 22); gx.stroke();
+      gx.beginPath(); gx.moveTo(28, 150 + i * 18); gx.lineTo(228, 150 + i * 18); gx.stroke();
     }
     gx.strokeStyle = trim; gx.lineWidth = 6;
-    gx.strokeRect(28, 130, 200, 112);
+    gx.strokeRect(28, 150, 200, 92);
   } else {
-    // در خانه + پنجره
+    // در خانه + پنجره (روی آجر)
     gx.fillStyle = doorColor;
     gx.fillRect(150, 168, 64, 88);
-    gx.strokeStyle = trim; gx.lineWidth = 5;
+    gx.strokeStyle = '#e8dcc2'; gx.lineWidth = 5;
     gx.strokeRect(150, 168, 64, 88);
     gx.fillStyle = winBg;
     gx.fillRect(40, 172, 72, 70);
-    gx.strokeStyle = trim; gx.lineWidth = 5;
+    gx.strokeStyle = '#e8dcc2'; gx.lineWidth = 5;
     gx.strokeRect(40, 172, 72, 70);
   }
 
   // --- سقف ---
   const { c: roof, ctx: rx } = makeCanvas(64, 64);
-  rx.fillStyle = trim;
+  rx.fillStyle = '#b8ac92';
   rx.fillRect(0, 0, 64, 64);
-  rx.fillStyle = 'rgba(0,0,0,0.08)';
+  rx.fillStyle = 'rgba(0,0,0,0.10)';
   rx.fillRect(0, 0, 64, 8);
   rx.fillRect(0, 0, 8, 64);
+  for (let i = 0; i < 30; i++) {
+    rx.fillStyle = 'rgba(0,0,0,0.06)';
+    rx.fillRect(Math.random() * 64, Math.random() * 64, 4, 4);
+  }
 
   const faceTex = toTex(face);
   const groundTex = toTex(groundF);

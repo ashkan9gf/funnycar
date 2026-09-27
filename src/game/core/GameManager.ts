@@ -19,7 +19,7 @@ import { Vehicle } from '../entities/Vehicle';
 import { World } from '../world/World';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
-import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS } from '../data/balance';
+import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D } from '../data/balance';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
 
@@ -104,6 +104,7 @@ export class GameManager {
 
   private idleTimerSec = 12;
   private crashCooldown = 0;
+  private bumpCooldown = 0;
   private brakeSoundLatch = false;
   private skidSoundTimer = 0;
   private smokeTimer = 0;
@@ -140,8 +141,9 @@ export class GameManager {
     }
 
     // ترافیک و رویدادهای تصادفی (فاز 2)
+    // فاز GTA-IR: ترکیب ایرانی — پراید غالب مثل خیابان‌های واقعی!
     this.traffic = new TrafficManager(
-      ['veh_taxi_01', 'veh_sedan_01', 'veh_pickup_01', 'veh_police_01'],
+      ['veh_pride_01', 'veh_sedan_01', 'veh_pride_01', 'veh_taxi_01', 'veh_tiba_01', 'veh_pickup_01', 'veh_police_01'],
       { onHonk: (car) => this.onTrafficHonk(car) },
       (() => {
         const s = this.world.playerSpawn();
@@ -500,6 +502,27 @@ export class GameManager {
       this.voice.trigger('drift', nowMs);
     } else {
       this.skidSoundTimer = 0;
+    }
+
+    // ---------- سرعت‌گیرها (فاز GTA-IR): «تق» + کندی + لرزش + غبار ----------
+    this.bumpCooldown = Math.max(0, this.bumpCooldown - dt);
+    if (this.bumpCooldown <= 0 && Math.abs(this.vehicle.speed) > RENDER3D.bumpMinSpeed) {
+      for (const sb of this.world.speedBumps) {
+        const dx = this.vehicle.x - sb.x;
+        const dy = this.vehicle.y - sb.y;
+        // باند عبور عرض جاده: جاده افقی = عبور در راستای X
+        const inside = sb.horiz
+          ? Math.abs(dx) < 24 && Math.abs(dy) < 100
+          : Math.abs(dy) < 24 && Math.abs(dx) < 100;
+        if (inside) {
+          this.bumpCooldown = RENDER3D.bumpCooldownSec;
+          this.vehicle.speed *= RENDER3D.bumpSlowFactor;
+          this.camera.addShake(RENDER3D.bumpShake);
+          this.audio.bump();
+          this.fx.spawnBurst(this.vehicle.x, this.vehicle.y, 'rgba(190,170,130,0.9)', 4, 90);
+          break;
+        }
+      }
     }
 
     // ---------- ترافیک (فاز 2) ----------

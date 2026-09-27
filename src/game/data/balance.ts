@@ -185,4 +185,11 @@ export const RENDER3D = {
     env_building_garage_01: 235,
   },
   gasStationShopHeight: 210,
+  /** مینی‌مپ سبک GTA — اندازه (پیکسل CSS) */
+  minimapSize: 150,
+  /** سرعت‌گیر (فاز GTA-IR) — ضریب کندی + آستانه سرعت + سردشدن + لرزش دوربین */
+  bumpSlowFactor: 0.78,
+  bumpMinSpeed: 80,
+  bumpCooldownSec: 1.2,
+  bumpShake: 7,
 } as const;

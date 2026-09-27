@@ -1,0 +1,958 @@
+     1→/**
+     2→ * WorldRenderer3D.ts — رندر سه‌بعدی Low-Poly بازی (فاز 3D)
+     3→ * ============================================================
+     4→ * منطق بازی دوبعدی می‌ماند؛ این کلاس فقط «نمایش» است:
+     5→ *  - مپ مختصات: دنیای دوبعدی (x, y) → صحنه (x, y=ارتفاع, z=y)
+     6→ *  - دوربین Chase پشت ماشین + لرزش از Camera دوبعدی
+     7→ *  - حباب‌های گفتار فارسی RTL روی کانواس اورلی (بالای WebGL)
+     8→ *  - رد لاستیک/ذرات/سکه با InstancedMesh (بهره‌وری)
+     9→ * همان API رندر دوبعدی: pushBubble/spawnBurst/addSkidMark
+    10→ */
+    11→
+    12→import * as THREE from 'three';
+    13→import type { AssetManager } from '../core/AssetManager';
+    14→import type { Camera } from '../core/Camera';
+    15→import type { Vehicle } from '../entities/Vehicle';
+    16→import type { TrafficCar } from '../entities/TrafficCar';
+    17→import type { World } from '../world/World';
+    18→import type { EventCat, EventCone } from '../managers/RandomEventManager';
+    19→import type { Pothole } from '../managers/MissionManager';
+    20→import { faNum } from '../managers/MissionManager';
+    21→import { RENDER3D, MISSIONS as M, RANDOM_EVENTS as RE } from '../data/balance';
+    22→import { WORLD_SIZE } from '../world/World';
+    23→import { buildCar3D, variantFromAssetId, type CarModel3D } from './CarFactory3D';
+    24→import {
+    25→  getRoadStraightTexture, getAsphaltPlainTexture, getSidewalkTexture, getGrassTexture, getFacadeTextures,
+    26→} from './textures3d';
+    27→
+    28→// ---------- انواع ورودی ----------
+    29→export interface Draw3DOptions {
+    30→  car: Vehicle;
+    31→  traffic: TrafficCar[];
+    32→  cat: EventCat | null;
+    33→  cones: EventCone[];
+    34→  potholes: Pothole[];
+    35→  target: { x: number; y: number } | null;
+    36→  /** حباب بازیکن (اگر جمله فعال دارد) */
+    37→  playerBubble: { line: string; x: number; y: number; portrait: string } | null;
+    38→}
+    39→
+    40→interface AmbientBubble { text: string; x: number; y: number; portraitId?: string; ttl: number; maxTtl: number }
+    41→interface Particle3D { x: number; z: number; y: number; vx: number; vz: number; vy: number; life: number; maxLife: number; size: number; active: boolean; color: THREE.Color }
+    42→
+    43→/** 'rgba(...)' یا '#hex' → رنگ + آلفا */
+    44→function parseColor(c: string): { color: THREE.Color; alpha: number } {
+    45→  const m = /rgba?\(([^)]+)\)/.exec(c);
+    46→  if (m) {
+    47→    const p = m[1].split(',').map((s) => parseFloat(s.trim()));
+    48→    return { color: new THREE.Color(p[0] / 255, p[1] / 255, p[2] / 255), alpha: p[3] ?? 1 };
+    49→  }
+    50→  return { color: new THREE.Color(c), alpha: 1 };
+    51→}
+    52→
+    53→const SKID_LIFE = 3.4;
+    54→
+    55→export class WorldRenderer3D {
+    56→  private r3: THREE.WebGLRenderer;
+    57→  private scene = new THREE.Scene();
+    58→  private cam3: THREE.PerspectiveCamera;
+    59→  private sun: THREE.DirectionalLight;
+    60→  private octx: CanvasRenderingContext2D;
+    61→
+    62→  // افکت‌ها
+    63→  private particles: Particle3D[] = [];
+    64→  private particleMesh: THREE.InstancedMesh;
+    65→  private skidMesh: THREE.InstancedMesh;
+    66→  private skidIdx = 0;
+    67→  private skidData: Array<{ x: number; z: number; rot: number; life: number }> = [];
+    68→  private bubbles: AmbientBubble[] = [];
+    69→
+    70→  // پویاها
+    71→  private playerModel: CarModel3D;
+    72→  private trafficModels = new Map<TrafficCar, CarModel3D>();
+    73→  private coinMesh: THREE.InstancedMesh;
+    74→  private coinSeeds: number[] = [];
+    75→  private conePool: THREE.Mesh[] = [];
+    76→  private catGroup: THREE.Group;
+    77→  private potholeMeshes: THREE.Mesh[] = [];
+    78→  private beacon: THREE.Group;
+    79→  private beaconRing: THREE.Mesh;
+    80→  private beaconDisc: THREE.Mesh;
+    81→  private beaconArrow: THREE.Mesh;
+    82→
+    83→  // دوربین
+    84→  private camAngle = 0;
+    85→  private lastDrawMs = 0;
+    86→  private dpr = 1;
+    87→  private overlayW = 1;
+    88→  private overlayH = 1;
+    89→
+    90→  // ابزار موقت (بدون new در فریم)
+    91→  private tmpM = new THREE.Matrix4();
+    92→  private tmpQ = new THREE.Quaternion();
+    93→  private tmpV = new THREE.Vector3();
+    94→  private tmpS = new THREE.Vector3(1, 1, 1);
+    95→  private tmpP = new THREE.Vector3();
+    96→  private projV = new THREE.Vector3();
+    97→  private eul = new THREE.Euler();
+    98→  private tmpC = new THREE.Color();
+    99→  private asphaltC = new THREE.Color('#5c5c60');
+   100→  private darkC = new THREE.Color('#1a1512');
+   101→
+   102→  constructor(
+   103→    glCanvas: HTMLCanvasElement,
+   104→    gl: WebGL2RenderingContext | WebGLRenderingContext,
+   105→    private overlay: HTMLCanvasElement,
+   106→    private assets: AssetManager,
+   107→    private world: World,
+   108→    private camera: Camera,
+   109→  ) {
+   110→    this.r3 = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl as WebGL2RenderingContext, antialias: true });
+   111→    this.r3.shadowMap.enabled = true;
+   112→    // PCFSoftShadowMap در three r186 حذف شده — PCF استاندارد
+   113→    this.r3.shadowMap.type = THREE.PCFShadowMap;
+   114→
+   115→    const octx = overlay.getContext('2d');
+   116→    if (!octx) throw new Error('Overlay 2D not supported');
+   117→    this.octx = octx;
+   118→
+   119→    const sky = new THREE.Color(RENDER3D.skyColor);
+   120→    this.scene.background = sky;
+   121→    this.scene.fog = new THREE.Fog(sky, RENDER3D.fogNear, RENDER3D.fogFar);
+   122→
+   123→    this.cam3 = new THREE.PerspectiveCamera(RENDER3D.fov, 1, 10, 4200);
+   124→    this.cam3.position.set(0, RENDER3D.camHeight, 0);
+   125→
+   126→    // نور
+   127→    const hemi = new THREE.HemisphereLight('#ffffff', '#c9b98a', RENDER3D.hemiIntensity);
+   128→    this.scene.add(hemi);
+   129→    this.sun = new THREE.DirectionalLight('#fff2dd', RENDER3D.sunIntensity);
+   130→    this.sun.castShadow = true;
+   131→    this.sun.shadow.mapSize.set(1024, 1024);
+   132→    this.sun.shadow.camera.left = -780;
+   133→    this.sun.shadow.camera.right = 780;
+   134→    this.sun.shadow.camera.top = 780;
+   135→    this.sun.shadow.camera.bottom = -780;
+   136→    this.sun.shadow.camera.near = 100;
+   137→    this.sun.shadow.camera.far = 2600;
+   138→    this.sun.shadow.bias = -0.0006;
+   139→    this.scene.add(this.sun, this.sun.target);
+   140→
+   141→    // دنیا
+   142→    this.buildStaticWorld();
+   143→
+   144→    // ماشین بازیکن (ابعاد منطقی پیش‌فرض؛ نسبت 4:7 مثل Asset)
+   145→    const pw = 112;
+   146→    this.playerModel = buildCar3D('player', pw, Math.round(pw * 1.75));
+   147→    this.scene.add(this.playerModel.group);
+   148→
+   149→    // سکه‌ها
+   150→    const coinGeo = new THREE.CylinderGeometry(17, 17, 6, 18);
+   151→    coinGeo.rotateX(Math.PI / 2);
+   152→    const coinMat = new THREE.MeshLambertMaterial({ color: '#F2B705', emissive: '#5c4200' });
+   153→    this.coinMesh = new THREE.InstancedMesh(coinGeo, coinMat, Math.max(1, this.world.coins.length));
+   154→    this.coinMesh.count = this.world.coins.length;
+   155→    this.scene.add(this.coinMesh);
+   156→    this.coinSeeds = this.world.coins.map((c) => c.seed);
+   157→
+   158→    // Pool مخروط‌های رویداد
+   159→    const coneGeo = new THREE.ConeGeometry(22, 52, 10);
+   160→    for (let i = 0; i < RE.coneCount + 2; i++) {
+   161→      const m = new THREE.Mesh(coneGeo, new THREE.MeshLambertMaterial({ color: '#F4A261', transparent: true }));
+   162→      m.position.y = 26;
+   163→      m.visible = false;
+   164→      m.castShadow = true;
+   165→      this.conePool.push(m);
+   166→      this.scene.add(m);
+   167→    }
+   168→
+   169→    // گربه
+   170→    this.catGroup = this.buildCat();
+   171→    this.catGroup.visible = false;
+   172→    this.scene.add(this.catGroup);
+   173→
+   174→    // رد لاستیک (Instanced)
+   175→    const skidGeo = new THREE.PlaneGeometry(1, 1);
+   176→    skidGeo.rotateX(-Math.PI / 2);
+   177→    this.skidMesh = new THREE.InstancedMesh(
+   178→      skidGeo,
+   179→      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }),
+   180→      RENDER3D.skidMax,
+   181→    );
+   182→    this.skidMesh.count = 0;
+   183→    this.skidMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+   184→    this.skidMesh.renderOrder = 2;
+   185→    this.scene.add(this.skidMesh);
+   186→    for (let i = 0; i < RENDER3D.skidMax; i++) this.skidData.push({ x: 0, z: 0, rot: 0, life: 0 });
+   187→
+   188→    // ذرات (Instanced)
+   189→    this.particleMesh = new THREE.InstancedMesh(
+   190→      new THREE.BoxGeometry(1, 1, 1),
+   191→      new THREE.MeshBasicMaterial(),
+   192→      RENDER3D.particleMax,
+   193→    );
+   194→    this.particleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+   195→    this.particleMesh.count = 0;
+   196→    this.particleMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(RENDER3D.particleMax * 3).fill(1), 3);
+   197→    this.scene.add(this.particleMesh);
+   198→
+   199→    // نشانگر مأموریت
+   200→    const ringGeo = new THREE.TorusGeometry(M.reachRadius * 0.92, 6, 8, 48);
+   201→    ringGeo.rotateX(Math.PI / 2);
+   202→    this.beaconRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: '#F2B705' }));
+   203→    this.beaconRing.position.y = 6;
+   204→    const discGeo = new THREE.CircleGeometry(M.reachRadius, 40);
+   205→    discGeo.rotateX(-Math.PI / 2);
+   206→    this.beaconDisc = new THREE.Mesh(discGeo, new THREE.MeshBasicMaterial({ color: '#F2B705', transparent: true, opacity: 0.16, depthWrite: false }));
+   207→    this.beaconDisc.position.y = 4;
+   208→    this.beaconArrow = new THREE.Mesh(
+   209→      new THREE.ConeGeometry(26, 58, 4),
+   210→      new THREE.MeshBasicMaterial({ color: '#F2B705' }),
+   211→    );
+   212→    this.beaconArrow.rotation.x = Math.PI; // نوک به پایین
+   213→    this.beacon = new THREE.Group();
+   214→    this.beacon.add(this.beaconDisc, this.beaconRing, this.beaconArrow);
+   215→    this.beacon.visible = false;
+   216→    this.scene.add(this.beacon);
+   217→  }
+   218→
+   219→  // ============ دنیای ثابت ============
+   220→  private buildStaticWorld(): void {
+   221→    const S = WORLD_SIZE;
+   222→
+   223→    // زمین پایه (شن)
+   224→    const base = new THREE.Mesh(
+   225→      new THREE.PlaneGeometry(S + 2200, S + 2200),
+   226→      new THREE.MeshLambertMaterial({ color: '#C9B98A' }),
+   227→    );
+   228→    base.rotation.x = -Math.PI / 2;
+   229→    base.position.set(S / 2, 0, S / 2);
+   230→    base.receiveShadow = true;
+   231→    this.scene.add(base);
+   232→
+   233→    // جاده‌ها (۴ عمودی + ۴ افقی)
+   234→    const roadTex = getRoadStraightTexture();
+   235→    roadTex.repeat.set(1, S / 256);
+   236→    const roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
+   237→    const roadGeo = new THREE.PlaneGeometry(256, S);
+   238→    roadGeo.rotateX(-Math.PI / 2);
+   239→    for (let i = 0; i < 4; i++) {
+   240→      const cx = i * 1024 + 128;
+   241→      const v = new THREE.Mesh(roadGeo, roadMat);
+   242→      v.position.set(cx, 1, S / 2);
+   243→      v.receiveShadow = true;
+   244→      this.scene.add(v);
+   245→      const h = new THREE.Mesh(roadGeo, roadMat);
+   246→      h.position.set(S / 2, 1, cx);
+   247→      h.rotation.y = Math.PI / 2;
+   248→      h.receiveShadow = true;
+   249→      this.scene.add(h);
+   250→    }
+   251→
+   252→    // تقاطع‌ها (آسفالت ساده روی خط‌کشی)
+   253→    const asTex = getAsphaltPlainTexture();
+   254→    const asMat = new THREE.MeshLambertMaterial({ map: asTex });
+   255→    const crossGeo = new THREE.PlaneGeometry(256, 256);
+   256→    crossGeo.rotateX(-Math.PI / 2);
+   257→    for (let i = 0; i < 4; i++) {
+   258→      for (let j = 0; j < 4; j++) {
+   259→        const c = new THREE.Mesh(crossGeo, asMat);
+   260→        c.position.set(i * 1024 + 128, 1.6, j * 1024 + 128);
+   261→        c.receiveShadow = true;
+   262→        this.scene.add(c);
+   263→      }
+   264→    }
+   265→
+   266→    // بلوک‌ها: پیاده‌رو + مرکز (چمن پارک / شن ساختمان‌ها)
+   267→    const swMat = new THREE.MeshLambertMaterial({ map: getSidewalkTexture() });
+   268→    const grassMat = new THREE.MeshLambertMaterial({ map: getGrassTexture() });
+   269→    const yardMat = new THREE.MeshLambertMaterial({ color: '#d4c49a' });
+   270→    const swGeo = new THREE.PlaneGeometry(768, 768);
+   271→    swGeo.rotateX(-Math.PI / 2);
+   272→    const innerGeo = new THREE.PlaneGeometry(640, 640);
+   273→    innerGeo.rotateX(-Math.PI / 2);
+   274→    for (let i = 0; i < 3; i++) {
+   275→      for (let j = 0; j < 3; j++) {
+   276→        const bx = i * 1024 + 256;
+   277→        const by = j * 1024 + 256;
+   278→        const sw = new THREE.Mesh(swGeo, swMat);
+   279→        sw.position.set(bx + 384, 0.8, by + 384);
+   280→        sw.receiveShadow = true;
+   281→        this.scene.add(sw);
+   282→        const isPark = i === 1 && j === 1;
+   283→        const inner = new THREE.Mesh(innerGeo, isPark ? grassMat : yardMat);
+   284→        inner.position.set(bx + 384, 1.2, by + 384);
+   285→        inner.receiveShadow = true;
+   286→        this.scene.add(inner);
+   287→      }
+   288→    }
+   289→
+   290→    // ساختمان‌ها و پروپ‌ها از داده World
+   291→    for (const p of this.world.props) {
+   292→      if (p.kind === 'building') this.buildBuilding(p);
+   293→      else this.buildProp(p);
+   294→    }
+   295→
+   296→    // جدول مرزی (دید بصری دیوار محدوده)
+   297→    const curbMat = new THREE.MeshLambertMaterial({ color: '#a89a72' });
+   298→    const curbLen = S + 60;
+   299→    const curbH = 30;
+   300→    const walls: Array<[number, number, number, number]> = [
+   301→      [S / 2, -20, curbLen, 40],
+   302→      [S / 2, S + 20, curbLen, 40],
+   303→      [-20, S / 2, 40, curbLen],
+   304→      [S + 20, S / 2, 40, curbLen],
+   305→    ];
+   306→    for (const [wx, wz, ww, wd] of walls) {
+   307→      const m = new THREE.Mesh(new THREE.BoxGeometry(ww, curbH, wd), curbMat);
+   308→      m.position.set(wx, curbH / 2, wz);
+   309→      m.castShadow = true;
+   310→      m.receiveShadow = true;
+   311→      this.scene.add(m);
+   312→    }
+   313→  }
+   314→
+   315→  private buildBuilding(p: { x: number; y: number; w: number; h: number; assetId?: string; landmark?: boolean }): void {
+   316→    const cx = p.x + p.w / 2;
+   317→    const cz = p.y + p.h / 2;
+   318→
+   319→    if (p.landmark) {
+   320→      // پمپ بنزین: مغازه + سقف سایبان + ستون‌ها + پمپ‌ها
+   321→      const shopH = RENDER3D.gasStationShopHeight;
+   322→      const shopTex = getFacadeTextures('env_building_shop_01');
+   323→      const shopMats = shopTex.map((t) => new THREE.MeshLambertMaterial({ map: t }));
+   324→      const shop = new THREE.Mesh(new THREE.BoxGeometry(320, shopH, 300), shopMats);
+   325→      shop.position.set(cx + p.w * 0.2, shopH / 2, cz - p.h * 0.18);
+   326→      shop.castShadow = true; shop.receiveShadow = true;
+   327→      this.scene.add(shop);
+   328→
+   329→      const canopy = new THREE.Mesh(
+   330→        new THREE.BoxGeometry(p.w * 0.82, 26, p.h * 0.66),
+   331→        new THREE.MeshLambertMaterial({ color: '#e2574c' }),
+   332→      );
+   333→      canopy.position.set(cx - p.w * 0.08, 178, cz + p.h * 0.16);
+   334→      canopy.castShadow = true;
+   335→      this.scene.add(canopy);
+   336→      const poleGeo = new THREE.CylinderGeometry(12, 12, 168, 8);
+   337→      const poleMat = new THREE.MeshLambertMaterial({ color: '#8f8f8a' });
+   338→      for (const dx of [-p.w * 0.36, p.w * 0.2]) {
+   339→        for (const dz of [-p.h * 0.14, p.h * 0.44]) {
+   340→          const pole = new THREE.Mesh(poleGeo, poleMat);
+   341→          pole.position.set(cx - p.w * 0.08 + dx, 84, cz + p.h * 0.16 + dz);
+   342→          pole.castShadow = true;
+   343→          this.scene.add(pole);
+   344→        }
+   345→      }
+   346→      const pumpGeo = new THREE.BoxGeometry(34, 66, 22);
+   347→      const pumpMat = new THREE.MeshLambertMaterial({ color: '#d8d3c8' });
+   348→      for (const dx of [-p.w * 0.2, p.w * 0.04]) {
+   349→        const pump = new THREE.Mesh(pumpGeo, pumpMat);
+   350→        pump.position.set(cx - p.w * 0.08 + dx, 33, cz + p.h * 0.16);
+   351→        pump.castShadow = true;
+   352→        this.scene.add(pump);
+   353→      }
+   354→      return;
+   355→    }
+   356→
+   357→    const h = RENDER3D.buildingHeights[p.assetId as keyof typeof RENDER3D.buildingHeights] ?? 340;
+   358→    const tex = getFacadeTextures(p.assetId ?? 'env_building_home_01');
+   359→    const mats = tex.map((t) => new THREE.MeshLambertMaterial({ map: t }));
+   360→    const box = new THREE.Mesh(new THREE.BoxGeometry(p.w, h, p.h), mats);
+   361→    box.position.set(cx, h / 2, cz);
+   362→    box.castShadow = true;
+   363→    box.receiveShadow = true;
+   364→    this.scene.add(box);
+   365→  }
+   366→
+   367→  private buildProp(p: { kind: string; x: number; y: number; w: number; h: number }): void {
+   368→    const cx = p.x + p.w / 2;
+   369→    const cz = p.y + p.h / 2;
+   370→    const r = Math.min(p.w, p.h) / 2;
+   371→    switch (p.kind) {
+   372→      case 'tree': {
+   373→        const trunk = new THREE.Mesh(
+   374→          new THREE.CylinderGeometry(r * 0.16, r * 0.22, r * 1.1, 8),
+   375→          new THREE.MeshLambertMaterial({ color: '#8a5a33' }),
+   376→        );
+   377→        trunk.position.set(cx, r * 0.55, cz);
+   378→        trunk.castShadow = true;
+   379→        const blob = new THREE.Mesh(
+   380→          new THREE.IcosahedronGeometry(r * 0.92, 0),
+   381→          new THREE.MeshLambertMaterial({ color: '#5FA84B' }),
+   382→        );
+   383→        blob.position.set(cx, r * 1.5, cz);
+   384→        blob.castShadow = true;
+   385→        const blob2 = new THREE.Mesh(
+   386→          new THREE.IcosahedronGeometry(r * 0.55, 0),
+   387→          new THREE.MeshLambertMaterial({ color: '#8AC926' }),
+   388→        );
+   389→        blob2.position.set(cx + r * 0.3, r * 1.9, cz - r * 0.2);
+   390→        blob2.castShadow = true;
+   391→        this.scene.add(trunk, blob, blob2);
+   392→        break;
+   393→      }
+   394→      case 'trash': {
+   395→        const bin = new THREE.Mesh(
+   396→          new THREE.CylinderGeometry(r * 0.8, r * 0.66, r * 1.5, 10),
+   397→          new THREE.MeshLambertMaterial({ color: '#4F772D' }),
+   398→        );
+   399→        bin.position.set(cx, r * 0.75, cz);
+   400→        bin.castShadow = true;
+   401→        this.scene.add(bin);
+   402→        break;
+   403→      }
+   404→      case 'pole': {
+   405→        const pole = new THREE.Mesh(
+   406→          new THREE.CylinderGeometry(r * 0.14, r * 0.16, r * 4.2, 8),
+   407→          new THREE.MeshLambertMaterial({ color: '#8D99AE' }),
+   408→        );
+   409→        pole.position.set(cx, r * 2.1, cz);
+   410→        pole.castShadow = true;
+   411→        const lamp = new THREE.Mesh(
+   412→          new THREE.SphereGeometry(r * 0.3, 10, 8),
+   413→          new THREE.MeshBasicMaterial({ color: '#EF476F' }),
+   414→        );
+   415→        lamp.position.set(cx, r * 4.3, cz);
+   416→        this.scene.add(pole, lamp);
+   417→        break;
+   418→      }
+   419→      case 'cone': {
+   420→        const cone = new THREE.Mesh(
+   421→          new THREE.ConeGeometry(r * 0.75, r * 1.7, 10),
+   422→          new THREE.MeshLambertMaterial({ color: '#F4A261' }),
+   423→        );
+   424→        cone.position.set(cx, r * 0.85, cz);
+   425→        cone.castShadow = true;
+   426→        const band = new THREE.Mesh(
+   427→          new THREE.CylinderGeometry(r * 0.42, r * 0.5, r * 0.28, 10),
+   428→          new THREE.MeshLambertMaterial({ color: '#FFFFFF' }),
+   429→        );
+   430→        band.position.set(cx, r * 1.0, cz);
+   431→        this.scene.add(cone, band);
+   432→        break;
+   433→      }
+   434→    }
+   435→  }
+   436→
+   437→  /** گربه کارتونی Low-Poly (رو به -Z) */
+   438→  private buildCat(): THREE.Group {
+   439→    const g = new THREE.Group();
+   440→    const fur = new THREE.MeshLambertMaterial({ color: '#3D3A3A' });
+   441→    const s = RE.catSize;
+   442→    const body = new THREE.Mesh(new THREE.SphereGeometry(s * 0.42, 10, 8), fur);
+   443→    body.scale.set(0.8, 0.75, 1.15);
+   444→    body.position.y = s * 0.4;
+   445→    body.castShadow = true;
+   446→    const head = new THREE.Mesh(new THREE.SphereGeometry(s * 0.3, 10, 8), fur);
+   447→    head.position.set(0, s * 0.72, -s * 0.42);
+   448→    head.castShadow = true;
+   449→    const earGeo = new THREE.ConeGeometry(s * 0.1, s * 0.22, 4);
+   450→    for (const dx of [-s * 0.16, s * 0.16]) {
+   451→      const ear = new THREE.Mesh(earGeo, fur);
+   452→      ear.position.set(dx, s * 0.98, -s * 0.42);
+   453→      g.add(ear);
+   454→    }
+   455→    const eyeGeo = new THREE.SphereGeometry(s * 0.06, 6, 6);
+   456→    const eyeMat = new THREE.MeshBasicMaterial({ color: '#F2B705' });
+   457→    for (const dx of [-s * 0.11, s * 0.11]) {
+   458→      const eye = new THREE.Mesh(eyeGeo, eyeMat);
+   459→      eye.position.set(dx, s * 0.76, -s * 0.68);
+   460→      g.add(eye);
+   461→    }
+   462→    const tail = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.06, s * 0.09, s * 0.7, 6), fur);
+   463→    tail.position.set(0, s * 0.62, s * 0.52);
+   464→    tail.rotation.x = 0.7;
+   465→    g.add(body, head, tail);
+   466→    return g;
+   467→  }
+   468→
+   469→  // ============ API عمومی (هم‌امضای رندر دوبعدی) ============
+   470→
+   471→  /** حباب گفتار محیطی (ترافیک/تاکسی) */
+   472→  pushBubble(text: string, x: number, y: number, portraitId?: string, ttl = 2.6): void {
+   473→    if (this.bubbles.length >= 3) this.bubbles.shift();
+   474→    this.bubbles.push({ text, x, y, portraitId, ttl, maxTtl: ttl });
+   475→  }
+   476→
+   477→  /** ذرات برخورد/سکه — Pool با سقف (Instanced) */
+   478→  spawnBurst(x: number, y: number, color: string, count = 8, power = 160): void {
+   479→    for (let i = 0; i < count; i++) {
+   480→      const a = Math.random() * Math.PI * 2;
+   481→      const pw = power * (0.4 + Math.random() * 0.6);
+   482→      if (this.particles.length >= RENDER3D.particleMax) break;
+   483→      const p: Particle3D = {
+   484→        x, z: y, y: 30,
+   485→        vx: Math.cos(a) * pw,
+   486→        vz: Math.sin(a) * pw,
+   487→        vy: 130 + Math.random() * 170,
+   488→        life: 0.5 + Math.random() * 0.3,
+   489→        maxLife: 0.8,
+   490→        size: 6 + Math.random() * 8,
+   491→        active: true,
+   492→        color: parseColor(color).color,
+   493→      };
+   494→      this.particles.push(p);
+   495→    }
+   496→  }
+   497→
+   498→  /** رد لاستیک درفت — حلقه‌ای (قدیمی‌ها fade با رنگ نزدیک آسفالت) */
+   499→  addSkidMark(x: number, y: number, angle: number): void {
+   500→    const idx = this.skidIdx;
+   501→    this.skidData[idx] = { x, z: y, rot: -angle, life: SKID_LIFE };
+   502→    this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
+   503→  }
+   504→
+   505→  /** به‌روزرسانی افکت‌ها (هر فریم، مستقل از گام فیزیک) */
+   506→  update(dt: number): void {
+   507→    // ذرات
+   508→    let anyAlive = false;
+   509→    let anyDead = false;
+   510→    for (const p of this.particles) {
+   511→      if (!p.active) continue;
+   512→      p.life -= dt;
+   513→      if (p.life <= 0) { p.active = false; anyDead = true; continue; }
+   514→      p.x += p.vx * dt;
+   515→      p.z += p.vz * dt;
+   516→      p.y += p.vy * dt;
+   517→      p.vy -= 560 * dt;
+   518→      p.vx *= 0.94;
+   519→      p.vz *= 0.94;
+   520→      if (p.y < 12) { p.y = 12; p.vy *= -0.3; }
+   521→      anyAlive = true;
+   522→    }
+   523→    if (anyDead) this.particles = this.particles.filter((p) => p.active);
+   524→    // رد لاستیک
+   525→    for (const s of this.skidData) {
+   526→      if (s.life > 0) s.life -= dt;
+   527→    }
+   528→    // حباب‌ها
+   529→    for (let i = this.bubbles.length - 1; i >= 0; i--) {
+   530→      this.bubbles[i].ttl -= dt;
+   531→      if (this.bubbles[i].ttl <= 0) this.bubbles.splice(i, 1);
+   532→    }
+   533→    if (anyAlive || anyDead) this.syncParticles();
+   534→  }
+   535→
+   536→  // ============ رسم اصلی ============
+   537→  draw3D(opts: Draw3DOptions): void {
+   538→    const t = performance.now() / 1000;
+   539→    const car = opts.car;
+   540→
+   541→    // ---------- ماشین بازیکن ----------
+   542→    this.playerModel.group.position.set(car.x, 0, car.y);
+   543→    this.playerModel.group.rotation.y = -car.angle;
+   544→    const wheelR = car.drawH * 0.135;
+   545→    const spin = (car.speed / wheelR) * (1 / 60);
+   546→    for (const w of this.playerModel.wheels) w.rotation.x += spin;
+   547→
+   548→    // ---------- ترافیک ----------
+   549→    const seen = new Set<TrafficCar>();
+   550→    for (const c of opts.traffic) {
+   551→      seen.add(c);
+   552→      let model = this.trafficModels.get(c);
+   553→      if (!model) {
+   554→        model = buildCar3D(variantFromAssetId(c.assetId), c.drawW, c.drawH);
+   555→        this.trafficModels.set(c, model);
+   556→        this.scene.add(model.group);
+   557→      }
+   558→      model.group.position.set(c.x, 0, c.y);
+   559→      model.group.rotation.y = -c.angle;
+   560→      const wr = c.drawH * 0.135;
+   561→      for (const w of model.wheels) w.rotation.x += (c.speed / wr) * (1 / 60);
+   562→    }
+   563→    for (const [tc, model] of this.trafficModels) {
+   564→      if (!seen.has(tc)) {
+   565→        this.scene.remove(model.group);
+   566→        this.trafficModels.delete(tc);
+   567→      }
+   568→    }
+   569→
+   570→    // ---------- سکه‌ها ----------
+   571→    const coins = this.world.coins;
+   572→    for (let i = 0; i < coins.length; i++) {
+   573→      const c = coins[i];
+   574→      const bob = Math.sin(t * 3 + this.coinSeeds[i]) * 5;
+   575→      if (c.taken) {
+   576→        this.tmpS.setScalar(0.0001);
+   577→      } else {
+   578→        this.tmpS.setScalar(1);
+   579→      }
+   580→      this.tmpQ.setFromEuler(this.eul.set(0, t * 2.6 + this.coinSeeds[i], 0));
+   581→      this.tmpM.compose(this.tmpV.set(c.x, 26 + bob, c.y), this.tmpQ, this.tmpS);
+   582→      this.coinMesh.setMatrixAt(i, this.tmpM);
+   583→    }
+   584→    this.coinMesh.instanceMatrix.needsUpdate = true;
+   585→    this.coinMesh.visible = coins.length > 0;
+   586→
+   587→    // ---------- مخروط‌های رویداد ----------
+   588→    for (let i = 0; i < this.conePool.length; i++) {
+   589→      const mesh = this.conePool[i];
+   590→      const c = opts.cones[i];
+   591→      if (!c) { mesh.visible = false; continue; }
+   592→      mesh.visible = true;
+   593→      mesh.position.set(c.x, 26, c.y);
+   594→      (mesh.material as THREE.MeshLambertMaterial).opacity = Math.min(1, c.ttl / 2);
+   595→    }
+   596→
+   597→    // ---------- گربه ----------
+   598→    if (opts.cat) {
+   599→      this.catGroup.visible = true;
+   600→      const cat = opts.cat;
+   601→      this.catGroup.position.set(cat.x, 8 + Math.sin(t * 10 + cat.seed) * 3, cat.y);
+   602→      this.catGroup.rotation.y = -Math.atan2(cat.vx, -cat.vy);
+   603→    } else {
+   604→      this.catGroup.visible = false;
+   605→    }
+   606→
+   607→    // ---------- چاله‌های مأموریت ----------
+   608→    for (let i = 0; i < opts.potholes.length; i++) {
+   609→      if (i >= this.potholeMeshes.length) {
+   610→        const geo = new THREE.CircleGeometry(M.potholeRadius * 0.8, 18);
+   611→        geo.rotateX(-Math.PI / 2);
+   612→        const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: '#2f2622', depthWrite: false }));
+   613→        mesh.position.y = 2.6;
+   614→        mesh.renderOrder = 1;
+   615→        this.potholeMeshes.push(mesh);
+   616→        this.scene.add(mesh);
+   617→      }
+   618→      const pm = this.potholeMeshes[i];
+   619→      const ph = opts.potholes[i];
+   620→      pm.visible = true;
+   621→      pm.position.set(ph.x, 2.6, ph.y);
+   622→      (pm.material as THREE.MeshBasicMaterial).color.set(ph.hit ? '#241c19' : '#2f2622');
+   623→    }
+   624→    for (let i = opts.potholes.length; i < this.potholeMeshes.length; i++) {
+   625→      this.potholeMeshes[i].visible = false;
+   626→    }
+   627→
+   628→    // ---------- نشانگر مأموریت ----------
+   629→    if (opts.target) {
+   630→      this.beacon.visible = true;
+   631→      this.beacon.position.set(opts.target.x, 0, opts.target.y);
+   632→      const pulse = 0.5 + 0.5 * Math.sin(t * 3.4);
+   633→      this.beaconRing.scale.setScalar(0.9 + pulse * 0.12);
+   634→      (this.beaconDisc.material as THREE.MeshBasicMaterial).opacity = 0.12 + pulse * 0.1;
+   635→      this.beaconArrow.position.y = 130 + Math.sin(t * 4.2) * 14;
+   636→      this.beaconArrow.rotation.y = t * 2.2;
+   637→    } else {
+   638→      this.beacon.visible = false;
+   639→    }
+   640→
+   641→    // ---------- رد لاستیک (Instanced sync) ----------
+   642→    let skidCount = 0;
+   643→    for (let i = 0; i < RENDER3D.skidMax; i++) {
+   644→      const s = this.skidData[i];
+   645→      if (s.life <= 0) continue;
+   646→      const k = Math.max(0, Math.min(1, s.life / SKID_LIFE));
+   647→      this.tmpQ.setFromEuler(this.eul.set(0, s.rot, 0));
+   648→      this.tmpM.compose(this.tmpV.set(s.x, 2.2, s.z), this.tmpQ, this.tmpS.set(24, 1, 15));
+   649→      this.skidMesh.setMatrixAt(skidCount, this.tmpM);
+   650→      // fade با نزدیک شدن رنگ به آسفالت
+   651→      const col = this.tmpC.copy(this.asphaltC).lerp(this.darkC, k * 0.85);
+   652→      this.skidMesh.setColorAt(skidCount, col);
+   653→      skidCount++;
+   654→    }
+   655→    this.skidMesh.count = skidCount;
+   656→    this.skidMesh.instanceMatrix.needsUpdate = true;
+   657→    if (this.skidMesh.instanceColor) this.skidMesh.instanceColor.needsUpdate = true;
+   658→
+   659→    // ---------- دوربین Chase ----------
+   660→    const nowMs = performance.now();
+   661→    const dt = Math.min(0.1, Math.max(0.0001, (nowMs - this.lastDrawMs) / 1000));
+   662→    this.lastDrawMs = nowMs;
+   663→    this.updateChaseCamera(car, dt, t);
+   664→
+   665→    // ---------- نور خورشید دنبال بازیکن ----------
+   666→    this.sun.position.set(car.x + 420, 760, car.y + 320);
+   667→    this.sun.target.position.set(car.x, 0, car.y);
+   668→    this.sun.target.updateMatrixWorld();
+   669→
+   670→    // ---------- رندر ----------
+   671→    this.r3.render(this.scene, this.cam3);
+   672→
+   673→    // ---------- اورلی (حباب‌ها + فلش هدف) ----------
+   674→    this.drawOverlay(opts, t);
+   675→  }
+   676→
+   677→  private updateChaseCamera(car: Vehicle, dt: number, _t: number): void {
+   678→    // نرم‌سازی زاویه (کوتاه‌ترین مسیر)
+   679→    let diff = car.angle - this.camAngle;
+   680→    while (diff > Math.PI) diff -= Math.PI * 2;
+   681→    while (diff < -Math.PI) diff += Math.PI * 2;
+   682→    this.camAngle += diff * Math.min(1, RENDER3D.camAngleLerp * dt);
+   683→
+   684→    const fx = Math.sin(this.camAngle);
+   685→    const fz = -Math.cos(this.camAngle);
+   686→    const back = RENDER3D.camBack + Math.abs(car.speed) * RENDER3D.camBackPerSpeed;
+   687→    const desired = this.tmpP.set(car.x - fx * back, RENDER3D.camHeight, car.y - fz * back);
+   688→    const k = 1 - Math.exp(-RENDER3D.camPosLerp * dt);
+   689→    this.cam3.position.lerp(desired, k);
+   690→
+   691→    // لرزش از دوربین دوبعدی (برخورد)
+   692→    const sh = this.camera.getShake();
+   693→    this.cam3.position.x += sh.x * 0.9;
+   694→    this.cam3.position.y += Math.abs(sh.y) * 0.5;
+   695→    this.cam3.position.z += sh.y * 0.9;
+   696→
+   697→    // نگاه به جلوی ماشین
+   698→    const look = this.tmpV.set(car.x + fx * 260, 60, car.y + fz * 260);
+   699→    this.cam3.lookAt(look);
+   700→  }
+   701→
+   702→  private syncParticles(): void {
+   703→    let n = 0;
+   704→    for (const p of this.particles) {
+   705→      if (!p.active) continue;
+   706→      const k = Math.max(0, p.life / p.maxLife);
+   707→      this.tmpQ.identity();
+   708→      this.tmpM.compose(this.tmpV.set(p.x, p.y, p.z), this.tmpQ, this.tmpS.setScalar(p.size * (0.5 + k * 0.5)));
+   709→      this.particleMesh.setMatrixAt(n, this.tmpM);
+   710→      this.particleMesh.setColorAt(n, p.color);
+   711→      n++;
+   712→      if (n >= RENDER3D.particleMax) break;
+   713→    }
+   714→    this.particleMesh.count = n;
+   715→    this.particleMesh.instanceMatrix.needsUpdate = true;
+   716→    if (this.particleMesh.instanceColor) this.particleMesh.instanceColor.needsUpdate = true;
+   717→  }
+   718→
+   719→  // ============ اورلی دوبعدی (متن فارسی RTL) ============
+   720→
+   721→  /** پروجکشن دنیا → صفحه اورلی */
+   722→  private worldToScreen(x: number, y: number): { sx: number; sy: number; ok: boolean } {
+   723→    this.projV.set(x, 0, y).project(this.cam3);
+   724→    if (this.projV.z > 1) return { sx: 0, sy: 0, ok: false };
+   725→    return {
+   726→      sx: (this.projV.x * 0.5 + 0.5) * this.overlayW,
+   727→      sy: (-this.projV.y * 0.5 + 0.5) * this.overlayH,
+   728→      ok: true,
+   729→    };
+   730→  }
+   731→
+   732→  private drawOverlay(opts: Draw3DOptions, _t: number): void {
+   733→    const ctx = this.octx;
+   734→    const dpr = this.dpr;
+   735→    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+   736→    ctx.clearRect(0, 0, this.overlayW, this.overlayH);
+   737→
+   738→    // فلش هدف بیرون کادر
+   739→    if (opts.target) {
+   740→      this.drawOffscreenArrow(ctx, opts.target, opts.car);
+   741→    }
+   742→
+   743→    // حباب‌های محیطی
+   744→    for (const b of this.bubbles) {
+   745→      const alpha = Math.max(0, Math.min(1, b.ttl / 0.4));
+   746→      ctx.globalAlpha = alpha;
+   747→      const p = this.worldToScreen(b.x, b.y);
+   748→      if (p.ok) this.drawBubbleBox(ctx, b.text, p.sx, p.sy, 90, b.portraitId);
+   749→      ctx.globalAlpha = 1;
+   750→    }
+   751→
+   752→    // حباب بازیکن
+   753→    if (opts.playerBubble) {
+   754→      const p = this.worldToScreen(opts.playerBubble.x, opts.playerBubble.y);
+   755→      if (p.ok) this.drawBubbleBox(ctx, opts.playerBubble.line, p.sx, p.sy, opts.car.drawH * 0.75, opts.playerBubble.portrait);
+   756→    }
+   757→  }
+   758→
+   759→  /** فلش جهت‌نمای هدف — روی اورلی، هم‌ظاهر نسخه دوبعدی */
+   760→  private drawOffscreenArrow(
+   761→    ctx: CanvasRenderingContext2D,
+   762→    target: { x: number; y: number },
+   763→    player: { x: number; y: number },
+   764→  ): void {
+   765→    const p = this.worldToScreen(target.x, target.y);
+   766→    const W = this.overlayW;
+   767→    const H = this.overlayH;
+   768→    const margin = 84;
+   769→    const sx = p.ok ? p.sx : -1e9;
+   770→    const sy = p.ok ? p.sy : -1e9;
+   771→    if (sx >= margin && sx <= W - margin && sy >= margin && sy <= H - margin) return;
+   772→
+   773→    const cx = Math.min(Math.max(sx, margin), W - margin);
+   774→    const cy = Math.min(Math.max(sy, margin), H - margin);
+   775→    const ang = Math.atan2(sy - cy, sx - cx);
+   776→    const distM = Math.round(Math.hypot(target.x - player.x, target.y - player.y) / M.pxPerMeter);
+   777→
+   778→    ctx.save();
+   779→    ctx.fillStyle = 'rgba(58,46,42,0.88)';
+   780→    ctx.beginPath();
+   781→    ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+   782→    ctx.fill();
+   783→    ctx.strokeStyle = '#F2B705';
+   784→    ctx.lineWidth = 4;
+   785→    ctx.beginPath();
+   786→    ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+   787→    ctx.stroke();
+   788→    ctx.translate(cx, cy);
+   789→    ctx.rotate(ang);
+   790→    ctx.fillStyle = '#F2B705';
+   791→    ctx.beginPath();
+   792→    ctx.moveTo(22, 0);
+   793→    ctx.lineTo(2, -13);
+   794→    ctx.lineTo(2, -5);
+   795→    ctx.lineTo(-18, -5);
+   796→    ctx.lineTo(-18, 5);
+   797→    ctx.lineTo(2, 5);
+   798→    ctx.lineTo(2, 13);
+   799→    ctx.closePath();
+   800→    ctx.fill();
+   801→    ctx.rotate(-ang);
+   802→    ctx.fillStyle = '#FFF9EC';
+   803→    ctx.font = '800 17px Vazirmatn, Tahoma, sans-serif';
+   804→    ctx.textAlign = 'center';
+   805→    ctx.textBaseline = 'middle';
+   806→    ctx.fillText(`${faNum(distM)}م`, 0, 0);
+   807→    ctx.restore();
+   808→  }
+   809→
+   810→  /**
+   811→   * حباب RTL با پرتره — نسخه صفحه‌ای (مختصات پیکسلی اورلی)
+   812→   * هم‌ظاهر WorldRenderer.drawBubbleBox دوبعدی
+   813→   */
+   814→  private drawBubbleBox(
+   815→    ctx: CanvasRenderingContext2D,
+   816→    text: string,
+   817→    anchorX: number,
+   818→    anchorY: number,
+   819→    anchorH = 100,
+   820→    portraitId?: string,
+   821→  ): void {
+   822→    ctx.save();
+   823→    ctx.direction = 'rtl';
+   824→    ctx.font = '700 24px Vazirmatn, Tahoma, sans-serif';
+   825→    ctx.textBaseline = 'middle';
+   826→    ctx.textAlign = 'center';
+   827→
+   828→    const maxTextW = 260;
+   829→    const words = text.split(' ');
+   830→    const lines: string[] = [];
+   831→    let current = '';
+   832→    for (const w of words) {
+   833→      const test = current ? `${current} ${w}` : w;
+   834→      if (ctx.measureText(test).width > maxTextW && current) {
+   835→        lines.push(current);
+   836→        current = w;
+   837→      } else current = test;
+   838→    }
+   839→    if (current) lines.push(current);
+   840→
+   841→    const lineH = 32;
+   842→    const portraitR = 26;
+   843→    const bubbleW = Math.min(maxTextW + portraitR * 2 + 40, 360);
+   844→    const bubbleH = Math.max(72, lines.length * lineH + 34);
+   845→
+   846→    let bx = anchorX - bubbleW / 2;
+   847→    let by = anchorY - anchorH / 2 - bubbleH - 22;
+   848→    let tailBelow = false;
+   849→    if (by < 8) {
+   850→      by = anchorY + anchorH / 2 + 22;
+   851→      tailBelow = true;
+   852→    }
+   853→    if (by + bubbleH > this.overlayH - 8) by = this.overlayH - 8 - bubbleH;
+   854→    if (by < 8) by = 8;
+   855→    bx = Math.min(Math.max(bx, 8), this.overlayW - 8 - bubbleW);
+   856→    if (bx < 8) bx = 8;
+   857→
+   858→    // دم
+   859→    ctx.fillStyle = '#FFF9EC';
+   860→    ctx.strokeStyle = '#3A2E2A';
+   861→    ctx.lineWidth = 4;
+   862→    ctx.beginPath();
+   863→    if (tailBelow) {
+   864→      ctx.moveTo(anchorX - 13, by + 2);
+   865→      ctx.lineTo(anchorX, by - 20);
+   866→      ctx.lineTo(anchorX + 13, by + 2);
+   867→    } else {
+   868→      ctx.moveTo(anchorX - 13, by + bubbleH - 2);
+   869→      ctx.lineTo(anchorX, by + bubbleH + 20);
+   870→      ctx.lineTo(anchorX + 13, by + bubbleH - 2);
+   871→    }
+   872→    ctx.closePath();
+   873→    ctx.fill();
+   874→    ctx.stroke();
+   875→
+   876→    // بدنه
+   877→    ctx.beginPath();
+   878→    const r = 18;
+   879→    ctx.moveTo(bx + r, by);
+   880→    ctx.arcTo(bx + bubbleW, by, bx + bubbleW, by + bubbleH, r);
+   881→    ctx.arcTo(bx + bubbleW, by + bubbleH, bx, by + bubbleH, r);
+   882→    ctx.arcTo(bx, by + bubbleH, bx, by, r);
+   883→    ctx.arcTo(bx, by, bx + bubbleW, by, r);
+   884→    ctx.closePath();
+   885→    ctx.fill();
+   886→    ctx.stroke();
+   887→
+   888→    // پرتره دایره‌ای
+   889→    const pid = portraitId ?? 'char_driver_01_idle';
+   890→    const pcx = bx + bubbleW - portraitR - 14;
+   891→    const pcy = by + bubbleH / 2;
+   892→    const asset = this.assets.get(pid);
+   893→    const img = asset instanceof AudioBuffer ? undefined : asset;
+   894→    if (img) {
+   895→      ctx.save();
+   896→      ctx.beginPath();
+   897→      ctx.arc(pcx, pcy, portraitR, 0, Math.PI * 2);
+   898→      ctx.clip();
+   899→      ctx.drawImage(img, pcx - portraitR, pcy - portraitR, portraitR * 2, portraitR * 2);
+   900→      ctx.restore();
+   901→    } else {
+   902→      ctx.fillStyle = '#E8C39E';
+   903→      ctx.beginPath();
+   904→      ctx.arc(pcx, pcy, portraitR, 0, Math.PI * 2);
+   905→      ctx.fill();
+   906→    }
+   907→    ctx.strokeStyle = '#3A2E2A';
+   908→    ctx.lineWidth = 3.5;
+   909→    ctx.beginPath();
+   910→    ctx.arc(pcx, pcy, portraitR, 0, Math.PI * 2);
+   911→    ctx.stroke();
+   912→
+   913→    // متن
+   914→    ctx.fillStyle = '#3A2E2A';
+   915→    const textAreaCenter = bx + (bubbleW - portraitR * 2 - 18) / 2;
+   916→    lines.forEach((ln, i) => {
+   917→      ctx.fillText(ln, textAreaCenter, by + bubbleH / 2 + (i - (lines.length - 1) / 2) * lineH);
+   918→    });
+   919→    ctx.restore();
+   920→  }
+   921→
+   922→  // ============ اندازه و پاک‌سازی ============
+   923→
+   924→  /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی */
+   925→  resize(pixelW: number, pixelH: number, dpr: number): void {
+   926→    this.dpr = dpr;
+   927→    this.r3.setPixelRatio(1);
+   928→    this.r3.setSize(pixelW, pixelH, false);
+   929→    this.overlay.width = pixelW;
+   930→    this.overlay.height = pixelH;
+   931→    // اندازه CSS اورلی = ۱۰۰٪ والد (در DOM تنظیم شده)
+   932→    // ابعاد منطقی برای پروجکشن = پیکسل CSS
+   933→    const rect = this.overlay.getBoundingClientRect();
+   934→    this.overlayW = rect.width || pixelW / dpr;
+   935→    this.overlayH = rect.height || pixelH / dpr;
+   936→    // FOV تطبیقی: در صفحه‌های باریک (موبایل عمودی) زاویه دید بازتر می‌شود
+   937→    const aspect = this.overlayW / Math.max(1, this.overlayH);
+   938→    const extraFov = Math.min(26, Math.max(0, (1 / Math.max(aspect, 0.2) - 1) * 22));
+   939→    this.cam3.fov = RENDER3D.fov + extraFov;
+   940→    this.cam3.aspect = aspect;
+   941→    this.cam3.updateProjectionMatrix();
+   942→  }
+   943→
+   944→  dispose(): void {
+   945→    this.scene.traverse((obj) => {
+   946→      const mesh = obj as THREE.Mesh;
+   947→      if (mesh.geometry) mesh.geometry.dispose();
+   948→      const mat = (mesh as unknown as { material?: THREE.Material | THREE.Material[] }).material;
+   949→      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+   950→      else if (mat) mat.dispose();
+   951→    });
+   952→    // توجه: کانتکت WebGL را نمی‌بندیم (loseContext) — چون کانواس در
+   953→    // StrictMode/HMR دوباره استفاده می‌شود و کانتکت همان است.
+   954→    this.r3.dispose();
+   955→    this.overlay.parentElement?.removeChild(this.overlay);
+   956→  }
+   957→}
+   958→

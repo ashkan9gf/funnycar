@@ -17,13 +17,27 @@ export interface WorldProp {
   id: string;         // شناسه Asset (در manifest) یا نوع برنامه‌ای
   x: number; y: number; w: number; h: number;
   solid: boolean;     // برخورد دارد؟
-  kind: 'tree' | 'trash' | 'pole' | 'cone' | 'building';
+  kind: 'tree' | 'trash' | 'pole' | 'cone' | 'building'
+    | 'busstop' | 'vendor' | 'billboard' | 'streetSign' | 'moto' | 'bags';
   /** برای ساختمان‌ها: شناسه Asset ساختمان (فاز 3) */
   assetId?: string;
   tint?: string;      // رنگ placeholder ساختمان
   /** لندمارک = ساختمان ویژه (مثل پمپ بنزین) — کمی بزرگ‌تر رسم می‌شود */
   landmark?: boolean;
+  /** متن تابلو (streetSign/billboard) یا چرخش (رادیان) برای پراپ‌های جهت‌دار */
+  label?: string;
+  rot?: number;
 }
+
+/** ماشین دوبله‌پارک کنار جدول (فاز GTA-IR) */
+export interface ParkedCar {
+  x: number; y: number;
+  angle: number;
+  kind: 'pride' | 'peugeot405' | 'tiba' | 'nissan' | 'samand';
+}
+
+/** سرعت‌گیر روی جاده — horiz = جاده افقی (خودرو در راستای X از رویش رد می‌شود) */
+export interface SpeedBump { x: number; y: number; horiz: boolean }
 
 export interface Coin {
   x: number; y: number;
@@ -51,10 +65,14 @@ export class World {
   colliders: Collider[] = [];
   props: WorldProp[] = [];
   coins: Coin[] = [];
+  /** خیابان ایرانی: دوبله‌پارک‌ها و سرعت‌گیرها */
+  parkedCars: ParkedCar[] = [];
+  speedBumps: SpeedBump[] = [];
 
   constructor() {
     this.buildTiles();
     this.buildBlocks();
+    this.buildStreetLife();
     this.buildCoins();
   }
 
@@ -165,11 +183,86 @@ export class World {
     );
   }
 
+  /**
+   * زندگی خیابانی ایران (فاز GTA-IR) — قطعی و بدون Random:
+   * دوبله‌پارکی نیمه‌روی جدول، سرعت‌گیر، ایستگاه اتوبوس، دست‌فروش،
+   * تابلو خیابان‌های معروف، موتور پارک‌شده، پلاستیک زباله، بیلبورد طنز
+   */
+  private buildStreetLife(): void {
+    // ---------- دوبله‌پارکی‌ها (نیمه روی جدول — خیلی ایرانی!) ----------
+    const roadCenters = [128, 1152, 2176, 3200, 4224];
+    // مراکز سگمنت‌ها بین تقاطع‌ها (گره‌ها در ۱۲۸/۱۱۵۲/۲۱۷۶/۳۲۰۰)
+    const segMids = [640, 1664, 2688];
+    const kinds: ParkedCar['kind'][] = ['pride', 'peugeot405', 'tiba', 'nissan', 'samand'];
+    let k = 0;
+    const addParked = (x: number, y: number, angle: number) => {
+      // فقط داخل مرز دنیا (جدول‌های لبه جای پارک ندارند!)
+      if (x < 60 || x > WORLD_SIZE - 60 || y < 60 || y > WORLD_SIZE - 60) return;
+      this.parkedCars.push({ x, y, angle, kind: kinds[k++ % kinds.length] });
+    };
+    // جاده‌های عمودی: دو ماشین در هر سگمنت، طرف‌های متناوب
+    roadCenters.forEach((cx, i) => {
+      segMids.forEach((my, j) => {
+        if ((i + j) % 2 === 0) addParked(cx - 170, my - 110, Math.PI); // سمت غربی (رو به جنوب)
+        addParked(cx + 170, my + 130, 0);                              // سمت شرقی (رو به شمال)
+      });
+    });
+    // جاده‌های افقی: یک ماشین در هر سگمنت
+    roadCenters.forEach((cy, i) => {
+      segMids.forEach((mx, j) => {
+        if ((i + j) % 2 === 0) addParked(mx + 90, cy - 170, Math.PI / 2);   // رو به شرق
+        else addParked(mx - 110, cy + 170, -Math.PI / 2);                    // رو به غرب
+      });
+    });
+
+    // ---------- سرعت‌گیرها (۶ عدد — شامل مسیر اسپاون بازیکن) ----------
+    this.speedBumps.push(
+      { x: 1152, y: 1664, horiz: false },
+      { x: 1152, y: 2688, horiz: false },
+      { x: 2176, y: 640, horiz: false },
+      { x: 640, y: 1152, horiz: true },
+      { x: 2688, y: 2176, horiz: true },
+      { x: 1664, y: 3200, horiz: true },
+    );
+
+    // ---------- پراپ‌های خیابانی ----------
+    const addLife = (
+      kind: WorldProp['kind'], x: number, y: number, w: number, h: number,
+      solid: boolean, extra?: Partial<WorldProp>,
+    ) => {
+      const p: WorldProp = { id: `life_${kind}_${x}_${y}`, x, y, w, h, solid, kind, ...extra };
+      this.props.push(p);
+      if (solid) this.colliders.push({ x, y, w, h });
+    };
+
+    // ایستگاه اتوبوس کنار پارک مرکزی (رو به جاده شمالی)
+    addLife('busstop', 1740, 1300, 120, 44, true);
+    // دست‌فروش میوه‌فروش جنوب پارک
+    addLife('vendor', 1480, 1970, 110, 90, true);
+    // بیلبوردهای طنز روی بلوک‌های شمالی
+    addLife('billboard', 660, 300, 220, 40, false, { label: 'فانی‌کار|بوق بزن، راه باز شه!' });
+    addLife('billboard', 2740, 320, 220, 40, false, { label: 'احتیاط!|چاله جلوئه', rot: 0.12 });
+    // تابلوهای خیابان‌های معروف در گوشه تقاطع‌ها
+    addLife('streetSign', 1310, 1310, 40, 30, false, { label: 'خیابان ولیعصر' });
+    addLife('streetSign', 2290, 1310, 40, 30, false, { label: 'خیابان انقلاب' });
+    addLife('streetSign', 320, 980, 40, 30, false, { label: 'خیابان آزادی' });
+    addLife('streetSign', 2340, 2340, 40, 30, false, { label: 'بلوار شریعتی' });
+    // موتورهای پارک‌شده روی پیاده‌رو
+    addLife('moto', 1300, 1520, 60, 26, false);
+    addLife('moto', 2330, 1620, 60, 26, false);
+    addLife('moto', 320, 1720, 60, 26, false);
+    // پلاستیک‌های زباله کنار جدول
+    addLife('bags', 360, 980, 46, 40, false);
+    addLife('bags', 2040, 360, 46, 40, false);
+    addLife('bags', 2330, 2610, 46, 40, false);
+    addLife('bags', 1000, 2350, 46, 40, false);
+  }
+
   // ---------- سکه‌ها (روی جاده‌ها و پارک) ----------
   private buildCoins(): void {
     const positions: Array<[number, number]> = [];
-    // جاده عمودی وسط — مسیر ساده برای شروع
-    const mid = 1280; // x مرکز جاده دوم (1024+128)
+    // جاده عمودی دوم — روی لاین راست (مسیر اسپاون)
+    const mid = 1216;
     for (let y = 320; y < WORLD_SIZE - 300; y += 420) positions.push([mid, y]);
     // جاده افقی وسط
     for (let x = 340; x < WORLD_SIZE - 300; x += 480) positions.push([x, mid]);
@@ -196,8 +289,8 @@ export class World {
     return got;
   }
 
-  /** نقطه شروع بازیکن: وسط جاده عمودی دوم، کمی پایین */
+  /** نقطه شروع بازیکن: لاین راست جاده عمودی دوم (هم‌راستا با ترافیک شمال‌رو) */
   playerSpawn(): { x: number; y: number; angle: number } {
-    return { x: 1280, y: WORLD_SIZE * 0.72, angle: 0 };
+    return { x: 1152 + 64, y: WORLD_SIZE * 0.72, angle: 0 };
   }
 }

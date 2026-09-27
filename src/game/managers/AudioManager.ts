@@ -244,6 +244,12 @@ export class AudioManager {
     this.blip(hard ? 120 : 160, 0.22, 'sine', 0.3, 'sfx', 45);
   }
 
+  /** سرعت‌گیر — «تَق» بم و کوتاه (فاز GTA-IR) */
+  bump(): void {
+    this.noise(0.12, 0.22, 420, 'lowpass');
+    this.blip(85, 0.16, 'sine', 0.3, 'sfx', 30);
+  }
+
   /**
    * فایل صوتی جمله (فاز 7) — از hook گرفته می‌شود (VoiceAudioHook).
    * جستجو در manifest: entry.voice.event === eventKey && entry.voice.index === index

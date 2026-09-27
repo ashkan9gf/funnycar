@@ -20,10 +20,15 @@ import type { Pothole } from '../managers/MissionManager';
 import { faNum } from '../managers/MissionManager';
 import { RENDER3D, MISSIONS as M, RANDOM_EVENTS as RE } from '../data/balance';
 import { WORLD_SIZE } from '../world/World';
-import { buildCar3D, variantFromAssetId, type CarModel3D } from './CarFactory3D';
+import { buildCar3D, variantFromAssetId, type CarModel3D, type CarVariant } from './CarFactory3D';
 import {
-  getRoadStraightTexture, getAsphaltPlainTexture, getSidewalkTexture, getGrassTexture, getFacadeTextures,
+  getRoadStraightTexture, getSidewalkTexture, getGrassTexture, getFacadeTextures,
+  getCrossroadTexture, getSkyTexture,
 } from './textures3d';
+import {
+  buildRooftopCluster, buildStreetSign, buildBusStop, buildVendorCart,
+  buildMotorcycle, buildTrashBags, buildBillboard, buildSpeedBump,
+} from './StreetProps3D';
 
 // ---------- انواع ورودی ----------
 export interface Draw3DOptions {
@@ -116,17 +121,22 @@ export class WorldRenderer3D {
     if (!octx) throw new Error('Overlay 2D not supported');
     this.octx = octx;
 
-    const sky = new THREE.Color(RENDER3D.skyColor);
+    const sky = getSkyTexture();
     this.scene.background = sky;
-    this.scene.fog = new THREE.Fog(sky, RENDER3D.fogNear, RENDER3D.fogFar);
+    // مه هم‌رنگ غبار افق (حس گرم تهران)
+    this.scene.fog = new THREE.Fog('#d8e3d8', RENDER3D.fogNear, RENDER3D.fogFar);
 
     this.cam3 = new THREE.PerspectiveCamera(RENDER3D.fov, 1, 10, 4200);
     this.cam3.position.set(0, RENDER3D.camHeight, 0);
 
-    // نور
-    const hemi = new THREE.HemisphereLight('#ffffff', '#c9b98a', RENDER3D.hemiIntensity);
+    // تون‌مپینگ سینمایی سبک GTA (رنگ‌ها غنی‌تر)
+    this.r3.toneMapping = THREE.ACESFilmicToneMapping;
+    this.r3.toneMappingExposure = 1.14;
+
+    // نور: خورشید طلایی با سایه‌های بلند + آسمان روشن
+    const hemi = new THREE.HemisphereLight('#eaf2f8', '#c9a97a', RENDER3D.hemiIntensity);
     this.scene.add(hemi);
-    this.sun = new THREE.DirectionalLight('#fff2dd', RENDER3D.sunIntensity);
+    this.sun = new THREE.DirectionalLight('#ffdfb0', RENDER3D.sunIntensity);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.camera.left = -780;
@@ -236,7 +246,7 @@ export class WorldRenderer3D {
     const roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
     const roadGeo = new THREE.PlaneGeometry(256, S);
     roadGeo.rotateX(-Math.PI / 2);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const cx = i * 1024 + 128;
       const v = new THREE.Mesh(roadGeo, roadMat);
       v.position.set(cx, 1, S / 2);
@@ -249,13 +259,12 @@ export class WorldRenderer3D {
       this.scene.add(h);
     }
 
-    // تقاطع‌ها (آسفالت ساده روی خط‌کشی)
-    const asTex = getAsphaltPlainTexture();
-    const asMat = new THREE.MeshLambertMaterial({ map: asTex });
+    // تقاطع‌ها (آسفالت با خط عابر پیاده — سبک خیابان ایران)
+    const asMat = new THREE.MeshLambertMaterial({ map: getCrossroadTexture() });
     const crossGeo = new THREE.PlaneGeometry(256, 256);
     crossGeo.rotateX(-Math.PI / 2);
-    for (let i = 0; i < 4; i++) {
-      for (let j = 0; j < 4; j++) {
+    for (let i = 0; i < 5; i++) {
+      for (let j = 0; j < 5; j++) {
         const c = new THREE.Mesh(crossGeo, asMat);
         c.position.set(i * 1024 + 128, 1.6, j * 1024 + 128);
         c.receiveShadow = true;
@@ -293,6 +302,15 @@ export class WorldRenderer3D {
       else this.buildProp(p);
     }
 
+    // دوبله‌پارکی‌ها و سرعت‌گیرها (زندگی خیابانی ایران)
+    this.buildParkedCars();
+    for (const sb of this.world.speedBumps) {
+      const bump = buildSpeedBump(228);
+      bump.position.set(sb.x, 0, sb.y);
+      bump.rotation.y = sb.horiz ? Math.PI / 2 : 0;
+      this.scene.add(bump);
+    }
+
     // جدول مرزی (دید بصری دیوار محدوده)
     const curbMat = new THREE.MeshLambertMaterial({ color: '#a89a72' });
     const curbLen = S + 60;
@@ -309,6 +327,18 @@ export class WorldRenderer3D {
       m.castShadow = true;
       m.receiveShadow = true;
       this.scene.add(m);
+    }
+  }
+
+  /** ماشین‌های دوبله‌پارک — استاتیک، بدون انیمیشن چرخ */
+  private parkedModels: CarModel3D[] = [];
+  private buildParkedCars(): void {
+    for (const pc of this.world.parkedCars) {
+      const model = buildCar3D(pc.kind as CarVariant, 104, 188);
+      model.group.position.set(pc.x, 0, pc.y);
+      model.group.rotation.y = -pc.angle;
+      this.scene.add(model.group);
+      this.parkedModels.push(model);
     }
   }
 
@@ -362,9 +392,13 @@ export class WorldRenderer3D {
     box.castShadow = true;
     box.receiveShadow = true;
     this.scene.add(box);
+    // خوشه پشت‌بام ایرانی: ظرف ماهواره + منبع آب + آنتن چتری + کولر آبی
+    const roof = buildRooftopCluster(p.w, p.h, Math.round(cx * 7 + cz * 13));
+    roof.position.set(cx, h, cz);
+    this.scene.add(roof);
   }
 
-  private buildProp(p: { kind: string; x: number; y: number; w: number; h: number }): void {
+  private buildProp(p: { kind: string; x: number; y: number; w: number; h: number; label?: string; rot?: number }): void {
     const cx = p.x + p.w / 2;
     const cz = p.y + p.h / 2;
     const r = Math.min(p.w, p.h) / 2;
@@ -429,6 +463,47 @@ export class WorldRenderer3D {
         );
         band.position.set(cx, r * 1.0, cz);
         this.scene.add(cone, band);
+        break;
+      }
+      // ---------- پراپ‌های خیابان ایرانی (فاز GTA-IR) ----------
+      case 'busstop': {
+        const stop = buildBusStop();
+        stop.position.set(cx, 0, cz);
+        // پناهگاه رو به جاده شمالی (پنل پشت سمت بلوک)
+        stop.rotation.y = Math.PI;
+        this.scene.add(stop);
+        break;
+      }
+      case 'vendor': {
+        const cart = buildVendorCart();
+        cart.position.set(cx, 0, cz);
+        this.scene.add(cart);
+        break;
+      }
+      case 'billboard': {
+        const [l1, l2] = (p.label ?? 'فانی‌کار|در حال ساخت!').split('|');
+        const bb = buildBillboard(l1, l2);
+        bb.position.set(cx, 0, cz);
+        bb.rotation.y = p.rot ?? 0;
+        this.scene.add(bb);
+        break;
+      }
+      case 'streetSign': {
+        const sign = buildStreetSign(p.label ?? 'خیابان');
+        sign.position.set(cx, 0, cz);
+        this.scene.add(sign);
+        break;
+      }
+      case 'moto': {
+        const moto = buildMotorcycle(['#c0392b', '#2e6da4', '#3a3a3a'][Math.abs(Math.round(cx + cz)) % 3]);
+        moto.position.set(cx, 0, cz);
+        this.scene.add(moto);
+        break;
+      }
+      case 'bags': {
+        const bags = buildTrashBags();
+        bags.position.set(cx, 0, cz);
+        this.scene.add(bags);
         break;
       }
     }
@@ -754,6 +829,88 @@ export class WorldRenderer3D {
       const p = this.worldToScreen(opts.playerBubble.x, opts.playerBubble.y);
       if (p.ok) this.drawBubbleBox(ctx, opts.playerBubble.line, p.sx, p.sy, opts.car.drawH * 0.75, opts.playerBubble.portrait);
     }
+
+    // مینی‌مپ سبک GTA (پایین-وسط)
+    this.drawMinimap(ctx, opts);
+  }
+
+  /** مینی‌مپ کل شهر — نقشه جاده‌ها + بازیکن + ترافیک + هدف مأموریت */
+  private drawMinimap(ctx: CanvasRenderingContext2D, opts: Draw3DOptions): void {
+    const size = Math.min(RENDER3D.minimapSize, this.overlayW * 0.3);
+    const pad = 12;
+    const x0 = this.overlayW / 2 - size / 2;
+    const y0 = this.overlayH - size - pad;
+    const k = size / WORLD_SIZE;
+
+    ctx.save();
+    // قاب گرد نیمه‌شفاف
+    ctx.globalAlpha = 0.88;
+    const r = 16;
+    ctx.beginPath();
+    ctx.moveTo(x0 + r, y0);
+    ctx.arcTo(x0 + size, y0, x0 + size, y0 + size, r);
+    ctx.arcTo(x0 + size, y0 + size, x0, y0 + size, r);
+    ctx.arcTo(x0, y0 + size, x0, y0, r);
+    ctx.arcTo(x0, y0, x0 + size, y0, r);
+    ctx.closePath();
+    ctx.fillStyle = '#2e2622';
+    ctx.globalAlpha = 0.97;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#F2B705';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.clip(); // نقشه از قاب بیرون نزند
+
+    // جاده‌ها (۵ خط سفید — شبکه کامل ترافیک)
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    for (let i = 0; i < 5; i++) {
+      const c = (i * 1024 + 128) * k;
+      ctx.fillRect(x0 + c - 2.4, y0, 4.8, size);
+      ctx.fillRect(x0, y0 + c - 2.4, size, 4.8);
+    }
+
+    // بلوک‌ها (زمین سبز/شنی کم‌رنگ — حس نقشه GTA)
+    ctx.fillStyle = 'rgba(138,201,38,0.30)';
+    ctx.fillRect(x0 + 256 * k, y0 + 256 * k, 768 * k, 768 * k);
+
+    // هدف مأموریت (لکه زرد پالس‌دار)
+    if (opts.target) {
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 220);
+      ctx.fillStyle = '#F2B705';
+      ctx.globalAlpha = pulse;
+      ctx.beginPath();
+      ctx.arc(x0 + opts.target.x * k, y0 + opts.target.y * k, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // ترافیک (نقاط سفید کوچک)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (const c of opts.traffic) {
+      ctx.beginPath();
+      ctx.arc(x0 + c.x * k, y0 + c.y * k, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // بازیکن: فلش سفید با حاشیه تیره (چرخان با زاویه ماشین)
+    const px = x0 + opts.car.x * k;
+    const py = y0 + opts.car.y * k;
+    ctx.translate(px, py);
+    ctx.rotate(-opts.car.angle);
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.lineTo(5.5, 6);
+    ctx.lineTo(0, 3);
+    ctx.lineTo(-5.5, 6);
+    ctx.closePath();
+    ctx.fillStyle = '#FFF9EC';
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = '#3a2e2a';
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** فلش جهت‌نمای هدف — روی اورلی، هم‌ظاهر نسخه دوبعدی */
