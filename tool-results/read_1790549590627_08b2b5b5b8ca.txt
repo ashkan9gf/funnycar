@@ -1,0 +1,921 @@
+     1→/**
+     2→ * GameManager.ts — قلب بازی: حلقه، وضعیت‌ها، اتصال همه مدیرها
+     3→ * ============================================================
+     4→ * - Fixed Timestep 1/120 (ARCHITECTURE بخش ۳) — رفتار یکسان روی هر صفحه‌نمایش
+     5→ * - ماشین‌حالت: menu / playing / paused
+     6→ * - هیچ خطایی حلقه را نمی‌بندد (ARCHITECTURE بخش ۸)
+     7→ */
+     8→
+     9→import { AssetManager } from './AssetManager';
+    10→import { InputManager } from './InputManager';
+    11→import { Camera } from './Camera';
+    12→import { SaveManager } from './SaveManager';
+    13→import { AudioManager } from '../managers/AudioManager';
+    14→import { VoiceManager } from '../managers/VoiceManager';
+    15→import { TrafficManager } from '../managers/TrafficManager';
+    16→import { RandomEventManager } from '../managers/RandomEventManager';
+    17→import { PedestrianManager } from '../managers/PedestrianManager';
+    18→import { MissionManager, type MissionHud } from '../managers/MissionManager';
+    19→import { Vehicle } from '../entities/Vehicle';
+    20→import { World, type WorldProp } from '../world/World';
+    21→import { WorldRenderer } from '../world/WorldRenderer';
+    22→import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
+    23→import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS } from '../data/balance';
+    24→import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
+    25→import { DIALOGUES } from '../data/dialogues';
+    26→
+    27→export type GameState = 'boot' | 'menu' | 'playing' | 'paused';
+    28→
+    29→  /** مشترک بین دو رندرر — افکت‌هایی که GameManager مستقیماً صدا می‌زند */
+    30→interface EffectsRenderer {
+    31→  update(dt: number): void;
+    32→  pushBubble(text: string, x: number, y: number, portraitId?: string, ttl?: number): void;
+    33→  spawnBurst(x: number, y: number, color: string, count?: number, power?: number): void;
+    34→  addSkidMark(x: number, y: number, angle: number): void;
+    35→}
+    36→
+    37→export interface HudData {
+    38→  speedKmh: number;
+    39→  coins: number;
+    40→  reputation: number;
+    41→  fps: number;
+    42→  showFps: boolean;
+    43→  placeholders: number;
+    44→  mission: MissionHud | null;
+    45→  /** سلامت ماشین ۰..۱۰۰ (فاز BIG-IR) */
+    46→  health: number;
+    47→  /** موتور خاموش است؟ (اورلی اسکران) */
+    48→  engineDead: boolean;
+    49→}
+    50→
+    51→/** نتیجه مأموریت برای پوسته React (فاز 4) */
+    52→export interface MissionResultData {
+    53→  success: boolean;
+    54→  missionId: string;
+    55→  title: string;
+    56→  /** جایزه نهایی سکه (با بونوس آبروی بالا) */
+    57→  coins: number;
+    58→  /** تغییر آبرو (+) */
+    59→  rep: number;
+    60→  /** علت شکست (time_up / engine_died / ...) */
+    61→  reason: string | null;
+    62→  /** جمله طنز انتخاب‌شده */
+    63→  line: string;
+    64→}
+    65→
+    66→export interface GameCallbacks {
+    67→  onStateChange?: (s: GameState) => void;
+    68→  onHud?: (h: HudData) => void;
+    69→  onMissionEnd?: (r: MissionResultData) => void;
+    70→}
+    71→
+    72→const FIXED_DT = 1 / 120;
+    73→
+    74→export class GameManager {
+    75→  /** ⭐ گارد تک‌نمونه: در هر لحظه فقط یک GameManager زنده مجاز است
+    76→   *  (جلوگیری از نمونه زامبی در StrictMode/HMR که کانواس را دوباره می‌کشد) */
+    77→  private static live: GameManager | null = null;
+    78→
+    79→  private ctx: CanvasRenderingContext2D | null = null;
+    80→  private assets = new AssetManager();
+    81→  private input = new InputManager();
+    82→  private camera = new Camera();
+    83→  private save = new SaveManager();
+    84→  private audio = new AudioManager();
+    85→  private voice = new VoiceManager();
+    86→  private world = new World();
+    87→  /** رندر دوبعدی (fallback وقتی WebGL نیست) */
+    88→  private renderer: WorldRenderer | null = null;
+    89→  /** رندر سه‌بعدی (مسیر اصلی — فاز 3D) */
+    90→  private renderer3d: WorldRenderer3D | null = null;
+    91→  /** افکت‌های مشترک دو رندرر */
+    92→  private fx: EffectsRenderer;
+    93→  /** حالت رندر (برای QA) */
+    94→  readonly is3D: boolean;
+    95→  private vehicle = new Vehicle();
+    96→  private traffic: TrafficManager;
+    97→  private randomEvents: RandomEventManager;
+    98→  private peds: PedestrianManager;
+    99→  private mission: MissionManager;
+   100→
+   101→  private state: GameState = 'boot';
+   102→  private raf = 0;
+   103→  private lastFrame = 0;
+   104→  private accumulator = 0;
+   105→  private scale = 1;
+   106→  private showFps = false;
+   107→  private fpsAccum = 0;
+   108→  private fpsCount = 0;
+   109→  private fpsValue = 60;
+   110→
+   111→  private idleTimerSec = 12;
+   112→  private crashCooldown = 0;
+   113→  private bumpCooldown = 0;
+   114→  private breakCooldown = 0;
+   115→  private damageSmokeTimer = 0;
+   116→  private repairVoiceLatch = false;
+   117→  private engineDeadShown = false;
+   118→  private brakeSoundLatch = false;
+   119→  private skidSoundTimer = 0;
+   120→  private smokeTimer = 0;
+   121→  private hudThrottle = 0;
+   122→  private disposed = false;
+   123→
+   124→  constructor(
+   125→    private canvas: HTMLCanvasElement,
+   126→    private callbacks: GameCallbacks = {},
+   127→  ) {
+   128→    // هر نمونه قبلیِ زنده را ببند (بازهم اگر جایی نشتی داشته باشد)
+   129→    if (GameManager.live && GameManager.live !== this) GameManager.live.dispose();
+   130→    GameManager.live = this;
+   131→
+   132→    // ---------- انتخاب رندرر: اول WebGL (سه‌بعدی)، بعد 2D ----------
+   133→    // توجه: بعد از گرفتن یک نوع کانتکست، نوع دیگر روی همان کانواس ممکن نیست
+   134→    const gl = (canvas.getContext('webgl2', { antialias: true })
+   135→      ?? canvas.getContext('webgl', { antialias: true })) as WebGL2RenderingContext | WebGLRenderingContext | null;
+   136→    if (gl) {
+   137→      this.is3D = true;
+   138→      const overlay = document.createElement('canvas');
+   139→      overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+   140→      canvas.parentElement?.appendChild(overlay);
+   141→      this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera);
+   142→      this.fx = this.renderer3d;
+   143→    } else {
+   144→      this.is3D = false;
+   145→      const ctx = canvas.getContext('2d');
+   146→      if (!ctx) throw new Error('Canvas 2D not supported');
+   147→      this.ctx = ctx;
+   148→      const r2d = new WorldRenderer(this.assets, this.world, this.camera);
+   149→      this.renderer = r2d;
+   150→      this.fx = r2d;
+   151→    }
+   152→
+   153→    // ترافیک و رویدادهای تصادفی (فاز 2)
+   154→    // فاز GTA-IR: ترکیب ایرانی — پراید غالب مثل خیابان‌های واقعی!
+   155→    this.traffic = new TrafficManager(
+   156→      ['veh_pride_01', 'veh_sedan_01', 'veh_pride_01', 'veh_taxi_01', 'veh_tiba_01', 'veh_pickup_01', 'veh_police_01'],
+   157→      { onHonk: (car) => this.onTrafficHonk(car) },
+   158→      (() => {
+   159→        const s = this.world.playerSpawn();
+   160→        return { x: s.x, y: s.y, r: 420 };
+   161→      })(),
+   162→    );
+   163→    this.randomEvents = new RandomEventManager(this.world, {
+   164→      onEvent: (kind, x, y) => this.onRandomEvent(kind, x, y),
+   165→    });
+   166→    // عابرهای پیاده (فاز BIG-IR) — ترس از ماشین سریع
+   167→    this.peds = new PedestrianManager({
+   168→      onScare: (x, y) => this.onPedScare(x, y),
+   169→    });
+   170→    // مأموریت‌ها (فاز 4)
+   171→    this.mission = new MissionManager(this.world, {
+   172→      onPothole: (x, y) => this.onPotholeHit(x, y),
+   173→      onSucceed: (def, stats) => this.finishMission(true, def.id, def.rewardCoins, def.rewardRep, null, stats),
+   174→      onFail: (def, reason) => this.finishMission(false, def.id, 0, 0, reason, null),
+   175→    });
+   176→
+   177→    // فاز 7: اتصال فایل‌های صوتی واقعی + hook جمله صوتی برای VoiceManager
+   178→    this.audio.attachAssets((id) => this.assets.get(id));
+   179→    this.voice.setAudioHook({
+   180→      playVoiceFile: (eventKey, index) => this.audio.playVoiceFile(eventKey, index),
+   181→    });
+   182→
+   183→    this.input.attach();
+   184→
+   185→    window.addEventListener('resize', this.handleResize);
+   186→    window.addEventListener('keydown', this.onKeyDown);
+   187→    document.addEventListener('visibilitychange', this.onVisibility);
+   188→    window.addEventListener('beforeunload', this.onBeforeUnload);
+   189→    this.handleResize();
+   190→
+   191→    // دسته دیباگ برای کنسول/QA (بی‌خطر در Production) — مثال: __funnycar.pressHorn()
+   192→    (window as unknown as { __funnycar?: GameManager }).__funnycar = this;
+   193→  }
+   194→
+   195→  // ============ راه‌اندازی ============
+   196→  async boot(onProgress?: (done: number, total: number) => void): Promise<void> {
+   197→    try {
+   198→      await this.assets.loadAll(onProgress);
+   199→    } catch (err) {
+   200→      console.warn('[Game] asset boot error (continuing with placeholders):', err);
+   201→    }
+   202→    // مقیاس رسم ماشین از اندازه Asset واقعی/Placeholder — نسبت ثابت 4:7
+   203→    const size = this.assets.getSize('veh_player_01');
+   204→    if (size.w > 0) {
+   205→      this.vehicle.drawW = 112;
+   206→      this.vehicle.drawH = Math.round(112 * (size.h / size.w));
+   207→    }
+   208→    const spawn = this.world.playerSpawn();
+   209→    this.vehicle.reset(spawn.x, spawn.y, spawn.angle);
+   210→    this.camera.snapTo(spawn.x, spawn.y);
+   211→    this.setState('menu');
+   212→    this.loop(performance.now());
+   213→  }
+   214→
+   215→  // ============ وضعیت‌ها ============
+   216→  getState(): GameState {
+   217→    return this.state;
+   218→  }
+   219→
+   220→  private setState(s: GameState): void {
+   221→    this.state = s;
+   222→    this.callbacks.onStateChange?.(s);
+   223→  }
+   224→
+   225→  startGameplay(): void {
+   226→    this.audio.ensure();
+   227→    this.audio.startEngine();
+   228→    this.audio.setVolumes(this.save.get().settings);
+   229→    this.setState('playing');
+   230→    this.voice.trigger('game_start', performance.now());
+   231→  }
+   232→
+   233→  pause(): void {
+   234→    if (this.state !== 'playing') return;
+   235→    this.audio.setEngineSpeed(0);
+   236→    this.voice.clear();
+   237→    this.input.setEnabled(false);
+   238→    this.save.flush();
+   239→    this.setState('paused');
+   240→  }
+   241→
+   242→  resume(): void {
+   243→    if (this.state !== 'paused') return;
+   244→    this.input.setEnabled(true);
+   245→    this.lastFrame = performance.now();
+   246→    this.setState('playing');
+   247→  }
+   248→
+   249→  backToMenu(): void {
+   250→    this.audio.setEngineSpeed(0);
+   251→    this.save.flush();
+   252→    this.mission.abort();
+   253→    const spawn = this.world.playerSpawn();
+   254→    this.vehicle.reset(spawn.x, spawn.y, spawn.angle);
+   255→    this.camera.snapTo(spawn.x, spawn.y);
+   256→    this.setState('menu');
+   257→  }
+   258→
+   259→  // ============ ورودی‌های بیرونی (React) ============
+   260→  setVirtualSteer(dir: -1 | 0 | 1): void {
+   261→    this.input.setVirtualLeft(dir === -1);
+   262→    this.input.setVirtualRight(dir === 1);
+   263→  }
+   264→  setVirtualGas(v: boolean): void { this.input.setVirtualGas(v); }
+   265→  setVirtualBrake(v: boolean): void { this.input.setVirtualBrake(v); }
+   266→  pressHorn(): void {
+   267→    if (this.state !== 'playing') return;
+   268→    this.audio.horn(Math.floor(Math.random() * 3));
+   269→    this.voice.trigger('horn_joke', performance.now());
+   270→    // واکنش ترافیک (فاز 2): جواب بوق + حباب طنز روی ماشینِ جواب‌دهنده
+   271→    const reacted = this.traffic.onPlayerHorn(this.vehicle.x, this.vehicle.y);
+   272→    if (reacted.length > 0) {
+   273→      const car = reacted[0];
+   274→      this.fx.pushBubble(this.pickLine('traffic_honk'), car.x, car.y, 'char_driver_01_idle', 2.6);
+   275→    }
+   276→  }
+   277→  setSetting<K extends 'music' | 'sfx' | 'voice'>(k: K, v: number): void {
+   278→    this.save.mutate((d) => { d.settings[k] = v; });
+   279→    this.audio.setVolumes(this.save.get().settings);
+   280→  }
+   281→  getSettings() { return this.save.get().settings; }
+   282→  getSave() { return this.save.get(); }
+   283→
+   284→  toggleDebugFps(): void {
+   285→    this.showFps = !this.showFps;
+   286→  }
+   287→
+   288→  // ============ مأموریت‌ها (فاز 4) ============
+   289→
+   290→  /** لیست مأموریت‌ها برای منو (با وضعیت انجام‌شدگی از ذخیره) */
+   291→  listMissions(): Array<{ id: string; title: string; intro: string; objective: string; rewardCoins: number; rewardRep: number; timeLimitSec: number; done: boolean }> {
+   292→    return this.mission.list(this.save.get().completedMissions);
+   293→  }
+   294→
+   295→  /** شروع مأموریت: ورود به گیم‌پلی + ریست موقعیت و ماشین برای شروع منصفانه */
+   296→  startMission(id: string): void {
+   297→    if (!this.mission.start(id)) return;
+   298→    if (this.state !== 'playing') this.startGameplay();
+   299→    const spawn = this.world.playerSpawn();
+   300→    this.vehicle.reset(spawn.x, spawn.y, spawn.angle);
+   301→    this.camera.snapTo(spawn.x, spawn.y);
+   302→    this.resetPlayerCar();
+   303→    this.voice.clear();
+   304→    this.voice.trigger('game_start', performance.now());
+   305→  }
+   306→
+   307→  /** انصراف از مأموریت فعال */
+   308→  abandonMission(): void {
+   309→    this.mission.abort();
+   310→  }
+   311→
+   312→  /** چاله! — لرزش + غرش + کند شدن + دیالوگ */
+   313→  private onPotholeHit(x: number, y: number): void {
+   314→    this.camera.addShake(CAM.maxShake * 0.55);
+   315→    this.audio.crash(false);
+   316→    this.vehicle.speed *= MISSIONS.potholeSlowFactor;
+   317→    this.fx.spawnBurst(x, y, 'rgba(90,72,60,0.9)', 8, 90);
+   318→    this.voice.trigger('pothole', performance.now());
+   319→  }
+   320→
+   321→  /** پایان مأموریت — جایزه/جریمه + ذخیره + رویداد به پوسته */
+   322→  private finishMission(
+   323→    success: boolean,
+   324→    missionId: string,
+   325→    baseCoins: number,
+   326→    baseRep: number,
+   327→    reason: string | null,
+   328→    _stats: unknown,
+   329→  ): void {
+   330→    if (this.state !== 'playing') return;
+   331→    const def = this.mission.getDef();
+   332→    const title = def?.title ?? missionId;
+   333→
+   334→    let coins = 0;
+   335→    let rep = 0;
+   336→    if (success) {
+   337→      // بونوس آبروی بالا (سند بخش ۷: ×1.25 وقتی آبرو ≥ ۸۰)
+   338→      const repNow = this.save.get().reputation;
+   339→      coins = Math.round(baseCoins * (repNow >= MISSIONS.bonusRepThreshold ? MISSIONS.bonusFactor : 1));
+   340→      rep = baseRep;
+   341→      this.save.mutate((d) => {
+   342→        d.coins += coins;
+   343→        d.reputation = Math.min(REPUTATION.max, d.reputation + rep);
+   344→        if (!d.completedMissions.includes(missionId)) d.completedMissions.push(missionId);
+   345→      });
+   346→    }
+   347→
+   348→    this.audio.coin();
+   349→    if (success) this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 16, 150);
+   350→    this.voice.trigger(success ? 'mission_success' : 'mission_fail', performance.now());
+   351→
+   352→    const line = this.pickLine(success ? 'mission_success' : 'mission_fail');
+   353→    this.callbacks.onMissionEnd?.({ success, missionId, title, coins, rep, reason, line });
+   354→  }
+   355→
+   356→  // ============ ترافیک و رویدادها (فاز 2) ============
+   357→
+   358→  /** جمله تصادفی از یک رویداد دیالوگ (Data-Driven) */
+   359→  private pickLine(event: keyof typeof DIALOGUES): string {
+   360→    const ev = DIALOGUES[event];
+   361→    return ev.lines[Math.floor(Math.random() * ev.lines.length)];
+   362→  }
+   363→
+   364→  /** بوق ماشین ترافیک (گیر افتاده یا جواب بوق) — فقط صدا؛ حباب جدا داده می‌شود */
+   365→  private onTrafficHonk(_car: unknown): void {
+   366→    if (this.state !== 'playing') return;
+   367→    this.audio.horn(Math.floor(Math.random() * 3));
+   368→  }
+   369→
+   370→  /** رویداد تصادفی فعال شد → صدا + دیالوگ */
+   371→  private onRandomEvent(kind: 'cat' | 'cones' | 'taxi', x: number, y: number): void {
+   372→    if (this.state !== 'playing') return;
+   373→    const nowMs = performance.now();
+   374→    if (kind === 'cat') {
+   375→      this.voice.trigger('cat_event', nowMs);
+   376→    } else if (kind === 'cones') {
+   377→      this.voice.trigger('cones_ahead', nowMs);
+   378→    } else if (kind === 'taxi') {
+   379→      const taxi = this.randomEvents.nearestTaxi(this.traffic.cars, x, y);
+   380→      if (taxi) {
+   381→        this.audio.horn(Math.floor(Math.random() * 3));
+   382→        this.fx.pushBubble(this.pickLine('traffic_honk'), taxi.x, taxi.y, 'char_driver_01_idle', 2.6);
+   383→      }
+   384→    }
+   385→  }
+   386→
+   387→  /** برخورد بازیکن با خودروی ترافیک — بازیکن کنار می‌رود، ترافیک مکث می‌کند + آسیب (فاز BIG-IR) */
+   388→  private resolveTrafficCollisions(dt: number): void {
+   389→    const v = this.vehicle;
+   390→    this.crashCooldown = Math.max(0, this.crashCooldown - dt);
+   391→    for (const c of this.traffic.cars) {
+   392→      const hw = v.hitW / 2 + c.hitW / 2;
+   393→      const hh = v.hitH / 2 + c.hitH / 2;
+   394→      const dx = v.x - c.x;
+   395→      const dy = v.y - c.y;
+   396→      const penX = hw - Math.abs(dx);
+   397→      const penY = hh - Math.abs(dy);
+   398→      if (penX <= 0 || penY <= 0) continue;
+   399→
+   400→      const impact = Math.hypot(v.vx, v.vy);
+   401→      if (penX < penY) v.x += dx >= 0 ? penX : -penX;
+   402→      else v.y += dy >= 0 ? penY : -penY;
+   403→      v.speed *= 0.5;
+   404→      v.latVel *= 0.4;
+   405→      c.stun(TRAFFIC.stunnedSec);
+   406→
+   407→      if (this.crashCooldown <= 0 && impact > COLLISION.softCrashSpeed) {
+   408→        this.crashCooldown = 0.8;
+   409→        // برخورد با ترافیک هم برای مأموریت شمرده می‌شود (فاز 4)
+   410→        this.mission.onCrash(impact > COLLISION.hardCrashSpeed ? 'hard' : 'soft');
+   411→        this.audio.crash(false);
+   412→        this.camera.addShake(CAM.maxShake * 0.5);
+   413→        this.fx.spawnBurst(v.x, v.y, '#B9B9B9', 10);
+   414→        // آسیب برخورد با خودرو (مانع متحرک بزرگ) — جلو/عقب با جهت
+   415→        const dmg = Math.min(DAMAGE.trafficHitMax, DAMAGE.trafficHitBase + impact * DAMAGE.trafficHitScale);
+   416→        const fwd = Math.sin(v.angle) * (c.x - v.x) - Math.cos(v.angle) * (c.y - v.y);
+   417→        const front = fwd > 0;
+   418→        v.applyDamage(dmg, front);
+   419→        this.renderer3d?.onPlayerDamaged(dmg, front, (v.x + c.x) / 2, (v.y + c.y) / 2);
+   420→        this.save.mutate((d) => {
+   421→          d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.trafficCrashPenalty);
+   422→        });
+   423→        this.voice.trigger('car_crash', performance.now());
+   424→        if (Math.random() < 0.5) {
+   425→          this.fx.pushBubble(this.pickLine('traffic_honk'), c.x, c.y, 'char_driver_01_idle', 2.4);
+   426→        }
+   427→      }
+   428→      break; // یک برخورد در هر گام کافی است
+   429→    }
+   430→  }
+   431→
+   432→  // ============ شکستنی‌ها (فاز BIG-IR) ============
+   433→
+   434→  /** رنگ ذرات هر نوع مانع کوچک */
+   435→  private static readonly BREAK_COLORS: Record<string, string> = {
+   436→    trash: '#4F772D',
+   437→    cone: '#F4A261',
+   438→    moto: '#8a8f94',
+   439→    bags: '#2b2926',
+   440→    crate: '#c98d4b',
+   441→  };
+   442→
+   443→  /** مانع‌های کوچک با سرعت می‌شکنند + بعد از مدت‌هایی دوباره می‌آیند */
+   444→  private updateBreakables(dt: number): void {
+   445→    this.breakCooldown = Math.max(0, this.breakCooldown - dt);
+   446→    const v = this.vehicle;
+   447→
+   448→    // تایمر بازگشت شکسته‌ها
+   449→    for (const p of this.world.props) {
+   450→      if (p.broken) {
+   451→        p.brokenTimer = (p.brokenTimer ?? 0) - dt;
+   452→        if (p.brokenTimer <= 0) p.broken = false;
+   453→      }
+   454→    }
+   455→
+   456→    if (this.breakCooldown > 0 || Math.abs(v.speed) < BREAKABLE.breakSpeed) return;
+   457→    const hw = v.hitW / 2;
+   458→    const hh = v.hitH / 2;
+   459→
+   460→    for (const p of this.world.props) {
+   461→      if (!p.breakable || p.broken) continue;
+   462→      // برخورد دایره ماشین با مستطیل مانع
+   463→      const cx = Math.max(p.x, Math.min(v.x, p.x + p.w));
+   464→      const cy = Math.max(p.y, Math.min(v.y, p.y + p.h));
+   465→      const dx = v.x - cx;
+   466→      const dy = v.y - cy;
+   467→      if (dx * dx + dy * dy > hw * hw) continue;
+   468→
+   469→      // شکستن!
+   470→      p.broken = true;
+   471→      p.brokenTimer = BREAKABLE.respawnSec;
+   472→      this.breakCooldown = BREAKABLE.breakCooldownSec;
+   473→      const color = GameManager.BREAK_COLORS[p.kind] ?? '#9b9b9b';
+   474→      this.fx.spawnBurst(p.x + p.w / 2, p.y + p.h / 2, color, 12, 230);
+   475→      this.audio.bump();
+   476→      this.camera.addShake(3.2);
+   477→      v.speed *= BREAKABLE.speedLoss;
+   478→      // گاهی یه سکه از وسطش می‌پرد!
+   479→      if (Math.random() < BREAKABLE.coinChance) {
+   480→        this.save.mutate((d) => { d.coins += 1; });
+   481→        this.fx.spawnBurst(p.x + p.w / 2, p.y + p.h / 2, '#F2B705', 5, 140);
+   482→      }
+   483→      break; // یک شکستن در هر گام
+   484→    }
+   485→
+   486→    // مخروط‌های رویداد هم با سرعت می‌شکنند (تکنیکی — همان سیستم)
+   487→    const cones = this.randomEvents.cones;
+   488→    for (let i = cones.length - 1; i >= 0; i--) {
+   489→      const c = cones[i];
+   490→      const dx = v.x - c.x;
+   491→      const dy = v.y - c.y;
+   492→      if (dx * dx + dy * dy < 60 * 60) {
+   493→        cones.splice(i, 1);
+   494→        this.fx.spawnBurst(c.x, c.y, '#F4A261', 8, 200);
+   495→        this.audio.bump();
+   496→        this.camera.addShake(2.4);
+   497→      }
+   498→    }
+   499→  }
+   500→
+   501→  // ============ عابرها و تعمیر (فاز BIG-IR) ============
+   502→
+   503→  /** عابر ترسید — حباب طنز (با احتمال) */
+   504→  private onPedScare(x: number, y: number): void {
+   505→    if (this.state !== 'playing') return;
+   506→    if (Math.random() < PEDESTRIANS.bubbleChance) {
+   507→      this.fx.pushBubble(this.pickLine('pedestrian_scare'), x, y, 'char_pass_m_01_idle', 2.2);
+   508→    }
+   509→  }
+   510→
+   511→  /** زون تعمیرگاه: ترمیم تدریجی داخل شعاع */
+   512→  private updateRepairZones(dt: number, nowMs: number): void {
+   513→    const v = this.vehicle;
+   514→    if (v.health >= DAMAGE.maxHealth) {
+   515→      this.repairVoiceLatch = false;
+   516→      return;
+   517→    }
+   518→    for (const z of this.world.repairZones) {
+   519→      const d = Math.hypot(v.x - z.x, v.y - z.y);
+   520→      if (d > DAMAGE.repairRadius) continue;
+   521→
+   522→      v.health = Math.min(DAMAGE.maxHealth, v.health + DAMAGE.repairRate * dt);
+   523→      if (Math.random() < 0.25) {
+   524→        this.fx.spawnBurst(v.x + (Math.random() - 0.5) * 60, v.y + (Math.random() - 0.5) * 60, '#2A9D8F', 2, 90);
+   525→      }
+   526→      if (v.health >= DAMAGE.maxHealth) {
+   527→        v.fullRepair();
+   528→        this.engineDeadShown = false;
+   529→        this.renderer3d?.resetPlayerDamage();
+   530→        this.audio.coin();
+   531→        this.fx.spawnBurst(v.x, v.y, '#2A9D8F', 14, 160);
+   532→        if (!this.repairVoiceLatch) {
+   533→          this.repairVoiceLatch = true;
+   534→          this.voice.trigger('repair_done', nowMs);
+   535→        }
+   536→      }
+   537→      break;
+   538→    }
+   539→  }
+   540→
+   541→  /** اسکران به تعمیرگاه بعد از خاموشی — از پوسته React (فاز BIG-IR) */
+   542→  towToRepair(): void {
+   543→    if (!this.vehicle.dead) return;
+   544→    // هزینه اگر پول داره (بقیه رایگان — رفیق مکانیکی!)
+   545→    const coins = this.save.get().coins;
+   546→    if (coins >= DAMAGE.towCost) {
+   547→      this.save.mutate((d) => { d.coins -= DAMAGE.towCost; });
+   548→    }
+   549→    // نزدیک‌ترین زون
+   550→    let best = this.world.repairZones[0];
+   551→    let bestD = Infinity;
+   552→    for (const z of this.world.repairZones) {
+   553→      const d = Math.hypot(this.vehicle.x - z.x, this.vehicle.y - z.y);
+   554→      if (d < bestD) { bestD = d; best = z; }
+   555→    }
+   556→    this.vehicle.reset(best.x, best.y, 0);
+   557→    this.camera.snapTo(best.x, best.y);
+   558→    this.resetPlayerCar();
+   559→    this.audio.coin();
+   560→    this.voice.trigger('repair_done', performance.now());
+   561→  }
+   562→
+   563→  /** ریست کامل وضعیت ماشین (مأموریت جدید/اسکران) */
+   564→  private resetPlayerCar(): void {
+   565→    this.vehicle.fullRepair();
+   566→    this.engineDeadShown = false;
+   567→    this.renderer3d?.resetPlayerDamage();
+   568→  }
+   569→
+   570→  // ============ حلقه ============
+   571→  private loop = (now: number): void => {
+   572→    // اگر نمونه دیگری جای این را گرفته، خودکشی کن (ضد زامبی)
+   573→    if (this.disposed || GameManager.live !== this) return;
+   574→    this.raf = requestAnimationFrame(this.loop);
+   575→
+   576→    try {
+   577→      const rawDt = Math.min(0.1, (now - this.lastFrame) / 1000 || 0);
+   578→      this.lastFrame = now;
+   579→
+   580→      // FPS
+   581→      this.fpsAccum += rawDt;
+   582→      this.fpsCount++;
+   583→      if (this.fpsAccum >= 0.5) {
+   584→        this.fpsValue = Math.round(this.fpsCount / this.fpsAccum);
+   585→        this.fpsAccum = 0;
+   586→        this.fpsCount = 0;
+   587→      }
+   588→
+   589→      if (this.state === 'playing') {
+   590→        this.accumulator += rawDt;
+   591→        let steps = 0;
+   592→        while (this.accumulator >= FIXED_DT && steps < 5) {
+   593→          this.step(FIXED_DT);
+   594→          this.accumulator -= FIXED_DT;
+   595→          steps++;
+   596→        }
+   597→        if (steps >= 5) this.accumulator = 0; // جلوگیری از Spiral of Death
+   598→        this.voice.update(rawDt);
+   599→      }
+   600→
+   601→      this.fx.update(rawDt);
+   602→      this.draw();
+   603→      this.emitHud(rawDt);
+   604→    } catch (err) {
+   605→      // خطای یک فریم هرگز بازی را نمی‌بندد
+   606→      console.warn('[Game] frame error:', err);
+   607→      this.accumulator = 0;
+   608→    }
+   609→  };
+   610→
+   611→  private step(dt: number): void {
+   612→    let input = this.input.collect();
+   613→
+   614→    // بوق از کیبورد (H)
+   615→    if (input.hornPressed) this.pressHorn();
+   616→
+   617→    // ---------- موتور خاموش: گاز کار نمی‌کند (فاز BIG-IR) ----------
+   618→    if (this.vehicle.dead) {
+   619→      input = { ...input, gas: false };
+   620→    }
+   621→
+   622→    const result = this.vehicle.update(dt, input, this.world.colliders);
+   623→    const nowMs = performance.now();
+   624→
+   625→    // ---------- برخورد با موانع ثابت ----------
+   626→    this.crashCooldown = Math.max(0, this.crashCooldown - dt);
+   627→    if (result.crashed && this.crashCooldown <= 0) {
+   628→      const hard = result.impactSpeed > 260;
+   629→      // گزارش برخورد به مأموریت فقط یک‌بار در هر رویداد (نه هر فریم)
+   630→      this.mission.onCrash(hard ? 'hard' : 'soft');
+   631→      this.crashCooldown = 0.8;
+   632→      this.audio.crash(hard);
+   633→      this.camera.addShake(hard ? CAM.maxShake : CAM.maxShake * 0.45);
+   634→      // نقطه برخورد داینامیک: ذرات + جرقه در نقطه تماس + خرابی بدنه (فاز BIG-IR)
+   635→      this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
+   636→      this.renderer3d?.onPlayerDamaged(result.damage, result.front, result.impactX, result.impactY);
+   637→      this.save.mutate((d) => {
+   638→        d.reputation = Math.max(REPUTATION.min, d.reputation - (hard ? REPUTATION.hardCrashPenalty : REPUTATION.softCrashPenalty));
+   639→      });
+   640→      this.voice.trigger('car_crash', nowMs);
+   641→    }
+   642→
+   643→    // ---------- ترمز ----------
+   644→    if (input.brake && Math.abs(this.vehicle.speed) > 160) {
+   645→      if (!this.brakeSoundLatch) {
+   646→        this.audio.brake();
+   647→        this.brakeSoundLatch = true;
+   648→        this.voice.trigger('hard_brake', nowMs);
+   649→      }
+   650→    } else if (!input.brake) {
+   651→      this.brakeSoundLatch = false;
+   652→    }
+   653→
+   654→    // ---------- درفت ملایم (فاز 2): رد لاستیک + صدای سایش + دود ----------
+   655→    if (result.skidding) {
+   656→      // نقطه محور عقب (کمی پشت مرکز ماشین)
+   657→      const back = this.vehicle.drawH * 0.32;
+   658→      const ax = this.vehicle.x - Math.sin(this.vehicle.angle) * back;
+   659→      const ay = this.vehicle.y + Math.cos(this.vehicle.angle) * back;
+   660→      this.fx.addSkidMark(ax, ay, this.vehicle.angle);
+   661→      this.skidSoundTimer -= dt;
+   662→      if (this.skidSoundTimer <= 0) {
+   663→        this.skidSoundTimer = DRIFT.skidSoundInterval;
+   664→        const intensity = Math.min(1, Math.abs(this.vehicle.latVel) / DRIFT.maxLateral + 0.35);
+   665→        this.audio.skid(intensity);
+   666→        this.fx.spawnBurst(ax, ay, 'rgba(160,160,160,0.9)', 2, 60);
+   667→      }
+   668→      this.voice.trigger('drift', nowMs);
+   669→    } else {
+   670→      this.skidSoundTimer = 0;
+   671→    }
+   672→
+   673→    // ---------- سرعت‌گیرها (فاز GTA-IR): «تق» + کندی + لرزش + غبار ----------
+   674→    this.bumpCooldown = Math.max(0, this.bumpCooldown - dt);
+   675→    if (this.bumpCooldown <= 0 && Math.abs(this.vehicle.speed) > RENDER3D.bumpMinSpeed) {
+   676→      for (const sb of this.world.speedBumps) {
+   677→        const dx = this.vehicle.x - sb.x;
+   678→        const dy = this.vehicle.y - sb.y;
+   679→        // باند عبور عرض جاده: جاده افقی = عبور در راستای X
+   680→        const inside = sb.horiz
+   681→          ? Math.abs(dx) < 24 && Math.abs(dy) < 100
+   682→          : Math.abs(dy) < 24 && Math.abs(dx) < 100;
+   683→        if (inside) {
+   684→          this.bumpCooldown = RENDER3D.bumpCooldownSec;
+   685→          this.vehicle.speed *= RENDER3D.bumpSlowFactor;
+   686→          this.camera.addShake(RENDER3D.bumpShake);
+   687→          this.audio.bump();
+   688→          this.fx.spawnBurst(this.vehicle.x, this.vehicle.y, 'rgba(190,170,130,0.9)', 4, 90);
+   689→          break;
+   690→        }
+   691→      }
+   692→    }
+   693→
+   694→    // ---------- ترافیک (فاز 2) ----------
+   695→    this.traffic.update(dt, this.vehicle);
+   696→    this.resolveTrafficCollisions(dt);
+   697→
+   698→    // ---------- شکستنی‌ها (فاز BIG-IR) ----------
+   699→    this.updateBreakables(dt);
+   700→
+   701→    // ---------- عابرهای پیاده (فاز BIG-IR) ----------
+   702→    this.peds.update(dt, this.vehicle);
+   703→
+   704→    // ---------- دود ماشین آسیب‌دیده (فاز BIG-IR) ----------
+   705→    if (this.vehicle.health < DAMAGE.smokeBelow) {
+   706→      this.damageSmokeTimer -= dt;
+   707→      if (this.damageSmokeTimer <= 0) {
+   708→        const heavy = this.vehicle.health < DAMAGE.heavySmokeBelow;
+   709→        this.damageSmokeTimer = heavy ? 0.09 : 0.16;
+   710→        const front = this.vehicle.drawH * 0.36;
+   711→        const sx = this.vehicle.x + Math.sin(this.vehicle.angle) * front;
+   712→        const sy = this.vehicle.y - Math.cos(this.vehicle.angle) * front;
+   713→        this.fx.spawnBurst(sx, sy, heavy ? 'rgba(60,60,64,0.8)' : 'rgba(120,120,125,0.7)', heavy ? 2 : 1, heavy ? 70 : 45);
+   714→      }
+   715→    }
+   716→
+   717→    // ---------- خاموشی موتور (فاز BIG-IR) ----------
+   718→    if (this.vehicle.dead && !this.engineDeadShown) {
+   719→      this.engineDeadShown = true;
+   720→      this.audio.setEngineSpeed(0);
+   721→      this.camera.addShake(CAM.maxShake * 0.6);
+   722→      this.fx.spawnBurst(this.vehicle.x, this.vehicle.y, 'rgba(40,40,44,0.9)', 12, 120);
+   723→      this.voice.trigger('breakdown', nowMs);
+   724→      // اگر مأموریت فعال است، مثل تصادف سخت حساب می‌شود
+   725→      this.mission.onCrash('hard');
+   726→    }
+   727→
+   728→    // ---------- زون‌های تعمیرگاه (فاز BIG-IR) ----------
+   729→    this.updateRepairZones(dt, nowMs);
+   730→
+   731→    // ---------- رویدادهای تصادفی (فاز 2) ----------
+   732→    this.randomEvents.update(dt, this.vehicle);
+   733→
+   734→    // ---------- مأموریت (فاز 4) ----------
+   735→    this.mission.update(dt, this.vehicle);
+   736→    // دود ماشین دودکن (m02) — پف دود تا برسد تعمیرگاه
+   737→    if (this.mission.getState() === 'active' && this.mission.getDef()?.id === 'm02_smoking_car') {
+   738→      this.smokeTimer -= dt;
+   739→      if (this.smokeTimer <= 0) {
+   740→        this.smokeTimer = MISSIONS.smokeIntervalSec;
+   741→        const back = this.vehicle.drawH * 0.42;
+   742→        const sx = this.vehicle.x - Math.sin(this.vehicle.angle) * back;
+   743→        const sy = this.vehicle.y + Math.cos(this.vehicle.angle) * back;
+   744→        this.fx.spawnBurst(sx, sy, 'rgba(120,120,125,0.75)', 1, 40);
+   745→      }
+   746→    }
+   747→
+   748→    // ---------- سکه ----------
+   749→    const got = this.world.collectCoins(this.vehicle.x, this.vehicle.y, 60);
+   750→    if (got > 0) {
+   751→      this.audio.coin();
+   752→      this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 10, 120);
+   753→      this.save.mutate((d) => { d.coins += got; });
+   754→      this.voice.trigger('coin_pickup', nowMs);
+   755→    }
+   756→
+   757→    // ---------- موتور ----------
+   758→    this.audio.setEngineSpeed(Math.abs(this.vehicle.speed) / VEHICLE_PHYSICS.maxSpeed);
+   759→
+   760→    // ---------- رویداد پس‌زمینه ----------
+   761→    this.idleTimerSec -= dt;
+   762→    if (this.idleTimerSec <= 0) {
+   763→      this.idleTimerSec = IDLE_EVENTS.minIntervalSec + Math.random() * (IDLE_EVENTS.maxIntervalSec - IDLE_EVENTS.minIntervalSec);
+   764→      this.voice.trigger('idle_funny', nowMs);
+   765→    }
+   766→
+   767→    // ---------- دوربین ----------
+   768→    if (this.ctx) {
+   769→      this.camera.halfW = RENDER.logicalWidth / 2;
+   770→      this.camera.halfH = this.ctx.canvas.height / (this.scale * 2);
+   771→    } else {
+   772→      // حالت سه‌بعدی: نیم‌اندازه‌های منطقی صرفاً برای clamp حباب‌ها
+   773→      this.camera.halfW = RENDER.logicalWidth / 2;
+   774→      this.camera.halfH = 640;
+   775→    }
+   776→    this.camera.update(dt, this.vehicle.x, this.vehicle.y, this.vehicle.vx, this.vehicle.vy);
+   777→  }
+   778→
+   779→  // ============ رسم ============
+   780→  private draw(): void {
+   781→    // ---------- مسیر سه‌بعدی (فاز 3D) ----------
+   782→    if (this.renderer3d) {
+   783→      this.draw3DFrame();
+   784→      return;
+   785→    }
+   786→    // ---------- مسیر دوبعدی (fallback) ----------
+   787→    const ctx = this.ctx;
+   788→    if (!ctx || !this.renderer) return;
+   789→    const cw = ctx.canvas.width;
+   790→    const ch = ctx.canvas.height;
+   791→    ctx.setTransform(1, 0, 0, 1, 0, 0);
+   792→    ctx.fillStyle = '#C9B98A';
+   793→    ctx.fillRect(0, 0, cw, ch);
+   794→
+   795→    // scale منطقی: پیکسل‌های فیزیکی بر واحد منطقی
+   796→    this.scale = cw / RENDER.logicalWidth;
+   797→
+   798→    ctx.scale(this.scale, this.scale);
+   799→    this.camera.halfW = RENDER.logicalWidth / 2;
+   800→    this.camera.halfH = ch / this.scale / 2;
+   801→
+   802→    this.renderer.draw(
+   803→      ctx,
+   804→      this.vehicle,
+   805→      this.traffic.cars,
+   806→      this.randomEvents.cat,
+   807→      this.randomEvents.cones,
+   808→      this.mission.getPotholes(),
+   809→      this.mission.getState() === 'active' ? this.mission.getDef()?.target ?? null : null,
+   810→    );
+   811→    // حباب گفتار با مختصات دنیاست — باید با همان ترنسلیت دوربین رسم شود
+   812→    // (renderer.draw ترنسلیت را داخل save/restore خودش دارد و بعد از restore حذف می‌شود)
+   813→    ctx.save();
+   814→    ctx.translate(-this.camera.offsetX(), -this.camera.offsetY());
+   815→    this.drawSpeechBubble(ctx);
+   816→    ctx.restore();
+   817→    ctx.setTransform(1, 0, 0, 1, 0, 0);
+   818→
+   819→    // فلش جهت‌نمای هدف وقتی بیرون کادر است (فضای صفحه — فاز 4)
+   820→    if (this.mission.getState() === 'active') {
+   821→      const def = this.mission.getDef();
+   822→      if (def) this.renderer.drawOffscreenArrow(ctx, def.target, this.vehicle, cw, ch, this.scale);
+   823→    }
+   824→  }
+   825→
+   826→  /** یک فریم کامل سه‌بعدی: صحنه + اورلی (حباب‌ها و فلش هدف) */
+   827→  private draw3DFrame(): void {
+   828→    const active = this.mission.getState() === 'active';
+   829→    const def = active ? this.mission.getDef() : null;
+   830→    const speech = this.voice.current;
+   831→    this.renderer3d!.draw3D({
+   832→      car: this.vehicle,
+   833→      traffic: this.traffic.cars,
+   834→      cat: this.randomEvents.cat,
+   835→      cones: this.randomEvents.cones,
+   836→      potholes: this.mission.getPotholes(),
+   837→      peds: this.peds.peds,
+   838→      target: def?.target ?? null,
+   839→      playerBubble: speech
+   840→        ? {
+   841→            line: speech.line,
+   842→            x: this.vehicle.x,
+   843→            y: this.vehicle.y,
+   844→            portrait: SPEAKER_PORTRAIT[speech.speaker] ?? 'char_driver_01_idle',
+   845→          }
+   846→        : null,
+   847→    });
+   848→  }
+   849→
+   850→  /** حباب گفتار فارسی (RTL) بازیکن — فقط مسیر دوبعدی (در سه‌بعدی اورلی جای آن را می‌گیرد) */
+   851→  private drawSpeechBubble(ctx: CanvasRenderingContext2D): void {
+   852→    const info = this.voice.current;
+   853→    if (!info || !this.renderer) return;
+   854→    const car = this.vehicle;
+   855→    // فاز 2: همه گوینده‌ها فعلاً پرتره راننده را دارند؛ با رسیدن پرتره‌های
+   856→    // Batch 2-4 کافی است SPEAKER_PORTRAIT در manifest به‌روز شود
+   857→    this.renderer.drawBubbleBox(ctx, info.line, car.x, car.y, car.drawH, 'char_driver_01_idle');
+   858→  }
+   859→
+   860→  // ============ HUD ============
+   861→  private emitHud(dt: number): void {
+   862→    this.hudThrottle += dt;
+   863→    if (this.hudThrottle < 0.12) return;
+   864→    this.hudThrottle = 0;
+   865→    this.callbacks.onHud?.({
+   866→      speedKmh: Math.round(Math.abs(this.vehicle.speed) / 3),
+   867→      coins: this.save.get().coins,
+   868→      reputation: this.save.get().reputation,
+   869→      fps: this.fpsValue,
+   870→      showFps: this.showFps,
+   871→      placeholders: this.assets.getReport().placeholders.length,
+   872→      mission: this.mission.hud(this.vehicle),
+   873→      health: Math.round(this.vehicle.health),
+   874→      engineDead: this.vehicle.dead,
+   875→    });
+   876→  }
+   877→
+   878→  // ============ رویدادهای صفحه ============
+   879→  private handleResize = (): void => {
+   880→    const dpr = Math.min(RENDER.maxDevicePixelRatio, window.devicePixelRatio || 1);
+   881→    const w = this.canvas.clientWidth || window.innerWidth;
+   882→    const h = this.canvas.clientHeight || window.innerHeight;
+   883→    this.canvas.width = Math.round(w * dpr);
+   884→    this.canvas.height = Math.round(h * dpr);
+   885→    // رندر سه‌بعدی هم باید بداند (کانواس WebGL + اورلی + aspect دوربین)
+   886→    if (this.renderer3d) this.renderer3d.resize(this.canvas.width, this.canvas.height, dpr);
+   887→  };
+   888→
+   889→  private onKeyDown = (e: KeyboardEvent): void => {
+   890→    const k = e.key.toLowerCase();
+   891→    if (k === 'p' || k === 'escape') {
+   892→      if (this.state === 'playing') this.pause();
+   893→      else if (this.state === 'paused') this.resume();
+   894→    } else if (k === 'f') {
+   895→      this.toggleDebugFps();
+   896→    }
+   897→  };
+   898→
+   899→  private onVisibility = (): void => {
+   900→    if (document.hidden && this.state === 'playing') this.pause();
+   901→  };
+   902→
+   903→  private onBeforeUnload = (): void => {
+   904→    this.save.flush();
+   905→  };
+   906→
+   907→  dispose(): void {
+   908→    this.disposed = true;
+   909→    if (GameManager.live === this) GameManager.live = null;
+   910→    cancelAnimationFrame(this.raf);
+   911→    this.audio.stopEngine();
+   912→    this.input.detach();
+   913→    this.renderer3d?.dispose(); // حذف اورلی + آزادسازی کانتکست GPU
+   914→    window.removeEventListener('resize', this.handleResize);
+   915→    window.removeEventListener('keydown', this.onKeyDown);
+   916→    document.removeEventListener('visibilitychange', this.onVisibility);
+   917→    window.removeEventListener('beforeunload', this.onBeforeUnload);
+   918→    this.save.flush();
+   919→  }
+   920→}
+   921→
