@@ -7,12 +7,16 @@
  * - فایل واقعی موجود بود → همان (گزارش: real)
  * - نبود → PlaceholderFactory + ثبت هشدار (گزارش: placeholder) — بازی ادامه می‌یابد
  * - خطای بارگذاری → هرگز Crash نمی‌کند (قانون Error Handling بخش ۴۶)
+ * - فاز 7: فایل‌های صوتی (.ogg/.mp3/.wav) → AudioBuffer با decodeAudioData
+ *   (OfflineAudioContext — بدون نیاز به تعامل کاربر)
  */
 
-import { ASSETS_MANIFEST } from '../data/assets.manifest';
+import { ASSETS_MANIFEST, type AssetEntry } from '../data/assets.manifest';
 import { createPlaceholder } from '../render/PlaceholderFactory';
 
-export type GameAsset = HTMLImageElement | HTMLCanvasElement;
+export type GameAsset = HTMLImageElement | HTMLCanvasElement | AudioBuffer;
+
+const AUDIO_EXT = /\.(ogg|mp3|wav)$/i;
 
 export interface AssetReport {
   total: number;
@@ -63,6 +67,9 @@ export class AssetManager {
     const entry = ASSETS_MANIFEST[id];
     if (!entry) return Promise.reject(new Error(`unknown asset id: ${id}`));
 
+    // ---------- مسیر صوتی (فاز 7): fetch + decode → AudioBuffer ----------
+    if (AUDIO_EXT.test(entry.src)) return this.loadAudio(id, entry);
+
     return new Promise<GameAsset>((resolve) => {
       const img = new Image();
       let settled = false;
@@ -94,6 +101,29 @@ export class AssetManager {
   }
 
   /**
+   * بارگذاری فایل صوتی به AudioBuffer — هر خطا → Placeholder (بازی ادامه می‌یابد)
+   * decodeAudioData روی OfflineAudioContext بدون gesture کاربر هم کار می‌کند.
+   */
+  private async loadAudio(id: string, entry: AssetEntry): Promise<GameAsset> {
+    try {
+      const res = await fetch(`/${entry.src}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const arr = await res.arrayBuffer();
+      const OAC = window.OfflineAudioContext ?? (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+      if (!OAC) throw new Error('OfflineAudioContext unavailable');
+      const octx = new OAC(1, 1, 44100);
+      const buf = await octx.decodeAudioData(arr);
+      this.report.loaded.push(id);
+      return buf;
+    } catch (err) {
+      this.report.placeholders.push(id);
+      this.report.missing.push(id);
+      const { placeholder } = entry;
+      return createPlaceholder(placeholder.type, placeholder.w, placeholder.h, placeholder.label);
+    }
+  }
+
+  /**
    * دسترسی به Asset — همیشه چیزی برمی‌گرداند (فایل یا Placeholder)
    */
   get(id: string): GameAsset | undefined {
@@ -101,11 +131,11 @@ export class AssetManager {
   }
 
   /**
-   * ابعاد طبیعی Asset (برای مقیاس‌بندی رسم)
+   * ابعاد طبیعی Asset (برای مقیاس‌بندی رسم) — AudioBuffer اندازه ندارد
    */
   getSize(id: string): { w: number; h: number } {
     const a = this.cache.get(id);
-    if (!a) return { w: 0, h: 0 };
+    if (!a || a instanceof AudioBuffer) return { w: 0, h: 0 };
     if (a instanceof HTMLImageElement) return { w: a.naturalWidth, h: a.naturalHeight };
     return { w: a.width, h: a.height };
   }

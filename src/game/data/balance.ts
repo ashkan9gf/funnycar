@@ -76,6 +76,30 @@ export const RANDOM_EVENTS = {
   coneLifetimeSec: 24,
 } as const;
 
+/** مأموریت‌ها (فاز 4) — اعداد فیزیکی/تنظیمی؛ محتوا در data/missions.ts */
+export const MISSIONS = {
+  /** شعاع رسیدن به هدف (px) */
+  reachRadius: 110,
+  /** تبدیل پیکسل به متر برای نمایش فاصله */
+  pxPerMeter: 6.4,
+  /** جریمه زمان هر تصادف شدید در مأموریت timed_reach (ثانیه) */
+  hardCrashTimePenalty: 6,
+  /** شعاع چاله + ضریب کاهش سرعت هنگام افتادن */
+  potholeRadius: 34,
+  potholeSlowFactor: 0.72,
+  /** تعداد چاله‌های مأموریت pothole_run و حداقل فاصله بین‌شان */
+  potholeCount: 8,
+  potholeMinGap: 130,
+  /** فاصله ایمن چاله از اسپاون/هدف */
+  potholeSafeFromSpawn: 260,
+  potholeSafeFromTarget: 190,
+  /** دود ماشین دودکن: فاصله پف دود (ثانیه) */
+  smokeIntervalSec: 0.14,
+  /** بونوس آبروی بالا (سند بخش ۷: ضریب ×1.25) */
+  bonusRepThreshold: 80,
+  bonusFactor: 1.25,
+} as const;
+
 /** آستانه‌های برخورد */
 export const COLLISION = {
   /** سرعت بالای این = تصادف جدی (لرزش + آبرو) */

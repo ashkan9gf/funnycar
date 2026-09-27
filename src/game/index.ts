@@ -5,7 +5,18 @@
  * به کلاس‌های داخلی موتور دست نمی‌زند (مرز لایه‌ها — ARCHITECTURE بخش ۱)
  */
 
-import { GameManager, type GameCallbacks, type GameState, type HudData } from './core/GameManager';
+import { GameManager, type GameCallbacks, type GameState, type HudData, type MissionResultData } from './core/GameManager';
+
+export interface MissionListItem {
+  id: string;
+  title: string;
+  intro: string;
+  objective: string;
+  rewardCoins: number;
+  rewardRep: number;
+  timeLimitSec: number;
+  done: boolean;
+}
 
 export interface GameInstance {
   startGameplay: () => void;
@@ -20,6 +31,10 @@ export interface GameInstance {
   getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean };
   getSave: () => { coins: number; reputation: number };
   toggleDebugFps: () => void;
+  /** فاز 4: مأموریت‌ها */
+  listMissions: () => MissionListItem[];
+  startMission: (id: string) => void;
+  abandonMission: () => void;
   dispose: () => void;
 }
 
@@ -43,8 +58,11 @@ export async function createGame(
     getSettings: () => gm.getSettings(),
     getSave: () => gm.getSave(),
     toggleDebugFps: () => gm.toggleDebugFps(),
+    listMissions: () => gm.listMissions(),
+    startMission: (id) => gm.startMission(id),
+    abandonMission: () => gm.abandonMission(),
     dispose: () => gm.dispose(),
   };
 }
 
-export type { GameState, HudData };
+export type { GameState, HudData, MissionResultData };

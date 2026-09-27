@@ -54,3 +54,31 @@ Stage Summary:
 - وضعیت Placeholder: از ۶ به ۴ کاهش یافت (فقط صدا/voice — فاز 7/9)
 - ابزار دیباگ: window.__funnycar (state/traffic/vehicle/renderer/randomEvents/save) برای QA سریع
 - فاز بعدی پیشنهادی: مأموریت‌ها (Mission System)، پرتره پلیس/مسافر، یا فایل‌های صوتی
+
+---
+Task ID: 3
+Agent: Super Z (main agent)
+Task: Phase 4 + 7 — سیستم مأموریت (Mode 2 سند طراحی) + Batch 4 پرتره‌ها + فایل‌های صوتی واقعی (به درخواست «بریم بعدی»)
+
+Work Log:
+- missions.ts (Data-Driven): ۴ مأموریت سند طراحی — مسافر عجول (تایمر ۴۰s)، ماشین دودکن (حتی یک تصادف = شکست)، سوخت‌گیری در ترافیک (حداکثر ۲ تصادف شدید)، فرار از چاله‌ها (حداکثر ۳ چاله + تایمر) — جایزه‌ها طبق سند (۲۰..۱۰۰ سکه، ۸..۱۵ آبرو)
+- MISSIONS در balance.ts: reachRadius، pxPerMeter، جریمه زمان تصادف، شعاع/تعداد چاله، فاصله دود، بونوس آبروی ≥۸۰ (×1.25 طبق سند بخش ۷)
+- MissionManager.ts: ماشین وضعیت idle/active/succeeded/failed + چاله‌های روی دالان مسیر + گزارش برخورد فقط یک‌بار در هر رویداد (با crashCooldown) + faNum برای ارقام فارسی
+- WorldRenderer: نشانگر هدف پالس‌دار (حلقه چرخان خط‌چین + فلش شناور)، چاله‌های کاریکاتوری با ترک، فلش صفحه‌ای هدف خارج از کادر با فاصله «متر» فارسی
+- GameManager: startMission/abandonMission/listMissions + گزارش برخورد ثابت و ترافیک به مأموریت + دود ماشین دودکن + جایزه/بونوس/ذخیره completedMissions + رویداد onMissionEnd
+- GameShell: صفحه انتخاب مأموریت (کارت با جایزه/بج «انجام شد ✓»)، پنل HUD مأموریت (تایمر رنگی/فاصله/وضعیت/انصراف)، اورلی نتیجه (موفق: سکه+آبرو+جمله طنز؛ شکست: علت فارسی+«تلاش دوباره/ادامه رانندگی/منو») — دکمه مأموریت‌ها در منو سبز شد
+- dialogues.ts: mission_success / mission_fail / pothole (جملات طنز Data-Driven)
+- باگ رفع‌شده: گزارش برخورد به مأموریت ابتدا هر فریم بود (جریمه زمان انباشته می‌شد) → داخل gate crashCooldown منتقل شد؛ React lint (react-hooks/refs) → دسترسی ref مستقیم در handler
+- تست E2E (e2e_p4_*.png): شروع m01 از منو → HUD + فلش ۳۴۶م → موفقیت (+۴۰ سکه، +۱۰ آبرو، ذخیره، بج «انجام شد ✓»)؛ m02 تصادف در دیوار → «ماشین خاموش شد!»؛ m04 → ۶ چاله روی مسیر، برخورد با چاله «چاله: ۱/۳» + لرزش + کندی؛ کنسول بدون خطا
+- Batch 4 (gen_batch4.mjs + process_batch4.py): npc_police_01، char_mechanic_01، char_pass_m_01_idle/_angry — بازبینی بصری قبول (۴/۴) — manifest + SPEAKER_PORTRAIT به‌روز شد (پلیس/مکانیک/مسافر)
+- صدا فاز 7: gen_audio_sfx.py (سینتز numpy: موتور لوپ بی‌درز ۱.۶s با هارمونیک‌های کامل + تصادف ۰.۷s + بوق دوتیونی ۰.۵۵s) → ffmpeg libvorbis OGG؛ voice_crash_01 با TTS فارسی (۳.۰۴s — موقت تا ضبط انسانی طبق VOICE_RECORDING_GUIDE)
+- AssetManager: مسیر صوتی جدید (fetch + decodeAudioData روی OfflineAudioContext → AudioBuffer) با fallback Placeholder
+- AudioManager: attachAssets + اولویت فایل واقعی در horn/crash/engine (لوپ با playbackRate وابسته به سرعت) + playVoiceFile (جستجوی voice.event/index در manifest) — fallback سینتی حفظ شد
+- وضعیت نهایی Asset: ۲۴/۲۴ واقعی — صفر Placeholder 🎉
+
+Stage Summary:
+- Mode 2 (مأموریت‌ها) کاملاً فعال: منو → انتخاب → HUD → موفق/شکست → ذخیره
+- پرتره‌های پلیس/مکانیک/مسافر واقعی؛ حباب‌های دیالوگ شخصیت واقعی دارند
+- همه فایل‌های صوتی manifest واقعی و پخش می‌شوند (موتور/بوق/تصادف/جمله تصادف)
+- ابزار: window.__funnycar شامل mission/audio/assets برای QA
+- فاز بعدی پیشنهادی: Mode 3 پارک دوبل، یا فروشگاه/آپگرید ماشین، یا اسپرایت پیکان‌چرخان پلیس (NPC-001 نیمه‌کاره)

@@ -14,10 +14,11 @@ import { AudioManager } from '../managers/AudioManager';
 import { VoiceManager } from '../managers/VoiceManager';
 import { TrafficManager } from '../managers/TrafficManager';
 import { RandomEventManager } from '../managers/RandomEventManager';
+import { MissionManager, type MissionHud } from '../managers/MissionManager';
 import { Vehicle } from '../entities/Vehicle';
 import { World } from '../world/World';
 import { WorldRenderer } from '../world/WorldRenderer';
-import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT } from '../data/balance';
+import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS } from '../data/balance';
 import { DIALOGUES } from '../data/dialogues';
 
 export type GameState = 'boot' | 'menu' | 'playing' | 'paused';
@@ -29,11 +30,28 @@ export interface HudData {
   fps: number;
   showFps: boolean;
   placeholders: number;
+  mission: MissionHud | null;
+}
+
+/** نتیجه مأموریت برای پوسته React (فاز 4) */
+export interface MissionResultData {
+  success: boolean;
+  missionId: string;
+  title: string;
+  /** جایزه نهایی سکه (با بونوس آبروی بالا) */
+  coins: number;
+  /** تغییر آبرو (+) */
+  rep: number;
+  /** علت شکست (time_up / engine_died / ...) */
+  reason: string | null;
+  /** جمله طنز انتخاب‌شده */
+  line: string;
 }
 
 export interface GameCallbacks {
   onStateChange?: (s: GameState) => void;
   onHud?: (h: HudData) => void;
+  onMissionEnd?: (r: MissionResultData) => void;
 }
 
 const FIXED_DT = 1 / 120;
@@ -55,6 +73,7 @@ export class GameManager {
   private vehicle = new Vehicle();
   private traffic: TrafficManager;
   private randomEvents: RandomEventManager;
+  private mission: MissionManager;
 
   private state: GameState = 'boot';
   private raf = 0;
@@ -70,6 +89,7 @@ export class GameManager {
   private crashCooldown = 0;
   private brakeSoundLatch = false;
   private skidSoundTimer = 0;
+  private smokeTimer = 0;
   private hudThrottle = 0;
   private disposed = false;
 
@@ -96,6 +116,18 @@ export class GameManager {
     );
     this.randomEvents = new RandomEventManager(this.world, {
       onEvent: (kind, x, y) => this.onRandomEvent(kind, x, y),
+    });
+    // مأموریت‌ها (فاز 4)
+    this.mission = new MissionManager(this.world, {
+      onPothole: (x, y) => this.onPotholeHit(x, y),
+      onSucceed: (def, stats) => this.finishMission(true, def.id, def.rewardCoins, def.rewardRep, null, stats),
+      onFail: (def, reason) => this.finishMission(false, def.id, 0, 0, reason, null),
+    });
+
+    // فاز 7: اتصال فایل‌های صوتی واقعی + hook جمله صوتی برای VoiceManager
+    this.audio.attachAssets((id) => this.assets.get(id));
+    this.voice.setAudioHook({
+      playVoiceFile: (eventKey, index) => this.audio.playVoiceFile(eventKey, index),
     });
 
     this.input.attach();
@@ -167,6 +199,7 @@ export class GameManager {
   backToMenu(): void {
     this.audio.setEngineSpeed(0);
     this.save.flush();
+    this.mission.abort();
     const spawn = this.world.playerSpawn();
     this.vehicle.reset(spawn.x, spawn.y, spawn.angle);
     this.camera.snapTo(spawn.x, spawn.y);
@@ -200,6 +233,73 @@ export class GameManager {
 
   toggleDebugFps(): void {
     this.showFps = !this.showFps;
+  }
+
+  // ============ مأموریت‌ها (فاز 4) ============
+
+  /** لیست مأموریت‌ها برای منو (با وضعیت انجام‌شدگی از ذخیره) */
+  listMissions(): Array<{ id: string; title: string; intro: string; objective: string; rewardCoins: number; rewardRep: number; timeLimitSec: number; done: boolean }> {
+    return this.mission.list(this.save.get().completedMissions);
+  }
+
+  /** شروع مأموریت: ورود به گیم‌پلی + ریست موقعیت برای شروع منصفانه */
+  startMission(id: string): void {
+    if (!this.mission.start(id)) return;
+    if (this.state !== 'playing') this.startGameplay();
+    const spawn = this.world.playerSpawn();
+    this.vehicle.reset(spawn.x, spawn.y, spawn.angle);
+    this.camera.snapTo(spawn.x, spawn.y);
+    this.voice.clear();
+    this.voice.trigger('game_start', performance.now());
+  }
+
+  /** انصراف از مأموریت فعال */
+  abandonMission(): void {
+    this.mission.abort();
+  }
+
+  /** چاله! — لرزش + غرش + کند شدن + دیالوگ */
+  private onPotholeHit(x: number, y: number): void {
+    this.camera.addShake(CAM.maxShake * 0.55);
+    this.audio.crash(false);
+    this.vehicle.speed *= MISSIONS.potholeSlowFactor;
+    this.renderer.spawnBurst(x, y, 'rgba(90,72,60,0.9)', 8, 90);
+    this.voice.trigger('pothole', performance.now());
+  }
+
+  /** پایان مأموریت — جایزه/جریمه + ذخیره + رویداد به پوسته */
+  private finishMission(
+    success: boolean,
+    missionId: string,
+    baseCoins: number,
+    baseRep: number,
+    reason: string | null,
+    _stats: unknown,
+  ): void {
+    if (this.state !== 'playing') return;
+    const def = this.mission.getDef();
+    const title = def?.title ?? missionId;
+
+    let coins = 0;
+    let rep = 0;
+    if (success) {
+      // بونوس آبروی بالا (سند بخش ۷: ×1.25 وقتی آبرو ≥ ۸۰)
+      const repNow = this.save.get().reputation;
+      coins = Math.round(baseCoins * (repNow >= MISSIONS.bonusRepThreshold ? MISSIONS.bonusFactor : 1));
+      rep = baseRep;
+      this.save.mutate((d) => {
+        d.coins += coins;
+        d.reputation = Math.min(REPUTATION.max, d.reputation + rep);
+        if (!d.completedMissions.includes(missionId)) d.completedMissions.push(missionId);
+      });
+    }
+
+    this.audio.coin();
+    if (success) this.renderer.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 16, 150);
+    this.voice.trigger(success ? 'mission_success' : 'mission_fail', performance.now());
+
+    const line = this.pickLine(success ? 'mission_success' : 'mission_fail');
+    this.callbacks.onMissionEnd?.({ success, missionId, title, coins, rep, reason, line });
   }
 
   // ============ ترافیک و رویدادها (فاز 2) ============
@@ -255,6 +355,8 @@ export class GameManager {
 
       if (this.crashCooldown <= 0 && impact > COLLISION.softCrashSpeed) {
         this.crashCooldown = 0.8;
+        // برخورد با ترافیک هم برای مأموریت شمرده می‌شود (فاز 4)
+        this.mission.onCrash(impact > COLLISION.hardCrashSpeed ? 'hard' : 'soft');
         this.audio.crash(false);
         this.camera.addShake(CAM.maxShake * 0.5);
         this.renderer.spawnBurst(v.x, v.y, '#B9B9B9', 10);
@@ -324,6 +426,8 @@ export class GameManager {
     this.crashCooldown = Math.max(0, this.crashCooldown - dt);
     if (result.crashed && this.crashCooldown <= 0) {
       const hard = result.impactSpeed > 260;
+      // گزارش برخورد به مأموریت فقط یک‌بار در هر رویداد (نه هر فریم)
+      this.mission.onCrash(hard ? 'hard' : 'soft');
       this.crashCooldown = 0.8;
       this.audio.crash(hard);
       this.camera.addShake(hard ? CAM.maxShake : CAM.maxShake * 0.45);
@@ -371,6 +475,20 @@ export class GameManager {
     // ---------- رویدادهای تصادفی (فاز 2) ----------
     this.randomEvents.update(dt, this.vehicle);
 
+    // ---------- مأموریت (فاز 4) ----------
+    this.mission.update(dt, this.vehicle);
+    // دود ماشین دودکن (m02) — پف دود تا برسد تعمیرگاه
+    if (this.mission.getState() === 'active' && this.mission.getDef()?.id === 'm02_smoking_car') {
+      this.smokeTimer -= dt;
+      if (this.smokeTimer <= 0) {
+        this.smokeTimer = MISSIONS.smokeIntervalSec;
+        const back = this.vehicle.drawH * 0.42;
+        const sx = this.vehicle.x - Math.sin(this.vehicle.angle) * back;
+        const sy = this.vehicle.y + Math.cos(this.vehicle.angle) * back;
+        this.renderer.spawnBurst(sx, sy, 'rgba(120,120,125,0.75)', 1, 40);
+      }
+    }
+
     // ---------- سکه ----------
     const got = this.world.collectCoins(this.vehicle.x, this.vehicle.y, 60);
     if (got > 0) {
@@ -412,7 +530,15 @@ export class GameManager {
     this.camera.halfW = RENDER.logicalWidth / 2;
     this.camera.halfH = ch / this.scale / 2;
 
-    this.renderer.draw(ctx, this.vehicle, this.traffic.cars, this.randomEvents.cat, this.randomEvents.cones);
+    this.renderer.draw(
+      ctx,
+      this.vehicle,
+      this.traffic.cars,
+      this.randomEvents.cat,
+      this.randomEvents.cones,
+      this.mission.getPotholes(),
+      this.mission.getState() === 'active' ? this.mission.getDef()?.target ?? null : null,
+    );
     // حباب گفتار با مختصات دنیاست — باید با همان ترنسلیت دوربین رسم شود
     // (renderer.draw ترنسلیت را داخل save/restore خودش دارد و بعد از restore حذف می‌شود)
     ctx.save();
@@ -420,6 +546,12 @@ export class GameManager {
     this.drawSpeechBubble(ctx);
     ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // فلش جهت‌نمای هدف وقتی بیرون کادر است (فضای صفحه — فاز 4)
+    if (this.mission.getState() === 'active') {
+      const def = this.mission.getDef();
+      if (def) this.renderer.drawOffscreenArrow(ctx, def.target, this.vehicle, cw, ch, this.scale);
+    }
   }
 
   /** حباب گفتار فارسی (RTL) بازیکن — رسم مشترک با حباب‌های محیطی در WorldRenderer */
@@ -444,6 +576,7 @@ export class GameManager {
       fps: this.fpsValue,
       showFps: this.showFps,
       placeholders: this.assets.getReport().placeholders.length,
+      mission: this.mission.hud(this.vehicle),
     });
   }
 

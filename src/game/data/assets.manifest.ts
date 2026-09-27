@@ -107,6 +107,24 @@ export const ASSETS_MANIFEST: Record<string, AssetEntry> = {
     placeholder: { type: 'building', w: 640, h: 640, label: 'PLACEHOLDER_ENVIRONMENT' },
   },
 
+  // ============ Batch 4 — پرتره‌های NPC (پلیس/مکانیک/مسافر) ============
+  npc_police_01: {
+    src: 'assets/npc/police/npc_police_01.png',
+    placeholder: { type: 'portrait', w: 512, h: 512, label: 'PLACEHOLDER_CHARACTER' },
+  },
+  char_mechanic_01: {
+    src: 'assets/characters/mechanic/char_mechanic_01.png',
+    placeholder: { type: 'portrait', w: 512, h: 512, label: 'PLACEHOLDER_CHARACTER' },
+  },
+  char_pass_m_01_idle: {
+    src: 'assets/characters/passenger/char_pass_m_01_idle.png',
+    placeholder: { type: 'portrait', w: 512, h: 512, label: 'PLACEHOLDER_CHARACTER' },
+  },
+  char_pass_m_01_angry: {
+    src: 'assets/characters/passenger/char_pass_m_01_angry.png',
+    placeholder: { type: 'portrait', w: 512, h: 512, label: 'PLACEHOLDER_CHARACTER' },
+  },
+
   // ============ صدا (فاز 7/9 جایگزین سینتی می‌شود — بدون تغییر کد) ============
   sfx_engine_loop: {
     src: 'assets/audio/sfx/sfx_engine_loop.ogg',
@@ -130,9 +148,9 @@ export const ASSETS_MANIFEST: Record<string, AssetEntry> = {
 /** پرتره پیش‌فرض هر گوینده (برای حباب دیالوگ) */
 export const SPEAKER_PORTRAIT: Record<string, string> = {
   driver: 'char_driver_01_idle',
-  police: 'char_driver_01_idle', // تا Batch 2 (npc_police)
-  passenger: 'char_driver_01_idle', // تا Batch 4
-  mechanic: 'char_driver_01_idle',
+  police: 'npc_police_01', // Batch 4 ✓
+  passenger: 'char_pass_m_01_idle', // Batch 4 ✓
+  mechanic: 'char_mechanic_01', // Batch 4 ✓
   radio: 'char_driver_01_idle',
   cat: 'char_driver_01_idle',
 };

@@ -32,7 +32,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { createGame, type GameInstance, type GameState, type HudData } from "@/game";
+import { createGame, type GameInstance, type GameState, type HudData, type MissionListItem, type MissionResultData } from "@/game";
 import { HoldButton, TapButton } from "./touch-controls";
 
 /** تبدیل اعداد به فارسی */
@@ -96,6 +96,14 @@ function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => 
   );
 }
 
+/** متن علت شکست مأموریت برای نمایش */
+const FAIL_REASON_FA: Record<string, string> = {
+  time_up: "وقت تموم شد!",
+  engine_died: "ماشین خاموش شد!",
+  too_many_crashes: "تصادف‌ها از حد گذشت!",
+  too_many_potholes: "چاله‌ها بیشتر از حد مجاز!",
+};
+
 export default function GameShell() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<GameInstance | null>(null);
@@ -107,9 +115,12 @@ export default function GameShell() {
 
   const [phase, setPhase] = useState<GameState | "boot">("boot");
   const [bootProgress, setBootProgress] = useState(0);
-  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0 });
+  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null });
   const [toast, setToast] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showMissions, setShowMissions] = useState(false);
+  const [missions, setMissions] = useState<MissionListItem[]>([]);
+  const [missionResult, setMissionResult] = useState<MissionResultData | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -127,6 +138,7 @@ export default function GameShell() {
       {
         onStateChange: (s) => setPhase(s),
         onHud: (h) => setHud(h),
+        onMissionEnd: (r) => setMissionResult(r),
       },
       (done, total) => setBootProgress(Math.round((done / total) * 100)),
     ).then((inst) => {
@@ -228,8 +240,21 @@ export default function GameShell() {
 
             {/* حالت‌های بعدی */}
             <div className="grid w-full max-w-xs grid-cols-2 gap-3">
+              {/* مأموریت‌ها — فاز 4 آماده است */}
+              <button
+                type="button"
+                className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#8AC926] py-3 text-[#3a2e2a]"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setMissions(gameRef.current?.listMissions() ?? []);
+                  setShowMissions(true);
+                }}
+              >
+                <Map className="h-6 w-6" />
+                <span className="text-sm font-extrabold">مأموریت‌ها</span>
+                <span className="text-[10px] font-bold opacity-60">فاز ۴ ✓</span>
+              </button>
               {[
-                { icon: <Map className="h-6 w-6" />, label: "مأموریت‌ها" },
                 { icon: <Target className="h-6 w-6" />, label: "پارک دوبل" },
                 { icon: <Users className="h-6 w-6" />, label: "مسافرکشی" },
                 { icon: <PartyPopper className="h-6 w-6" />, label: "چالش‌ها" },
@@ -292,6 +317,63 @@ export default function GameShell() {
         </div>
       )}
 
+      {/* ============ انتخاب مأموریت (فاز 4) ============ */}
+      {phase === "menu" && showMissions && (
+        <div className="absolute inset-0 z-40 flex flex-col overflow-y-auto bg-[#3a2e2a]/70 px-4 py-6 backdrop-blur-[2px]">
+          <div className="fc-pop mx-auto flex w-full max-w-md flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-2xl font-extrabold text-white drop-shadow-[0_2px_0_rgba(58,46,42,0.9)]">
+                <Map className="h-7 w-7 text-[#F2B705]" />
+                مأموریت‌ها
+              </h2>
+              <TapButton
+                ariaLabel="بستن مأموریت‌ها"
+                className="h-11 w-11 bg-[#FFF9EC] text-[#3a2e2a]"
+                onTap={() => setShowMissions(false)}
+              >
+                <X className="h-6 w-6" />
+              </TapButton>
+            </div>
+            {missions.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className="fc-btn fc-panel flex w-full flex-col items-start gap-1 bg-[#FFF9EC] p-4 text-right"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  gameRef.current?.startMission(m.id);
+                  setShowMissions(false);
+                }}
+              >
+                <div className="flex w-full items-center justify-between">
+                  <span className="text-lg font-extrabold text-[#3a2e2a]">{m.title}</span>
+                  {m.done && (
+                    <span className="rounded-full bg-[#8AC926] px-3 py-0.5 text-xs font-extrabold text-[#3a2e2a]">انجام شد ✓</span>
+                  )}
+                </div>
+                <p className="text-xs font-bold leading-5 text-[#3a2e2a]/75">{m.intro}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-extrabold">
+                  <span className="flex items-center gap-1 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[#B8801A]">
+                    <Coins className="h-3.5 w-3.5" /> +{fa(m.rewardCoins)}
+                  </span>
+                  <span className="flex items-center gap-1 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[#D64545]">
+                    <Coffee className="h-3.5 w-3.5" /> +{fa(m.rewardRep)} آبرو
+                  </span>
+                  {m.timeLimitSec > 0 && (
+                    <span className="flex items-center gap-1 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[#2A9D8F]">
+                      <Gauge className="h-3.5 w-3.5" /> {fa(m.timeLimitSec)} ثانیه
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+            <p className="mt-1 text-center text-[11px] font-bold text-white/75">
+              مأموریت موفق: ۲۰ تا ۱۰۰ سکه + ۸ تا ۱۵ آبرو (طبق سند طراحی)
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ============ HUD گیم‌پلی ============ */}
       {phase === "playing" && (
         <>
@@ -303,6 +385,45 @@ export default function GameShell() {
               </TapButton>
             </div>
             <div className="flex flex-col items-end gap-2">
+              {/* پنل مأموریت فعال (فاز 4) */}
+              {hud.mission && (
+                <div className="fc-panel pointer-events-auto w-[248px] bg-[#FFF9EC]/95 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-extrabold text-[#3a2e2a]">{hud.mission.title}</span>
+                    <TapButton
+                      ariaLabel="انصراف از مأموریت"
+                      className="h-7 w-7 bg-[#D64545] text-white"
+                      onTap={() => gameRef.current?.abandonMission()}
+                    >
+                      <X className="h-4 w-4" />
+                    </TapButton>
+                  </div>
+                  <p className="mt-0.5 text-[10px] font-bold leading-4 text-[#3a2e2a]/70">{hud.mission.objective}</p>
+                  {hud.mission.timeLeft >= 0 && (
+                    <div className="mt-1.5">
+                      <div className="h-2.5 w-full overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
+                        <div
+                          className="h-full transition-all"
+                          style={{
+                            width: `${hud.mission.timeLimit > 0 ? Math.max(0, Math.min(100, (hud.mission.timeLeft / hud.mission.timeLimit) * 100)) : 0}%`,
+                            backgroundColor: hud.mission.timeLeft > 15 ? "#8AC926" : hud.mission.timeLeft > 7 ? "#F2B705" : "#D64545",
+                          }}
+                        />
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between text-[10px] font-extrabold text-[#3a2e2a]/80">
+                        <span>{fa(Math.ceil(hud.mission.timeLeft))} ثانیه</span>
+                        <span>{fa(hud.mission.distM)} متر</span>
+                      </div>
+                    </div>
+                  )}
+                  {hud.mission.timeLeft < 0 && (
+                    <div className="mt-1 text-[10px] font-extrabold text-[#3a2e2a]/80">{fa(hud.mission.distM)} متر تا هدف</div>
+                  )}
+                  {hud.mission.extra && (
+                    <div className="mt-1 rounded-full bg-[#FFF3D6] px-2 py-0.5 text-center text-[10px] font-extrabold text-[#3a2e2a]">{hud.mission.extra}</div>
+                  )}
+                </div>
+              )}
               <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
                 <Coins className="h-5 w-5 text-[#B8801A]" />
                 <span className="font-extrabold text-[#3a2e2a]">{fa(hud.coins)}</span>
@@ -418,6 +539,91 @@ export default function GameShell() {
                 <SettingsPanel game={game} />
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ============ نتیجه مأموریت (فاز 4) ============ */}
+      {phase === "playing" && missionResult && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#3a2e2a]/45 px-6 backdrop-blur-[2px]">
+          <div
+            className={`fc-panel fc-pop w-full max-w-sm p-6 text-center ${
+              missionResult.success ? "bg-[#FFF9EC]" : "bg-[#F4E7DA]"
+            }`}
+          >
+            <div
+              className={`mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-3xl ${
+                missionResult.success ? "bg-[#8AC926]" : "bg-[#D64545]"
+              }`}
+            >
+              {missionResult.success ? (
+                <PartyPopper className="h-9 w-9 text-[#3a2e2a]" />
+              ) : (
+                <X className="h-9 w-9 text-white" />
+              )}
+            </div>
+            <h2 className="text-2xl font-extrabold text-[#3a2e2a]">
+              {missionResult.success ? "مأموریت موفق!" : "مأموریت شکست!"}
+            </h2>
+            <p className="mt-0.5 text-sm font-bold text-[#3a2e2a]/70">{missionResult.title}</p>
+            {!missionResult.success && missionResult.reason && (
+              <p className="mt-1 text-sm font-extrabold text-[#D64545]">
+                {FAIL_REASON_FA[missionResult.reason] ?? missionResult.reason}
+              </p>
+            )}
+            {missionResult.success && (
+              <div className="mt-3 flex items-center justify-center gap-2">
+                <span className="fc-panel flex items-center gap-1.5 bg-[#FFF3D6] px-3 py-1.5 text-[#B8801A]">
+                  <Coins className="h-5 w-5" />
+                  <span className="font-extrabold">+{fa(missionResult.coins)}</span>
+                </span>
+                <span className="fc-panel flex items-center gap-1.5 bg-[#FFF3D6] px-3 py-1.5 text-[#D64545]">
+                  <Coffee className="h-5 w-5" />
+                  <span className="font-extrabold">+{fa(missionResult.rep)} آبرو</span>
+                </span>
+              </div>
+            )}
+            <p className="mt-3 rounded-2xl bg-[#FFF3D6] px-3 py-2 text-sm font-bold leading-6 text-[#3a2e2a]">
+              «{missionResult.line}»
+            </p>
+            <div className="mt-4 space-y-2">
+              <button
+                type="button"
+                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#8AC926] py-3 text-lg font-extrabold text-[#3a2e2a]"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setMissionResult(null);
+                  gameRef.current?.startMission(missionResult.missionId);
+                }}
+              >
+                <Play className="h-5 w-5" />
+                تلاش دوباره
+              </button>
+              <button
+                type="button"
+                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setMissionResult(null);
+                  gameRef.current?.abandonMission();
+                }}
+              >
+                <Gauge className="h-5 w-5" />
+                ادامه رانندگی آزاد
+              </button>
+              <button
+                type="button"
+                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D64545] py-3 font-extrabold text-white"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setMissionResult(null);
+                  gameRef.current?.backToMenu();
+                }}
+              >
+                <Home className="h-5 w-5" />
+                منوی اصلی
+              </button>
+            </div>
           </div>
         </div>
       )}

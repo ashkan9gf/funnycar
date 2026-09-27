@@ -1,12 +1,14 @@
 /**
- * AudioManager.ts — صداهای سینتی WebAudio (Phase 1)
+ * AudioManager.ts — صداهای WebAudio
  * ============================================================
- * (ARCHITECTURE بخش ۹ — تصمیم جلسه: «صدای سینتی»)
+ * (ARCHITECTURE بخش ۹)
  *  - 4 کانال مستقل: Music / SFX / Voice / UI — هر کدام Volume جدا
- *  - افکت‌ها با oscillator/noise ساخته می‌شوند (بدون فایل — آفلاین کامل)
- *  - در فاز 7/9 فایل‌های OGG جایگزین می‌شوند بدون تغییر کد فراخوان
+ *  - فاز 7: اگر فایل واقعی در AssetManager بود (AudioBuffer) همان پخش می‌شود؛
+ *    وگرنه fallback سینتی oscillator/noise — بازی در هر حالت صدا دارد
  *  - هر خطا → بی‌صدایی امن؛ هرگز Crash (TEST-AUD-005)
  */
+
+import { ASSETS_MANIFEST } from '../data/assets.manifest';
 
 export type AudioChannel = 'music' | 'sfx' | 'voice' | 'ui';
 
@@ -15,12 +17,29 @@ export class AudioManager {
   private gains: Record<AudioChannel, GainNode> | null = null;
   private volumes: Record<AudioChannel, number> = { music: 0.7, sfx: 0.9, voice: 1.0, ui: 0.9 };
 
-  // موتور ماشین
+  /** دسترسی به AudioBufferهای واقعی (فاز 7) — از AssetManager */
+  private getAsset: ((id: string) => unknown) | null = null;
+
+  // موتور ماشین — سینتی
   private engOsc1: OscillatorNode | null = null;
   private engOsc2: OscillatorNode | null = null;
   private engFilter: BiquadFilterNode | null = null;
   private engGain: GainNode | null = null;
+  // موتور ماشین — فایل واقعی (لوپ)
+  private engSrc: AudioBufferSourceNode | null = null;
+  private engFileGain: GainNode | null = null;
   private engineRunning = false;
+
+  /** اتصال AssetManager — برای استفاده از فایل‌های واقعی (فاز 7) */
+  attachAssets(get: (id: string) => unknown): void {
+    this.getAsset = get;
+  }
+
+  /** AudioBuffer واقعی برای یک شناسه — اگر نبود null (fallback سینتی) */
+  private buffer(id: string): AudioBuffer | null {
+    const a = this.getAsset?.(id);
+    return a instanceof AudioBuffer ? a : null;
+  }
 
   /** باید با اولین لمس کاربر صدا زده شود (سیاست مرورگرها) */
   ensure(): void {
@@ -68,6 +87,27 @@ export class AudioManager {
   // ---------- موتور ماشین (Loop پیوسته) ----------
   startEngine(): void {
     if (!this.ctx || !this.gains || this.engineRunning) return;
+    // ---------- اولویت: فایل واقعی (فاز 7) ----------
+    const buf = this.buffer('sfx_engine_loop');
+    if (buf) {
+      try {
+        this.engSrc = this.ctx.createBufferSource();
+        this.engSrc.buffer = buf;
+        this.engSrc.loop = true;
+        this.engFileGain = this.ctx.createGain();
+        this.engFileGain.gain.value = 0;
+        this.engSrc.connect(this.engFileGain);
+        this.engFileGain.connect(this.gains.sfx);
+        this.engSrc.start();
+        this.engineRunning = true;
+        return;
+      } catch (err) {
+        console.warn('[Audio] engine file loop failed — fallback to synth:', err);
+        this.engSrc = null;
+        this.engFileGain = null;
+      }
+    }
+    // ---------- fallback: سینتی ----------
     try {
       const ctx = this.ctx;
       this.engOsc1 = ctx.createOscillator();
@@ -98,17 +138,27 @@ export class AudioManager {
     try {
       this.engOsc1?.stop();
       this.engOsc2?.stop();
+      this.engSrc?.stop();
     } catch { /* بی‌خطر */ }
     this.engOsc1 = null;
     this.engOsc2 = null;
+    this.engSrc = null;
+    this.engFileGain = null;
     this.engineRunning = false;
   }
 
-  /** نسبت سرعت 0..1 → زیر و بمی و بلندی موتور */
+  /** نسبت سرعت 0..1 → زیر و بمی و بلندی موتور (فایل یا سینتی) */
   setEngineSpeed(ratio: number): void {
-    if (!this.ctx || !this.engineRunning || !this.engOsc1 || !this.engOsc2 || !this.engGain) return;
+    if (!this.ctx || !this.engineRunning) return;
     const r = Math.max(0, Math.min(1, ratio));
     const t = this.ctx.currentTime;
+    if (this.engSrc && this.engFileGain) {
+      // فایل: سرعت پخش + بلندی
+      this.engSrc.playbackRate.setTargetAtTime(0.55 + r * 0.95, t, 0.08);
+      this.engFileGain.gain.setTargetAtTime(0.05 + r * 0.1, t, 0.1);
+      return;
+    }
+    if (!this.engOsc1 || !this.engOsc2 || !this.engGain) return;
     this.engOsc1.frequency.setTargetAtTime(58 + r * 82, t, 0.08);
     this.engOsc2.frequency.setTargetAtTime(29 + r * 41, t, 0.08);
     this.engGain.gain.setTargetAtTime(0.028 + r * 0.05, t, 0.1);
@@ -156,15 +206,57 @@ export class AudioManager {
     } catch { /* بی‌خطر */ }
   }
 
+  /** پخش یک AudioBuffer روی یک کانال (فاز 7) — خطاها بی‌خطر */
+  private playBuffer(buf: AudioBuffer, channel: AudioChannel, vol: number, rate = 1): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      const t = this.now();
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = Math.max(0.1, rate);
+      const g = this.ctx.createGain();
+      g.gain.value = vol;
+      src.connect(g);
+      g.connect(this.gains[channel]);
+      src.start(t);
+    } catch { /* بی‌خطر */ }
+  }
+
   horn(variant = 0): void {
+    // فایل واقعی: ۳ واریانت با تغییر زیر و بمی
+    const buf = this.buffer('sfx_horn_01');
+    if (buf) {
+      this.playBuffer(buf, 'sfx', 0.8, [0.94, 1.0, 1.12][variant % 3]);
+      return;
+    }
     const base = [340, 300, 380][variant % 3];
     this.blip(base, 0.26, 'triangle', 0.22, 'sfx');
     this.blip(base * 1.26, 0.26, 'triangle', 0.16, 'sfx');
   }
 
   crash(hard: boolean): void {
+    const buf = this.buffer('sfx_crash_01');
+    if (buf) {
+      this.playBuffer(buf, 'sfx', hard ? 1.0 : 0.65, hard ? 0.85 : 1.05 + Math.random() * 0.1);
+      return;
+    }
     this.noise(hard ? 0.3 : 0.16, hard ? 0.4 : 0.22, hard ? 900 : 1400, 'bandpass');
     this.blip(hard ? 120 : 160, 0.22, 'sine', 0.3, 'sfx', 45);
+  }
+
+  /**
+   * فایل صوتی جمله (فاز 7) — از hook گرفته می‌شود (VoiceAudioHook).
+   * جستجو در manifest: entry.voice.event === eventKey && entry.voice.index === index
+   */
+  playVoiceFile(eventKey: string, index: number): void {
+    if (!this.ctx || !this.gains) return; // قبل از gesture کاربر — ساکت
+    for (const [id, entry] of Object.entries(ASSETS_MANIFEST)) {
+      if (entry.voice && entry.voice.event === eventKey && entry.voice.index === index) {
+        const buf = this.buffer(id);
+        if (buf) this.playBuffer(buf, 'voice', 1.0);
+        return;
+      }
+    }
   }
 
   coin(): void {

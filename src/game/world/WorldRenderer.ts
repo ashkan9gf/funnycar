@@ -12,8 +12,10 @@ import type { Vehicle } from '../entities/Vehicle';
 import type { TrafficCar } from '../entities/TrafficCar';
 import type { World } from './World';
 import type { EventCat, EventCone } from '../managers/RandomEventManager';
+import type { Pothole } from '../managers/MissionManager';
 import { RENDER } from '../data/balance';
-import { RANDOM_EVENTS as RE } from '../data/balance';
+import { RANDOM_EVENTS as RE, MISSIONS as M } from '../data/balance';
+import { faNum } from '../managers/MissionManager';
 
 export interface Particle {
   x: number; y: number;
@@ -115,6 +117,8 @@ export class WorldRenderer {
     traffic: TrafficCar[] = [],
     cat: EventCat | null = null,
     cones: EventCone[] = [],
+    potholes: Pothole[] = [],
+    missionTarget: { x: number; y: number } | null = null,
   ): void {
     const cam = this.camera;
     const left = cam.offsetX();
@@ -127,10 +131,12 @@ export class WorldRenderer {
 
     this.drawTiles(ctx, left, top, viewW, viewH);
     this.drawSkids(ctx);
+    this.drawPotholes(ctx, potholes);
     this.drawBuildings(ctx);
     this.drawProps(ctx);
     this.drawEventCones(ctx, cones);
     this.drawCoins(ctx);
+    this.drawMissionBeacon(ctx, missionTarget);
     this.drawTraffic(ctx, traffic);
     this.drawCat(ctx, cat);
     this.drawCar(ctx, car);
@@ -143,6 +149,140 @@ export class WorldRenderer {
     ctx.translate(-left, -top);
     this.drawAmbientBubbles(ctx);
     ctx.restore();
+  }
+
+  // ---------- چاله‌های مأموریت (فاز 4) ----------
+  private drawPotholes(ctx: CanvasRenderingContext2D, potholes: Pothole[]): void {
+    const r = M.potholeRadius * 0.8;
+    for (const p of potholes) {
+      if (!this.camera.isVisible(p.x - r * 2, p.y - r * 2, r * 4, r * 4)) continue;
+      ctx.save();
+      // سایه لبه شکسته
+      ctx.fillStyle = 'rgba(58,46,42,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y + 4, r, r * 0.78, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      // بدنه تیره
+      ctx.fillStyle = p.hit ? '#241c19' : '#2f2622';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, r, r * 0.75, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      // ترک‌های اطراف (بامزه — نه ترسناک)
+      ctx.strokeStyle = 'rgba(58,46,42,0.4)';
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(p.x + Math.cos(a) * r * 0.8, p.y + Math.sin(a) * r * 0.6);
+        ctx.lineTo(p.x + Math.cos(a) * r * 1.35, p.y + Math.sin(a) * r * 1.05);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // ---------- نشانگر هدف مأموریت (فاز 4) ----------
+  private drawMissionBeacon(ctx: CanvasRenderingContext2D, target: { x: number; y: number } | null): void {
+    if (!target) return;
+    if (!this.camera.isVisible(target.x - 200, target.y - 200, 400, 400)) return;
+    const t = performance.now() / 1000;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3.4);
+
+    ctx.save();
+    ctx.translate(target.x, target.y);
+
+    // هاله زمین پالس‌دار
+    const r = M.reachRadius * (0.82 + pulse * 0.14);
+    ctx.fillStyle = `rgba(242,183,5,${0.13 + pulse * 0.1})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // حلقه چرخان خط‌چین
+    ctx.strokeStyle = '#F2B705';
+    ctx.lineWidth = 6;
+    ctx.setLineDash([26, 18]);
+    ctx.lineDashOffset = -t * 60;
+    ctx.beginPath();
+    ctx.arc(0, 0, M.reachRadius * 0.92, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // فلش بالا-پایین شناور
+    const bob = Math.sin(t * 4.2) * 9;
+    ctx.fillStyle = '#F2B705';
+    ctx.strokeStyle = '#3A2E2A';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(0, -64 + bob);
+    ctx.lineTo(22, -26 + bob);
+    ctx.lineTo(9, -26 + bob);
+    ctx.lineTo(9, 14 + bob);
+    ctx.lineTo(-9, 14 + bob);
+    ctx.lineTo(-9, -26 + bob);
+    ctx.lineTo(-22, -26 + bob);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * فلش جهت‌نما وقتی هدف بیرون کادر است — فضای صفحه (بعد از ترنسلیت دوربین)
+   * برمی‌گرداند: آیا رسم شد؟ (برای آزمون)
+   */
+  drawOffscreenArrow(
+    ctx: CanvasRenderingContext2D,
+    target: { x: number; y: number },
+    player: { x: number; y: number },
+    canvasW: number,
+    canvasH: number,
+    scale: number,
+  ): boolean {
+    const sx = (target.x - this.camera.offsetX()) * scale;
+    const sy = (target.y - this.camera.offsetY()) * scale;
+    const margin = 84;
+    if (sx >= margin && sx <= canvasW - margin && sy >= margin && sy <= canvasH - margin) return false;
+
+    const cx = Math.min(Math.max(sx, margin), canvasW - margin);
+    const cy = Math.min(Math.max(sy, margin), canvasH - margin);
+    const ang = Math.atan2(sy - cy, sx - cx);
+    const distM = Math.round(Math.hypot(target.x - player.x, target.y - player.y) / M.pxPerMeter);
+
+    ctx.save();
+    // سکه پس‌زمینه
+    ctx.fillStyle = 'rgba(58,46,42,0.88)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#F2B705';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+    ctx.stroke();
+    // فلش چرخان
+    ctx.translate(cx, cy);
+    ctx.rotate(ang);
+    ctx.fillStyle = '#F2B705';
+    ctx.beginPath();
+    ctx.moveTo(22, 0);
+    ctx.lineTo(2, -13);
+    ctx.lineTo(2, -5);
+    ctx.lineTo(-18, -5);
+    ctx.lineTo(-18, 5);
+    ctx.lineTo(2, 5);
+    ctx.lineTo(2, 13);
+    ctx.closePath();
+    ctx.fill();
+    ctx.rotate(-ang);
+    // فاصله
+    ctx.fillStyle = '#FFF9EC';
+    ctx.font = '800 17px Vazirmatn, Tahoma, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${faNum(distM)}م`, 0, 0);
+    ctx.restore();
+    return true;
   }
 
   // ---------- کاشی‌ها ----------
@@ -169,7 +309,7 @@ export class WorldRenderer {
         }
         // جاده افقی: همان کاشی عمودی با چرخش 90 درجه
         if (kind === 'road_h') {
-          const img = this.assets.get('env_road_straight_01');
+          const img = this.imageOnly('env_road_straight_01');
           if (img) {
             ctx.save();
             ctx.translate(x + T / 2, y + T / 2);
@@ -182,8 +322,14 @@ export class WorldRenderer {
     }
   }
 
+  /** فقط Assetهای قابل رسم (تصویر) — AudioBuffer را حذف می‌کند (فاز 7) */
+  private imageOnly(id: string): CanvasImageSource | undefined {
+    const a = this.assets.get(id);
+    return a instanceof AudioBuffer ? undefined : a;
+  }
+
   private drawImageFit(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, w: number, h: number): void {
-    const img = this.assets.get(id);
+    const img = this.imageOnly(id);
     if (img) ctx.drawImage(img, x, y, w, h);
   }
 
@@ -223,7 +369,7 @@ export class WorldRenderer {
       if (p.kind !== 'building') continue;
       if (!this.camera.isVisible(p.x, p.y, p.w, p.h, 140)) continue;
 
-      const img = p.assetId ? this.assets.get(p.assetId) : undefined;
+      const img = p.assetId ? this.imageOnly(p.assetId) : undefined;
       if (img) {
         // Asset واقعی (Batch 2) — خودش سایه دارد؛ اندازه با حفظ نسبت داخل کادر
         const iw = this.assets.getSize(p.assetId as string);
@@ -355,7 +501,7 @@ export class WorldRenderer {
       ctx.save();
       ctx.translate(c.x, c.y);
       ctx.rotate(c.angle);
-      const img = this.assets.get(c.assetId);
+      const img = this.imageOnly(c.assetId);
       if (img) {
         ctx.drawImage(img, -c.drawW / 2, -c.drawH / 2, c.drawW, c.drawH);
       } else {
@@ -433,7 +579,7 @@ export class WorldRenderer {
     ctx.save();
     ctx.translate(car.x, car.y);
     ctx.rotate(car.angle);
-    const img = this.assets.get('veh_player_01');
+    const img = this.imageOnly('veh_player_01');
     if (img) {
       ctx.drawImage(img, -car.drawW / 2, -car.drawH / 2, car.drawW, car.drawH);
     } else {
@@ -550,7 +696,7 @@ export class WorldRenderer {
 
     // پرتره (دایره‌ای) سمت راست
     const pid = portraitId ?? 'char_driver_01_idle';
-    const img = this.assets.get(pid);
+    const img = this.imageOnly(pid);
     const pcx = bx + bubbleW - portraitR - 14;
     const pcy = by + bubbleH / 2;
     if (img) {

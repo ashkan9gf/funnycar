@@ -33,8 +33,8 @@
 | ID | Asset | Req | Batch | Phase | Format | ابعاد | حجم هدف | انیمیشن | مسیر | وضعیت |
 |---|---|---|---|---|---|---|---|---|---|---|
 | CHAR-001 | پرتره راننده (بازیکن) — نیم‌تنه با سبیل بامزه | Yes | 1 | 1 | PNG | 512×512 | <120KB | حالت‌ها: عادی/شوک/خوشحال (3 فایل جدا) | characters/player/char_driver_01_idle.png + _happy.png + _shock.png | 🟢 |
-| CHAR-002 | پرتره مکانیک (پیش‌بند + آچار) | Yes | 4 | 6 | PNG | 512×512 | <120KB | Idle | characters/mechanic/char_mechanic_01.png | ⬜ |
-| CHAR-003 | پرتره مسافر مرد | Yes | 4 | 6 | PNG | 512×512 | <120KB | Idle/عصبانی (2 فایل) | characters/passenger/char_pass_m_01_idle.png + _angry.png | ⬜ |
+| CHAR-002 | پرتره مکانیک (کلاه + آچار) | Yes | 4 | 6 | PNG | 512×512 | <120KB | Idle | characters/mechanic/char_mechanic_01.png | 🟢 Batch4 |
+| CHAR-003 | پرتره مسافر مرد | Yes | 4 | 6 | PNG | 512×512 | <120KB | Idle/عصبانی (2 فایل) | characters/passenger/char_pass_m_01_idle.png + _angry.png | 🟢 Batch4 |
 | CHAR-004 | پرتره مسافر زن | No | 4 | 6 | PNG | 512×512 | <120KB | Idle | characters/passenger/char_pass_f_01_idle.png | ⬜ |
 
 **نکته:** در نمای Top-Down، بدن شخصیت داخل اسپرایت ماشین دیده می‌شود؛ پرتره‌ها فقط برای حباب دیالوگ و HUD هستند. بنابراین انیمیشن بدن (Walk/Run) لازم نیست — فقط حالت چهره. (قانون بخش ۱۳: فقط انیمیشنی که واقعاً استفاده می‌شود.)
@@ -45,7 +45,7 @@
 
 | ID | Asset | Req | Batch | Phase | Format | ابعاد | حجم هدف | مسیر | وضعیت |
 |---|---|---|---|---|---|---|---|---|---|
-| NPC-001 | افسر پلیس (پرتره + پیکان‌چرخان کوچک Top-Down) | Yes | 2/4 | 5 | PNG | 512×512 + 96×128 | <150KB | npc/police/npc_police_01.png, npc_police_01_car.png | ⬜ |
+| NPC-001 | افسر پلیس (پرتره + پیکان‌چرخان کوچک Top-Down) | Yes | 2/4 | 5 | PNG | 512×512 + 96×128 | <150KB | npc/police/npc_police_01.png ✅ پرتره آماده؛ اسپرایت پیکان‌چرخان هنوز ⬜ | 🟡 نیمه‌کاره |
 | NPC-002 | عابر مرد (Top-Down 4 جهت) | Yes | 4 | 5 | PNG | 96×128 ×4 جهت | <40KB | npc/pedestrians/npc_ped_m_01.png | ⬜ |
 | NPC-003 | عابر زن (Top-Down 4 جهت) | Yes | 4 | 5 | PNG | 96×128 ×4 جهت | <40KB | npc/pedestrians/npc_ped_f_01.png | ⬜ |
 | NPC-004 | موتورسوار (موتور + سوار، Top-Down) | Yes | 4 | 6 | PNG | 160×280 | <50KB | npc/npc_motor_01.png | ⬜ |
@@ -127,10 +127,10 @@
 |---|---|---|---|---|---|---|---|---|
 | AUD-MUS-001 | موسیقی منوی اصلی (شاد، ایرانی‌سمت‌وسو، Loopable) | Yes | 7 | 9 | Music | 60-90s loop | audio/music/music_main_loop.ogg | ⬜ |
 | AUD-MUS-002 | موسیقی گیم‌پلی (ریتم ملایم) | Yes | 7 | 9 | Music | 90-120s loop | audio/music/music_gameplay_loop.ogg | ⬜ |
-| AUD-SFX-001 | موتور ماشین (Loop + Pitch متغیر با سرعت) | Yes | 7 | 1* | SFX | 2s loop | audio/sfx/sfx_engine_loop.ogg | ⬜ |
+| AUD-SFX-001 | موتور ماشین (Loop + Pitch متغیر با سرعت) | Yes | 7 | 1* | SFX | 1.6s loop | audio/sfx/sfx_engine_loop.ogg | 🟢 سینتز |
 | AUD-SFX-002 | ترمز | Yes | 7 | 6 | SFX | 0.6s | audio/sfx/sfx_brake_01.ogg | ⬜ |
-| AUD-SFX-003 | تصادف (برخورد کارتونی) | Yes | 7 | 1* | SFX | 0.8s | audio/sfx/sfx_crash_01.ogg | ⬜ |
-| AUD-SFX-004 | بوق (۳ واریشن بامزه) | Yes | 7 | 1* | SFX | 0.4s×3 | audio/sfx/sfx_horn_01..03.ogg | ⬜ |
+| AUD-SFX-003 | تصادف (برخورد کارتونی) | Yes | 7 | 1* | SFX | 0.7s | audio/sfx/sfx_crash_01.ogg | 🟢 سینتز |
+| AUD-SFX-004 | بوق (۳ واریشن با Pitch) | Yes | 7 | 1* | SFX | 0.55s | audio/sfx/sfx_horn_01.ogg | 🟢 سینتز |
 | AUD-SFX-005 | کلیک دکمه | Yes | 7 | 1* | SFX | 0.15s | audio/sfx/sfx_button_01.ogg | ⬜ |
 | AUD-SFX-006 | جمع‌آوری سکه | Yes | 7 | 7 | SFX | 0.3s | audio/sfx/sfx_coin_01.ogg | ⬜ |
 | AUD-SFX-007 | مأموریت موفق (Jingle) | Yes | 7 | 4 | SFX | 1.5s | audio/sfx/sfx_mission_ok.ogg | ⬜ |
@@ -149,7 +149,7 @@
 
 | ID | رویداد | تعداد جمله | شخصیت | مسیر پایه | وضعیت |
 |---|---|---|---|---|---|
-| VOX-CRASH-001..05 | car_crash | 5 | Player | voices/player/voice_crash_01..05 | ⬜ (متن‌ها فعال ✅) |
+| VOX-CRASH-001..05 | car_crash | 5 | Player | voices/player/voice_crash_01..05 | 🟡 voice_crash_01 با TTS موقت آماده (۰۱)؛ ۰۲..۰۵ و ضبط انسانی بعداً |
 | VOX-PARK-BAD-001..03 | parking_bad | 3 | Player | voices/player/voice_park_bad_01..03 | ⬜ (متن فعال ✅) |
 | VOX-PARK-OK-001..03 | parking_good | 3 | Player | voices/player/voice_park_good_01..03 | ⬜ |
 | VOX-ENGFAIL-001..03 | engine_failure | 3 | Player | voices/player/voice_engfail_01..03 | ⬜ |
