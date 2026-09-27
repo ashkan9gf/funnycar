@@ -11,7 +11,9 @@
 import { useCallback, useRef, useState } from "react";
 
 interface HoldButtonProps {
-  label: React.ReactNode;
+  label?: React.ReactNode;
+  /** محتوای دکمه — نام‌ترجیحی با children (هم‌خوان با عرف React) */
+  children?: React.ReactNode;
   ariaLabel: string;
   className?: string;
   style?: React.CSSProperties;
@@ -20,7 +22,7 @@ interface HoldButtonProps {
 }
 
 /** دکمه نگه‌داشتنی (گاز/ترمز/فرمان) */
-export function HoldButton({ label, ariaLabel, className = "", style, onHold, disabled }: HoldButtonProps) {
+export function HoldButton({ label, children, ariaLabel, className = "", style, onHold, disabled }: HoldButtonProps) {
   const [pressed, setPressed] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
 
@@ -57,13 +59,14 @@ export function HoldButton({ label, ariaLabel, className = "", style, onHold, di
       onContextMenu={(e) => e.preventDefault()}
       disabled={disabled}
     >
-      {label}
+      {children ?? label}
     </button>
   );
 }
 
 interface TapButtonProps {
-  label: React.ReactNode;
+  label?: React.ReactNode;
+  children?: React.ReactNode;
   ariaLabel: string;
   className?: string;
   style?: React.CSSProperties;
@@ -71,7 +74,7 @@ interface TapButtonProps {
 }
 
 /** دکمه ضربه‌ای (بوق/Pause) */
-export function TapButton({ label, ariaLabel, className = "", style, onTap }: TapButtonProps) {
+export function TapButton({ label, children, ariaLabel, className = "", style, onTap }: TapButtonProps) {
   return (
     <button
       type="button"
@@ -84,7 +87,7 @@ export function TapButton({ label, ariaLabel, className = "", style, onTap }: Ta
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {label}
+      {children ?? label}
     </button>
   );
 }

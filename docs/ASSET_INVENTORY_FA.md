@@ -15,12 +15,12 @@
 | ID | Asset | Req | Batch | Phase | Format | ابعاد (px) | حجم هدف | انیمیشن | مسیر | وضعیت |
 |---|---|---|---|---|---|---|---|---|---|---|
 | VEH-001 | ماشین بازیکن «پرنده ۱۳۱» (سفید، بدنه کوچک کارتونی) | Yes | 1 | 1 | PNG | 256×448 | <80KB | Idle/Drive (2 فریم لرزش موتور — اختیاری) | vehicles/player/veh_player_01.png | 🟢 |
-| VEH-002 | تاکسی نارنجی | Yes | 2 | 3 | PNG | 256×448 | <80KB | — | vehicles/traffic/veh_taxi_01.png | ⬜ |
-| VEH-003 | ماشین پلیس (چراغ‌آب​ی‌سفید کارتونی) | Yes | 2 | 5 | PNG | 256×448 | <80KB | — | npc/vehicles/veh_police_01.png | ⬜ |
-| VEH-004 | وانت بار قرمز | Yes | 2 | 3 | PNG | 256×448 | <80KB | — | vehicles/traffic/veh_pickup_01.png | ⬜ |
+| VEH-002 | تاکسی نارنجی | Yes | 2 | 3 | PNG | 256×448 | <80KB | — | vehicles/traffic/veh_taxi_01.png | 🟢 |
+| VEH-003 | ماشین پلیس (چراغ‌آب​ی‌سفید کارتونی) | Yes | 2 | 5 | PNG | 256×448 | <80KB | — | npc/vehicles/veh_police_01.png | 🟢 |
+| VEH-004 | وانت بار قرمز | Yes | 2 | 3 | PNG | 256×448 | <80KB | — | vehicles/traffic/veh_pickup_01.png | 🟢 |
 | VEH-005 | ماشین دودکن/خراب (پر از باند) | Yes | 2 | 4 | PNG | 256×448 | <80KB | — | vehicles/traffic/veh_broken_01.png | ⬜ |
 | VEH-006 | ماشین عروس (با گل روی کاپوت) | No | 3 | 8 | PNG | 256×448 | <80KB | — | vehicles/special/veh_wedding_01.png | ⬜ |
-| VEH-007 | خودروی شخصی آبی «کپری» | Yes | 2 | 3 | PNG | 256×448 | <80KB | — | vehicles/traffic/veh_sedan_01.png | ⬜ |
+| VEH-007 | خودروی شخصی آبی «کپری» | Yes | 2 | 3 | PNG | 256×448 | <80KB | — | vehicles/traffic/veh_sedan_01.png | 🟢 |
 | VEH-008 | ماشین ورزشی قابل Unlock «شاهین» | No | 5 | 7 | PNG | 256×448 | <80KB | — | vehicles/unlockable/veh_sport_01.png | ⬜ |
 | VEH-009 | ماشین بنزکش/تانکر کوچک | No | 3 | 6 | PNG | 256×448 | <80KB | — | vehicles/traffic/veh_fueltruck_01.png | ⬜ |
 
@@ -61,10 +61,10 @@
 | ENV-002 | کاشی تقاطع (چهارراه) | Yes | 1 | 1 | PNG | 512×512 | <150KB | environments/roads/env_road_cross_01.png | 🟢 |
 | ENV-003 | کاشی پیاده‌رو/جدول | Yes | 1 | 1 | PNG | 512×512 | <120KB | environments/roads/env_sidewalk_01.png | 🟢 |
 | ENV-004 | کاشی زمین/حیاط | Yes | 1 | 1 | PNG | 512×512 | <120KB | environments/roads/env_ground_01.png | 🟢 |
-| ENV-005 | ساختمان نوع A (مغازه دوطبقه با تابلوی فارسی) | Yes | 3 | 3 | PNG | 512×640 | <200KB | environments/buildings/env_building_shop_01.png | ⬜ |
-| ENV-006 | ساختمان نوع B (خانه مسکونی آجری) | Yes | 3 | 3 | PNG | 512×640 | <200KB | environments/buildings/env_building_home_01.png | ⬜ |
-| ENV-007 | ساختمان نوع C (تعمیرگاه با درب بزرگ) | Yes | 3 | 6 | PNG | 512×640 | <200KB | environments/buildings/env_building_garage_01.png | ⬜ |
-| ENV-008 | پمپ بنزین (جایگاه + کانوپی) | Yes | 3 | 6 | PNG | 640×640 | <250KB | environments/landmarks/env_gas_station_01.png | ⬜ |
+| ENV-005 | ساختمان نوع A (مغازه دوطبقه با تابلوی فارسی) | Yes | 3 | 3 | PNG | 512×640 | <200KB | environments/buildings/env_building_shop_01.png | 🟢 |
+| ENV-006 | ساختمان نوع B (خانه مسکونی آجری) | Yes | 3 | 3 | PNG | 512×640 | <200KB | environments/buildings/env_building_home_01.png | 🟢 |
+| ENV-007 | ساختمان نوع C (تعمیرگاه با درب بزرگ) | Yes | 3 | 6 | PNG | 512×640 | <200KB | environments/buildings/env_building_garage_01.png | 🟢 |
+| ENV-008 | پمپ بنزین (جایگاه + کانوپی) | Yes | 3 | 6 | PNG | 640×640 | <250KB | environments/landmarks/env_gas_station_01.png | 🟢 |
 | ENV-009 | تابلوی خیابان فارسی (بلوک متنی جدا برای متن داینامیک) | No | 3 | 8 | PNG | 256×128 | <60KB | environments/props/env_sign_01.png | ⬜ |
 | ENV-010 | چراغ راهنمایی | Yes | 3 | 3 | PNG | 128×256 | <60KB | environments/props/env_trafficlight_01.png | ⬜ |
 

@@ -21,6 +21,8 @@ export interface WorldProp {
   /** برای ساختمان‌ها: شناسه Asset ساختمان (فاز 3) */
   assetId?: string;
   tint?: string;      // رنگ placeholder ساختمان
+  /** لندمارک = ساختمان ویژه (مثل پمپ بنزین) — کمی بزرگ‌تر رسم می‌شود */
+  landmark?: boolean;
 }
 
 export interface Coin {
@@ -91,13 +93,17 @@ export class World {
   }
 
   // ---------- بلوک‌ها: ساختمان‌ها و پروپ‌ها ----------
-  private addBuilding(bx: number, by: number, tint: string): void {
+  /**
+   * ساختمان واقعی با Asset (فاز 2: ENV-005..008)
+   * اگر assetId داده نشود، ساختمان برنامه‌ای برچسب‌دار رسم می‌شود (fallback)
+   */
+  private addBuilding(bx: number, by: number, assetId: string, landmark = false): void {
     // بلوک 768px: پیاده‌رو 64 → جای ساختمان 640
-    const w = 560;
-    const h = 620;
+    const w = landmark ? 620 : 560;
+    const h = landmark ? 620 : 620;
     const x = bx + (768 - w) / 2;
     const y = by + (768 - h) / 2;
-    this.props.push({ id: `building_${x}_${y}`, x, y, w, h, solid: false, kind: 'building', tint });
+    this.props.push({ id: `building_${x}_${y}`, x, y, w, h, solid: false, kind: 'building', assetId, landmark });
     this.colliders.push({ x, y, w, h });
   }
 
@@ -114,12 +120,24 @@ export class World {
       }
     }
 
-    // 9 بلوک: بلوک مرکزی (1,1) = پارک با درخت؛ بقیه ساختمان
+    // 9 بلوک — فاز 2: ساختمان‌های واقعی ENV-005/006/007 + لندمارک ENV-008 (پمپ بنزین)
+    // چیدمان قطعی (Deterministic): تنوع بصری در هر بلوک، پارک در مرکز (idx=4)
+    const layout: string[] = [
+      'env_building_home_01',   // idx 0 (شمال‌غرب)
+      'env_building_shop_01',   // idx 1 (شمال)
+      'env_building_home_01',   // idx 2 (شمال‌شرق)
+      'env_building_garage_01', // idx 3 (غرب)
+      'park',                   // idx 4 (مرکز = پارک)
+      'env_gas_station_01',     // idx 5 (شرق — لندمارک)
+      'env_building_shop_01',   // idx 6 (جنوب‌غرب)
+      'env_building_home_01',   // idx 7 (جنوب)
+      'env_building_garage_01', // idx 8 (جنوب‌شرق)
+    ];
     blockPos.forEach(([bx, by], idx) => {
       const cx = bx + 384;
       const cy = by + 384;
-      const isCenter = idx === 4;
-      if (isCenter) {
+      const cell = layout[idx] ?? 'env_building_home_01';
+      if (cell === 'park') {
         // پارک محله — درخت‌ها با برخورد + چند مخروط بازیگوش
         this.addProp('tree', cx - 220, cy - 180, 110, 110, true);
         this.addProp('tree', cx + 120, cy - 200, 130, 130, true);
@@ -129,8 +147,8 @@ export class World {
         this.addProp('cone', cx + 40, cy - 20, 54, 54, false);
         return;
       }
-      const tints = ['#2A9D8F', '#E9C46A', '#D64545', '#8AB17D', '#B5838D', '#7FB5B5', '#C77D4F', '#9A8C98'];
-      this.addBuilding(bx, by, tints[idx % tints.length]);
+      const isLandmark = cell === 'env_gas_station_01';
+      this.addBuilding(bx, by, cell, isLandmark);
       // پروپ کنار ساختمان‌ها
       if (idx % 2 === 0) this.addProp('trash', bx + 60, by + 700, 64, 64, true);
       if (idx % 3 === 0) this.addProp('pole', bx + 690, by + 90, 46, 46, true);

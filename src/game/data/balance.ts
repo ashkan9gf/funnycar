@@ -21,6 +21,61 @@ export const VEHICLE_PHYSICS = {
   wheelBase: 64,
 } as const;
 
+/** درفت ملایم (فاز 2) — سرخوردن جانبی در فرمان تندِ سرعت بالا */
+export const DRIFT = {
+  /** ضریب تبدیل فرمان+سرعت به سرعت جانبی */
+  slipGain: 2.2,
+  /** نسبت سرعت شروع درفت محسوس */
+  minSpeedRatio: 0.45,
+  /** چسبندگی لاستیک: میرایی سرعت جانبی (بزرگ‌تر = سریع‌تر برمی‌گردد) */
+  gripDecay: 3.2,
+  /** سقف سرعت جانبی (px/s) */
+  maxLateral: 130,
+  /** آستانه سرعت جانبی برای «در حال درفت» (صدای سایش + رد لاستیک) */
+  skidThreshold: 55,
+  /** فاصله صدای سایش (ثانیه) */
+  skidSoundInterval: 0.28,
+} as const;
+
+/** ترافیک (فاز 2) — خودروهای AI روی لاین درست */
+export const TRAFFIC = {
+  /** تعداد خودروی ترافیک فعال */
+  count: 7,
+  /** سرعت کروز (px/s) و محدوده تفاوت بین ماشین‌ها */
+  cruiseSpeed: 130,
+  cruiseJitter: 35,
+  accel: 160,
+  brakePower: 340,
+  /** فاصله امن پشت مانع جلویی (px) */
+  safeGap: 95,
+  /** برد دید جلو برای ترمز (px) */
+  lookAhead: 170,
+  /** احتمال ادامه مسیر مستقیم در تقاطع (بقیه: نصف راست/نصف چپ) */
+  straightChance: 0.55,
+  /** وقتی جلوی‌شان بسته شد، بعد از این مدت بوق می‌زنند (ثانیه) */
+  honkAfterBlockedSec: 2.5,
+  /** برد واکنش به بوق بازیکن (px) */
+  honkReactionRadius: 320,
+  /** احتمال بوق جواب دادن */
+  honkBackChance: 0.45,
+  /** پس از برخورد با بازیکن، چند ثانیه مکث می‌کنند */
+  stunnedSec: 2.2,
+  /** ابعاد رسم ترافیک (نسبت 4:7 مثل بازیکن) */
+  drawW: 104,
+} as const;
+
+/** رویدادهای تصادفی واقعی (فاز 2) */
+export const RANDOM_EVENTS = {
+  minIntervalSec: 26,
+  maxIntervalSec: 52,
+  /** گربه: سرعت عرضی عبور از جاده */
+  catSpeed: 85,
+  catSize: 34,
+  /** مخروط: چند عدد و طول عمر (ثانیه) */
+  coneCount: 4,
+  coneLifetimeSec: 24,
+} as const;
+
 /** آستانه‌های برخورد */
 export const COLLISION = {
   /** سرعت بالای این = تصادف جدی (لرزش + آبرو) */
@@ -37,6 +92,8 @@ export const REPUTATION = {
   max: 100,
   softCrashPenalty: 3,
   hardCrashPenalty: 8,
+  /** برخورد با خودروی ترافیک — خطای راننده بازیکن فرض می‌شود */
+  trafficCrashPenalty: 4,
 } as const;
 
 /** دوربین */

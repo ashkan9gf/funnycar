@@ -176,6 +176,13 @@ export class AudioManager {
     this.noise(0.22, 0.12, 2600, 'highpass');
   }
 
+  /** سایش لاستیک هنگام درفت (فاز 2) — نویز فرکانس بالا با پچ کوتاه */
+  skid(intensity = 1): void {
+    const v = Math.max(0.04, Math.min(1, intensity)) * 0.14;
+    this.noise(0.16, v, 2200 + Math.random() * 600, 'bandpass');
+    this.blip(1500 + Math.random() * 250, 0.1, 'sawtooth', v * 0.25, 'sfx', 900);
+  }
+
   click(): void {
     this.blip(700, 0.05, 'square', 0.08, 'ui');
   }

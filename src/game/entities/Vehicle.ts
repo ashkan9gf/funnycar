@@ -7,7 +7,7 @@
  *  - برخورد AABB با موانع (ساختمان‌ها) — نتیجه: توقف/جهش + رویداد
  */
 
-import { VEHICLE_PHYSICS as VP, COLLISION } from '../data/balance';
+import { VEHICLE_PHYSICS as VP, COLLISION, DRIFT } from '../data/balance';
 
 export interface Collider {
   x: number; y: number; w: number; h: number;
@@ -28,6 +28,8 @@ export interface VehicleUpdateResult {
   impactSpeed: number;
   /** شدت ترمز امتیازی (برای رویداد hard_brake) */
   brakedHard: boolean;
+  /** در حال درفت/سرخوردن است؟ (رد لاستیک + صدای سایش) */
+  skidding: boolean;
 }
 
 export class Vehicle {
@@ -35,6 +37,8 @@ export class Vehicle {
   y = 0;
   angle = 0;
   speed = 0;
+  /** سرعت جانبی در قاب خودکار (درفت ملایم فاز 2) */
+  latVel = 0;
   /** ابعاد رسم (منطقی) — از AssetManager پس از Boot تنظیم می‌شود */
   drawW = 112;
   drawH = 196;
@@ -48,16 +52,21 @@ export class Vehicle {
     this.y = y;
     this.angle = angle;
     this.speed = 0;
+    this.latVel = 0;
   }
 
   get vx(): number { return Math.sin(this.angle) * this.speed; }
   get vy(): number { return -Math.cos(this.angle) * this.speed; }
 
+  /** بردار راست خودکار (نسبت به جهت فعلی) — برای درفت */
+  private get rightX(): number { return Math.cos(this.angle); }
+  private get rightY(): number { return Math.sin(this.angle); }
+
   /**
    * یک گام فیزیک (dt ثابت 1/120) — ورودی از InputManager.collect
    */
   update(dt: number, input: { steer: number; gas: boolean; brake: boolean }, colliders: Collider[]): VehicleUpdateResult {
-    const res: VehicleUpdateResult = { crashed: false, impactSpeed: 0, brakedHard: false };
+    const res: VehicleUpdateResult = { crashed: false, impactSpeed: 0, brakedHard: false, skidding: false };
 
     // ---------- سرعت ----------
     const prevSpeed = this.speed;
@@ -90,9 +99,22 @@ export class Vehicle {
       if (this.angle < -Math.PI) this.angle += Math.PI * 2;
     }
 
-    // ---------- حرکت ----------
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
+    // ---------- درفت ملایم (فاز 2) ----------
+    // فرمان تند در سرعت بالا = سرعت جانبی به سمت بیرون پیچ + میرایی چسبندگی لاستیک
+    const speedRatioAbs = Math.abs(this.speed) / VP.maxSpeed;
+    if (speedRatioAbs > DRIFT.minSpeedRatio && this.speed > 0 && input.steer !== 0) {
+      // بیرون پیچ = خلاف جهت فرمان (فیزیک: جرم به مسیر قبلی ادامه می‌دهد)
+      this.latVel -= input.steer * DRIFT.slipGain * speedRatioAbs * Math.abs(this.speed) * dt;
+    }
+    // میرایی چسبندگی
+    const grip = Math.exp(-DRIFT.gripDecay * dt);
+    this.latVel *= grip;
+    this.latVel = Math.max(-DRIFT.maxLateral, Math.min(DRIFT.maxLateral, this.latVel));
+    res.skidding = Math.abs(this.latVel) > DRIFT.skidThreshold;
+
+    // ---------- حرکت (طولی + جانبی) ----------
+    this.x += (this.vx + this.rightX * this.latVel) * dt;
+    this.y += (this.vy + this.rightY * this.latVel) * dt;
 
     // ---------- برخورد (حل محور-به-محور = لغزش در امتداد دیوار، بدون گیر کردن) ----------
     for (const c of colliders) {
@@ -122,6 +144,7 @@ export class Vehicle {
 
       // ساییدن به مانع: سرعت کم می‌شود ولی حرکت ادامه می‌یابد (لغزش)
       this.speed *= COLLISION.wallSlideFactor;
+      this.latVel *= 0.4;
 
       if (axisImpact > COLLISION.softCrashSpeed) {
         res.crashed = true;

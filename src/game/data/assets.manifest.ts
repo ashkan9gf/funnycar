@@ -71,7 +71,7 @@ export const ASSETS_MANIFEST: Record<string, AssetEntry> = {
     placeholder: { type: 'portrait', w: 512, h: 512, label: 'PLACEHOLDER_CHARACTER' },
   },
 
-  // ============ Batch 2 — ترافیک و پلیس (فاز 3-5) ============
+  // ============ Batch 2 — ترافیک و پلیس (واقعی — فاز 2) ============
   veh_taxi_01: {
     src: 'assets/vehicles/traffic/veh_taxi_01.png',
     placeholder: { type: 'vehicle', w: 256, h: 448, label: 'PLACEHOLDER_VEHICLE' },
@@ -79,6 +79,32 @@ export const ASSETS_MANIFEST: Record<string, AssetEntry> = {
   veh_police_01: {
     src: 'assets/npc/vehicles/veh_police_01.png',
     placeholder: { type: 'vehicle', w: 256, h: 448, label: 'PLACEHOLDER_VEHICLE' },
+  },
+  veh_pickup_01: {
+    src: 'assets/vehicles/traffic/veh_pickup_01.png',
+    placeholder: { type: 'vehicle', w: 256, h: 448, label: 'PLACEHOLDER_VEHICLE' },
+  },
+  veh_sedan_01: {
+    src: 'assets/vehicles/traffic/veh_sedan_01.png',
+    placeholder: { type: 'vehicle', w: 256, h: 448, label: 'PLACEHOLDER_VEHICLE' },
+  },
+
+  // ============ Batch 2 — ساختمان‌های واقعی (فاز 2) ============
+  env_building_shop_01: {
+    src: 'assets/environments/buildings/env_building_shop_01.png',
+    placeholder: { type: 'building', w: 512, h: 640, label: 'PLACEHOLDER_ENVIRONMENT' },
+  },
+  env_building_home_01: {
+    src: 'assets/environments/buildings/env_building_home_01.png',
+    placeholder: { type: 'building', w: 512, h: 640, label: 'PLACEHOLDER_ENVIRONMENT' },
+  },
+  env_building_garage_01: {
+    src: 'assets/environments/buildings/env_building_garage_01.png',
+    placeholder: { type: 'building', w: 512, h: 640, label: 'PLACEHOLDER_ENVIRONMENT' },
+  },
+  env_gas_station_01: {
+    src: 'assets/environments/landmarks/env_gas_station_01.png',
+    placeholder: { type: 'building', w: 640, h: 640, label: 'PLACEHOLDER_ENVIRONMENT' },
   },
 
   // ============ صدا (فاز 7/9 جایگزین سینتی می‌شود — بدون تغییر کد) ============

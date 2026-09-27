@@ -12,10 +12,13 @@ import { Camera } from './Camera';
 import { SaveManager } from './SaveManager';
 import { AudioManager } from '../managers/AudioManager';
 import { VoiceManager } from '../managers/VoiceManager';
+import { TrafficManager } from '../managers/TrafficManager';
+import { RandomEventManager } from '../managers/RandomEventManager';
 import { Vehicle } from '../entities/Vehicle';
 import { World } from '../world/World';
 import { WorldRenderer } from '../world/WorldRenderer';
-import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM } from '../data/balance';
+import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT } from '../data/balance';
+import { DIALOGUES } from '../data/dialogues';
 
 export type GameState = 'boot' | 'menu' | 'playing' | 'paused';
 
@@ -50,6 +53,8 @@ export class GameManager {
   private world = new World();
   private renderer: WorldRenderer;
   private vehicle = new Vehicle();
+  private traffic: TrafficManager;
+  private randomEvents: RandomEventManager;
 
   private state: GameState = 'boot';
   private raf = 0;
@@ -64,6 +69,7 @@ export class GameManager {
   private idleTimerSec = 12;
   private crashCooldown = 0;
   private brakeSoundLatch = false;
+  private skidSoundTimer = 0;
   private hudThrottle = 0;
   private disposed = false;
 
@@ -79,7 +85,19 @@ export class GameManager {
     this.ctx = ctx;
     this.renderer = new WorldRenderer(this.assets, this.world, this.camera);
 
-    // سایه‌های مورب — یک‌بار
+    // ترافیک و رویدادهای تصادفی (فاز 2)
+    this.traffic = new TrafficManager(
+      ['veh_taxi_01', 'veh_sedan_01', 'veh_pickup_01', 'veh_police_01'],
+      { onHonk: (car) => this.onTrafficHonk(car) },
+      (() => {
+        const s = this.world.playerSpawn();
+        return { x: s.x, y: s.y, r: 420 };
+      })(),
+    );
+    this.randomEvents = new RandomEventManager(this.world, {
+      onEvent: (kind, x, y) => this.onRandomEvent(kind, x, y),
+    });
+
     this.input.attach();
 
     window.addEventListener('resize', this.handleResize);
@@ -166,6 +184,12 @@ export class GameManager {
     if (this.state !== 'playing') return;
     this.audio.horn(Math.floor(Math.random() * 3));
     this.voice.trigger('horn_joke', performance.now());
+    // واکنش ترافیک (فاز 2): جواب بوق + حباب طنز روی ماشینِ جواب‌دهنده
+    const reacted = this.traffic.onPlayerHorn(this.vehicle.x, this.vehicle.y);
+    if (reacted.length > 0) {
+      const car = reacted[0];
+      this.renderer.pushBubble(this.pickLine('traffic_honk'), car.x, car.y, 'char_driver_01_idle', 2.6);
+    }
   }
   setSetting<K extends 'music' | 'sfx' | 'voice'>(k: K, v: number): void {
     this.save.mutate((d) => { d.settings[k] = v; });
@@ -176,6 +200,74 @@ export class GameManager {
 
   toggleDebugFps(): void {
     this.showFps = !this.showFps;
+  }
+
+  // ============ ترافیک و رویدادها (فاز 2) ============
+
+  /** جمله تصادفی از یک رویداد دیالوگ (Data-Driven) */
+  private pickLine(event: keyof typeof DIALOGUES): string {
+    const ev = DIALOGUES[event];
+    return ev.lines[Math.floor(Math.random() * ev.lines.length)];
+  }
+
+  /** بوق ماشین ترافیک (گیر افتاده یا جواب بوق) — فقط صدا؛ حباب جدا داده می‌شود */
+  private onTrafficHonk(_car: unknown): void {
+    if (this.state !== 'playing') return;
+    this.audio.horn(Math.floor(Math.random() * 3));
+  }
+
+  /** رویداد تصادفی فعال شد → صدا + دیالوگ */
+  private onRandomEvent(kind: 'cat' | 'cones' | 'taxi', x: number, y: number): void {
+    if (this.state !== 'playing') return;
+    const nowMs = performance.now();
+    if (kind === 'cat') {
+      this.voice.trigger('cat_event', nowMs);
+    } else if (kind === 'cones') {
+      this.voice.trigger('cones_ahead', nowMs);
+    } else if (kind === 'taxi') {
+      const taxi = this.randomEvents.nearestTaxi(this.traffic.cars, x, y);
+      if (taxi) {
+        this.audio.horn(Math.floor(Math.random() * 3));
+        this.renderer.pushBubble(this.pickLine('traffic_honk'), taxi.x, taxi.y, 'char_driver_01_idle', 2.6);
+      }
+    }
+  }
+
+  /** برخورد بازیکن با خودروی ترافیک — بازیکن کنار می‌رود، ترافیک مکث می‌کند */
+  private resolveTrafficCollisions(dt: number): void {
+    const v = this.vehicle;
+    this.crashCooldown = Math.max(0, this.crashCooldown - dt);
+    for (const c of this.traffic.cars) {
+      const hw = v.hitW / 2 + c.hitW / 2;
+      const hh = v.hitH / 2 + c.hitH / 2;
+      const dx = v.x - c.x;
+      const dy = v.y - c.y;
+      const penX = hw - Math.abs(dx);
+      const penY = hh - Math.abs(dy);
+      if (penX <= 0 || penY <= 0) continue;
+
+      const impact = Math.hypot(v.vx, v.vy);
+      if (penX < penY) v.x += dx >= 0 ? penX : -penX;
+      else v.y += dy >= 0 ? penY : -penY;
+      v.speed *= 0.5;
+      v.latVel *= 0.4;
+      c.stun(TRAFFIC.stunnedSec);
+
+      if (this.crashCooldown <= 0 && impact > COLLISION.softCrashSpeed) {
+        this.crashCooldown = 0.8;
+        this.audio.crash(false);
+        this.camera.addShake(CAM.maxShake * 0.5);
+        this.renderer.spawnBurst(v.x, v.y, '#B9B9B9', 10);
+        this.save.mutate((d) => {
+          d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.trafficCrashPenalty);
+        });
+        this.voice.trigger('car_crash', performance.now());
+        if (Math.random() < 0.5) {
+          this.renderer.pushBubble(this.pickLine('traffic_honk'), c.x, c.y, 'char_driver_01_idle', 2.4);
+        }
+      }
+      break; // یک برخورد در هر گام کافی است
+    }
   }
 
   // ============ حلقه ============
@@ -228,7 +320,7 @@ export class GameManager {
     const result = this.vehicle.update(dt, input, this.world.colliders);
     const nowMs = performance.now();
 
-    // ---------- برخورد ----------
+    // ---------- برخورد با موانع ثابت ----------
     this.crashCooldown = Math.max(0, this.crashCooldown - dt);
     if (result.crashed && this.crashCooldown <= 0) {
       const hard = result.impactSpeed > 260;
@@ -252,6 +344,32 @@ export class GameManager {
     } else if (!input.brake) {
       this.brakeSoundLatch = false;
     }
+
+    // ---------- درفت ملایم (فاز 2): رد لاستیک + صدای سایش + دود ----------
+    if (result.skidding) {
+      // نقطه محور عقب (کمی پشت مرکز ماشین)
+      const back = this.vehicle.drawH * 0.32;
+      const ax = this.vehicle.x - Math.sin(this.vehicle.angle) * back;
+      const ay = this.vehicle.y + Math.cos(this.vehicle.angle) * back;
+      this.renderer.addSkidMark(ax, ay, this.vehicle.angle);
+      this.skidSoundTimer -= dt;
+      if (this.skidSoundTimer <= 0) {
+        this.skidSoundTimer = DRIFT.skidSoundInterval;
+        const intensity = Math.min(1, Math.abs(this.vehicle.latVel) / DRIFT.maxLateral + 0.35);
+        this.audio.skid(intensity);
+        this.renderer.spawnBurst(ax, ay, 'rgba(160,160,160,0.9)', 2, 60);
+      }
+      this.voice.trigger('drift', nowMs);
+    } else {
+      this.skidSoundTimer = 0;
+    }
+
+    // ---------- ترافیک (فاز 2) ----------
+    this.traffic.update(dt, this.vehicle);
+    this.resolveTrafficCollisions(dt);
+
+    // ---------- رویدادهای تصادفی (فاز 2) ----------
+    this.randomEvents.update(dt, this.vehicle);
 
     // ---------- سکه ----------
     const got = this.world.collectCoins(this.vehicle.x, this.vehicle.y, 60);
@@ -294,7 +412,7 @@ export class GameManager {
     this.camera.halfW = RENDER.logicalWidth / 2;
     this.camera.halfH = ch / this.scale / 2;
 
-    this.renderer.draw(ctx, this.vehicle);
+    this.renderer.draw(ctx, this.vehicle, this.traffic.cars, this.randomEvents.cat, this.randomEvents.cones);
     // حباب گفتار با مختصات دنیاست — باید با همان ترنسلیت دوربین رسم شود
     // (renderer.draw ترنسلیت را داخل save/restore خودش دارد و بعد از restore حذف می‌شود)
     ctx.save();
@@ -304,117 +422,14 @@ export class GameManager {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
-  /** حباب گفتار فارسی (RTL) — نزدیک ماشین، همیشه داخل کادر دوربین */
+  /** حباب گفتار فارسی (RTL) بازیکن — رسم مشترک با حباب‌های محیطی در WorldRenderer */
   private drawSpeechBubble(ctx: CanvasRenderingContext2D): void {
     const info = this.voice.current;
     if (!info) return;
     const car = this.vehicle;
-
-    ctx.save();
-    ctx.direction = 'rtl';
-    ctx.font = '700 26px Vazirmatn, Tahoma, sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'center';
-
-    const maxTextW = 300;
-    // شکستن خط با کلمات (فارسی = جداکردن با فاصله کافی است)
-    const words = info.line.split(' ');
-    const lines: string[] = [];
-    let current = '';
-    for (const w of words) {
-      const test = current ? `${current} ${w}` : w;
-      if (ctx.measureText(test).width > maxTextW && current) {
-        lines.push(current);
-        current = w;
-      } else current = test;
-    }
-    if (current) lines.push(current);
-
-    const lineH = 34;
-    const portraitR = 30;
-    const bubbleW = Math.min(maxTextW + portraitR * 2 + 46, 400);
-    const bubbleH = Math.max(84, lines.length * lineH + 40);
-
-    // ---------- جای‌گذاری داخل کادر دوربین (بالای ماشین؛ اگر نشد، زیر ماشین) ----------
-    const viewTop = this.camera.y - this.camera.halfH;
-    const viewBottom = this.camera.y + this.camera.halfH;
-    const viewLeft = this.camera.x - this.camera.halfW;
-    const viewRight = this.camera.x + this.camera.halfW;
-
-    let bx = car.x - bubbleW / 2;
-    let by = car.y - car.drawH / 2 - bubbleH - 26;
-    let tailBelow = false;
-    if (by < viewTop + 8) {
-      by = car.y + car.drawH / 2 + 26;
-      tailBelow = true;
-    }
-    if (by + bubbleH > viewBottom - 8) by = viewBottom - 8 - bubbleH;
-    if (by < viewTop + 8) by = viewTop + 8; // آخرین safety
-    bx = Math.min(Math.max(bx, viewLeft + 8), viewRight - 8 - bubbleW);
-
-    // دم حباب به سمت ماشین
-    ctx.fillStyle = '#FFF9EC';
-    ctx.strokeStyle = '#3A2E2A';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    if (tailBelow) {
-      ctx.moveTo(car.x - 14, by + 2);
-      ctx.lineTo(car.x, by - 22);
-      ctx.lineTo(car.x + 14, by + 2);
-    } else {
-      ctx.moveTo(car.x - 14, by + bubbleH - 2);
-      ctx.lineTo(car.x, by + bubbleH + 22);
-      ctx.lineTo(car.x + 14, by + bubbleH - 2);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // بدنه
-    ctx.beginPath();
-    const r = 20;
-    ctx.moveTo(bx + r, by);
-    ctx.arcTo(bx + bubbleW, by, bx + bubbleW, by + bubbleH, r);
-    ctx.arcTo(bx + bubbleW, by + bubbleH, bx, by + bubbleH, r);
-    ctx.arcTo(bx, by + bubbleH, bx, by, r);
-    ctx.arcTo(bx, by, bx + bubbleW, by, r);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // پرتره گوینده (دایره‌ای) — سمت راست (شروع RTL)
-    // فاز 1: همه گوینده‌ها پرتره راننده را دارند؛ با رسیدن پرتره‌های Batch 2-4،
-    // کافی است SPEAKER_PORTRAIT در manifest به‌روز شود
-    const pid = 'char_driver_01_idle';
-    const img = this.assets.get(pid);
-    const pcx = bx + bubbleW - portraitR - 16;
-    const pcy = by + bubbleH / 2;
-    if (img) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(pcx, pcy, portraitR, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(img, pcx - portraitR, pcy - portraitR, portraitR * 2, portraitR * 2);
-      ctx.restore();
-    } else {
-      ctx.fillStyle = '#E8C39E';
-      ctx.beginPath();
-      ctx.arc(pcx, pcy, portraitR, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.strokeStyle = '#3A2E2A';
-    ctx.lineWidth = 3.5;
-    ctx.beginPath();
-    ctx.arc(pcx, pcy, portraitR, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // متن
-    ctx.fillStyle = '#3A2E2A';
-    const textAreaCenter = bx + (bubbleW - portraitR * 2 - 20) / 2;
-    lines.forEach((ln, i) => {
-      ctx.fillText(ln, textAreaCenter, by + bubbleH / 2 + (i - (lines.length - 1) / 2) * lineH);
-    });
-    ctx.restore();
+    // فاز 2: همه گوینده‌ها فعلاً پرتره راننده را دارند؛ با رسیدن پرتره‌های
+    // Batch 2-4 کافی است SPEAKER_PORTRAIT در manifest به‌روز شود
+    this.renderer.drawBubbleBox(ctx, info.line, car.x, car.y, car.drawH, 'char_driver_01_idle');
   }
 
   // ============ HUD ============
