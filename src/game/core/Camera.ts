@@ -46,6 +46,11 @@ export class Camera {
     this.shake = Math.min(CAMERA.maxShake, this.shake + amount);
   }
 
+  /** لرزش فعلی برای دوربین سه‌بعدی (فاز 3D) — بدون round برای lerp نرم */
+  getShake(): { x: number; y: number } {
+    return { x: this.shakeX, y: this.shakeY };
+  }
+
   /** تبدیل مختصات دنیا → صفحه (قبل از رسم با translate استفاده می‌شود) */
   offsetX(): number {
     return Math.round(this.x - this.halfW + this.shakeX);

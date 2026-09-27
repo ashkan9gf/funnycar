@@ -49,6 +49,9 @@
 | DialogueManager | `src/game/managers/DialogueManager.ts` | نمایش حباب دیالوگ (متن فعلاً، صدای ضبطی در آینده) | 1 |
 | MissionManager | `src/game/managers/MissionManager.ts` | تعریف/اجرای مأموریت‌ها (Data-Driven) | 4 |
 | TrafficManager | `src/game/managers/TrafficManager.ts` | ماشین‌های ترافیک | 3 |
+| WorldRenderer3D | `src/game/render3d/WorldRenderer3D.ts` | رندر سه‌بعدی Low-Poly (Three.js) + دوربین Chase + اورلی RTL | 3D |
+| CarFactory3D | `src/game/render3d/CarFactory3D.ts` | ساخت رویه‌ای ماشین‌های Low-Poly (بازیکن/تاکسی/سدان/وانت/پلیس) | 3D |
+| textures3d | `src/game/render3d/textures3d.ts` | بافت‌های رویه‌ای Canvas (آسفالت/نمایه ساختمان/پیاده‌رو/چمن) | 3D |
 | NPCManager | `src/game/managers/NPCManager.ts` | عابرها و رفتارهای ساده | 5 |
 | PoliceManager | `src/game/managers/PoliceManager.ts` | تشخیص تخلف، تعقیب، جریمه | 5-6 |
 | FuelManager | `src/game/managers/FuelManager.ts` | مصرف و سوخت‌گیری | 6 |

@@ -143,11 +143,46 @@ export const SAVE = {
   version: 1,
 } as const;
 
-/** رندر */
+/** رندر دوبعدی (fallback و مرجع ابعاد منطقی) */
 export const RENDER = {
   /** عرض منطقی بازی — همه محاسبات با این است (ارتفاع متغیر با صفحه) */
   logicalWidth: 720,
   maxDevicePixelRatio: 2,
   /** کاشی پایه دنیا */
   tileSize: 256,
+} as const;
+
+/**
+ * رندر سه‌بعدی (فاز 3D) — دوربین Chase + نور و مه
+ * منطق بازی کاملاً دوبعدی می‌ماند؛ فقط نمایش سه‌بعدی Low-Poly است.
+ */
+export const RENDER3D = {
+  /** FOV دوربین (درجه) */
+  fov: 58,
+  /** فاصله و ارتفاع دوربین پشت ماشین (بر حسب واحد دنیا = پیکسل منطقی) */
+  camBack: 380,
+  camHeight: 232,
+  /** با سرعت، دوربین کمی عقب‌تر می‌رود (ضریب × سرعت) */
+  camBackPerSpeed: 0.55,
+  /** نرمی پیگرد زاویه (0=خشک، بزرگ‌تر=شل‌تر) */
+  camAngleLerp: 3.6,
+  /** نرمی پیگرد موقعیت */
+  camPosLerp: 6.5,
+  /** مه و رنگ آسمان */
+  fogNear: 900,
+  fogFar: 2600,
+  skyColor: '#AEDCEB',
+  /** نور */
+  sunIntensity: 1.35,
+  hemiIntensity: 0.85,
+  /** سقف رد لاستیک و ذرات در حالت سه‌بعدی (Pool) */
+  skidMax: 180,
+  particleMax: 140,
+  /** ارتفاع ساختمان‌ها بر حسب نوع (بخش بالای footprint دوبعدی) */
+  buildingHeights: {
+    env_building_home_01: 400,
+    env_building_shop_01: 300,
+    env_building_garage_01: 235,
+  },
+  gasStationShopHeight: 210,
 } as const;

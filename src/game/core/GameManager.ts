@@ -18,10 +18,20 @@ import { MissionManager, type MissionHud } from '../managers/MissionManager';
 import { Vehicle } from '../entities/Vehicle';
 import { World } from '../world/World';
 import { WorldRenderer } from '../world/WorldRenderer';
+import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS } from '../data/balance';
+import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
 
 export type GameState = 'boot' | 'menu' | 'playing' | 'paused';
+
+  /** مشترک بین دو رندرر — افکت‌هایی که GameManager مستقیماً صدا می‌زند */
+interface EffectsRenderer {
+  update(dt: number): void;
+  pushBubble(text: string, x: number, y: number, portraitId?: string, ttl?: number): void;
+  spawnBurst(x: number, y: number, color: string, count?: number, power?: number): void;
+  addSkidMark(x: number, y: number, angle: number): void;
+}
 
 export interface HudData {
   speedKmh: number;
@@ -61,7 +71,7 @@ export class GameManager {
    *  (جلوگیری از نمونه زامبی در StrictMode/HMR که کانواس را دوباره می‌کشد) */
   private static live: GameManager | null = null;
 
-  private ctx: CanvasRenderingContext2D;
+  private ctx: CanvasRenderingContext2D | null = null;
   private assets = new AssetManager();
   private input = new InputManager();
   private camera = new Camera();
@@ -69,7 +79,14 @@ export class GameManager {
   private audio = new AudioManager();
   private voice = new VoiceManager();
   private world = new World();
-  private renderer: WorldRenderer;
+  /** رندر دوبعدی (fallback وقتی WebGL نیست) */
+  private renderer: WorldRenderer | null = null;
+  /** رندر سه‌بعدی (مسیر اصلی — فاز 3D) */
+  private renderer3d: WorldRenderer3D | null = null;
+  /** افکت‌های مشترک دو رندرر */
+  private fx: EffectsRenderer;
+  /** حالت رندر (برای QA) */
+  readonly is3D: boolean;
   private vehicle = new Vehicle();
   private traffic: TrafficManager;
   private randomEvents: RandomEventManager;
@@ -100,10 +117,27 @@ export class GameManager {
     // هر نمونه قبلیِ زنده را ببند (بازهم اگر جایی نشتی داشته باشد)
     if (GameManager.live && GameManager.live !== this) GameManager.live.dispose();
     GameManager.live = this;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 2D not supported');
-    this.ctx = ctx;
-    this.renderer = new WorldRenderer(this.assets, this.world, this.camera);
+
+    // ---------- انتخاب رندرر: اول WebGL (سه‌بعدی)، بعد 2D ----------
+    // توجه: بعد از گرفتن یک نوع کانتکست، نوع دیگر روی همان کانواس ممکن نیست
+    const gl = (canvas.getContext('webgl2', { antialias: true })
+      ?? canvas.getContext('webgl', { antialias: true })) as WebGL2RenderingContext | WebGLRenderingContext | null;
+    if (gl) {
+      this.is3D = true;
+      const overlay = document.createElement('canvas');
+      overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+      canvas.parentElement?.appendChild(overlay);
+      this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera);
+      this.fx = this.renderer3d;
+    } else {
+      this.is3D = false;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas 2D not supported');
+      this.ctx = ctx;
+      const r2d = new WorldRenderer(this.assets, this.world, this.camera);
+      this.renderer = r2d;
+      this.fx = r2d;
+    }
 
     // ترافیک و رویدادهای تصادفی (فاز 2)
     this.traffic = new TrafficManager(
@@ -221,7 +255,7 @@ export class GameManager {
     const reacted = this.traffic.onPlayerHorn(this.vehicle.x, this.vehicle.y);
     if (reacted.length > 0) {
       const car = reacted[0];
-      this.renderer.pushBubble(this.pickLine('traffic_honk'), car.x, car.y, 'char_driver_01_idle', 2.6);
+      this.fx.pushBubble(this.pickLine('traffic_honk'), car.x, car.y, 'char_driver_01_idle', 2.6);
     }
   }
   setSetting<K extends 'music' | 'sfx' | 'voice'>(k: K, v: number): void {
@@ -263,7 +297,7 @@ export class GameManager {
     this.camera.addShake(CAM.maxShake * 0.55);
     this.audio.crash(false);
     this.vehicle.speed *= MISSIONS.potholeSlowFactor;
-    this.renderer.spawnBurst(x, y, 'rgba(90,72,60,0.9)', 8, 90);
+    this.fx.spawnBurst(x, y, 'rgba(90,72,60,0.9)', 8, 90);
     this.voice.trigger('pothole', performance.now());
   }
 
@@ -295,7 +329,7 @@ export class GameManager {
     }
 
     this.audio.coin();
-    if (success) this.renderer.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 16, 150);
+    if (success) this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 16, 150);
     this.voice.trigger(success ? 'mission_success' : 'mission_fail', performance.now());
 
     const line = this.pickLine(success ? 'mission_success' : 'mission_fail');
@@ -328,7 +362,7 @@ export class GameManager {
       const taxi = this.randomEvents.nearestTaxi(this.traffic.cars, x, y);
       if (taxi) {
         this.audio.horn(Math.floor(Math.random() * 3));
-        this.renderer.pushBubble(this.pickLine('traffic_honk'), taxi.x, taxi.y, 'char_driver_01_idle', 2.6);
+        this.fx.pushBubble(this.pickLine('traffic_honk'), taxi.x, taxi.y, 'char_driver_01_idle', 2.6);
       }
     }
   }
@@ -359,13 +393,13 @@ export class GameManager {
         this.mission.onCrash(impact > COLLISION.hardCrashSpeed ? 'hard' : 'soft');
         this.audio.crash(false);
         this.camera.addShake(CAM.maxShake * 0.5);
-        this.renderer.spawnBurst(v.x, v.y, '#B9B9B9', 10);
+        this.fx.spawnBurst(v.x, v.y, '#B9B9B9', 10);
         this.save.mutate((d) => {
           d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.trafficCrashPenalty);
         });
         this.voice.trigger('car_crash', performance.now());
         if (Math.random() < 0.5) {
-          this.renderer.pushBubble(this.pickLine('traffic_honk'), c.x, c.y, 'char_driver_01_idle', 2.4);
+          this.fx.pushBubble(this.pickLine('traffic_honk'), c.x, c.y, 'char_driver_01_idle', 2.4);
         }
       }
       break; // یک برخورد در هر گام کافی است
@@ -403,7 +437,7 @@ export class GameManager {
         this.voice.update(rawDt);
       }
 
-      this.renderer.update(rawDt);
+      this.fx.update(rawDt);
       this.draw();
       this.emitHud(rawDt);
     } catch (err) {
@@ -431,7 +465,7 @@ export class GameManager {
       this.crashCooldown = 0.8;
       this.audio.crash(hard);
       this.camera.addShake(hard ? CAM.maxShake : CAM.maxShake * 0.45);
-      this.renderer.spawnBurst(this.vehicle.x, this.vehicle.y, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
+      this.fx.spawnBurst(this.vehicle.x, this.vehicle.y, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
       this.save.mutate((d) => {
         d.reputation = Math.max(REPUTATION.min, d.reputation - (hard ? REPUTATION.hardCrashPenalty : REPUTATION.softCrashPenalty));
       });
@@ -455,13 +489,13 @@ export class GameManager {
       const back = this.vehicle.drawH * 0.32;
       const ax = this.vehicle.x - Math.sin(this.vehicle.angle) * back;
       const ay = this.vehicle.y + Math.cos(this.vehicle.angle) * back;
-      this.renderer.addSkidMark(ax, ay, this.vehicle.angle);
+      this.fx.addSkidMark(ax, ay, this.vehicle.angle);
       this.skidSoundTimer -= dt;
       if (this.skidSoundTimer <= 0) {
         this.skidSoundTimer = DRIFT.skidSoundInterval;
         const intensity = Math.min(1, Math.abs(this.vehicle.latVel) / DRIFT.maxLateral + 0.35);
         this.audio.skid(intensity);
-        this.renderer.spawnBurst(ax, ay, 'rgba(160,160,160,0.9)', 2, 60);
+        this.fx.spawnBurst(ax, ay, 'rgba(160,160,160,0.9)', 2, 60);
       }
       this.voice.trigger('drift', nowMs);
     } else {
@@ -485,7 +519,7 @@ export class GameManager {
         const back = this.vehicle.drawH * 0.42;
         const sx = this.vehicle.x - Math.sin(this.vehicle.angle) * back;
         const sy = this.vehicle.y + Math.cos(this.vehicle.angle) * back;
-        this.renderer.spawnBurst(sx, sy, 'rgba(120,120,125,0.75)', 1, 40);
+        this.fx.spawnBurst(sx, sy, 'rgba(120,120,125,0.75)', 1, 40);
       }
     }
 
@@ -493,7 +527,7 @@ export class GameManager {
     const got = this.world.collectCoins(this.vehicle.x, this.vehicle.y, 60);
     if (got > 0) {
       this.audio.coin();
-      this.renderer.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 10, 120);
+      this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 10, 120);
       this.save.mutate((d) => { d.coins += got; });
       this.voice.trigger('coin_pickup', nowMs);
     }
@@ -509,14 +543,27 @@ export class GameManager {
     }
 
     // ---------- دوربین ----------
-    this.camera.halfW = RENDER.logicalWidth / 2;
-    this.camera.halfH = this.ctx.canvas.height / (this.scale * 2);
+    if (this.ctx) {
+      this.camera.halfW = RENDER.logicalWidth / 2;
+      this.camera.halfH = this.ctx.canvas.height / (this.scale * 2);
+    } else {
+      // حالت سه‌بعدی: نیم‌اندازه‌های منطقی صرفاً برای clamp حباب‌ها
+      this.camera.halfW = RENDER.logicalWidth / 2;
+      this.camera.halfH = 640;
+    }
     this.camera.update(dt, this.vehicle.x, this.vehicle.y, this.vehicle.vx, this.vehicle.vy);
   }
 
   // ============ رسم ============
   private draw(): void {
+    // ---------- مسیر سه‌بعدی (فاز 3D) ----------
+    if (this.renderer3d) {
+      this.draw3DFrame();
+      return;
+    }
+    // ---------- مسیر دوبعدی (fallback) ----------
     const ctx = this.ctx;
+    if (!ctx || !this.renderer) return;
     const cw = ctx.canvas.width;
     const ch = ctx.canvas.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -554,10 +601,33 @@ export class GameManager {
     }
   }
 
-  /** حباب گفتار فارسی (RTL) بازیکن — رسم مشترک با حباب‌های محیطی در WorldRenderer */
+  /** یک فریم کامل سه‌بعدی: صحنه + اورلی (حباب‌ها و فلش هدف) */
+  private draw3DFrame(): void {
+    const active = this.mission.getState() === 'active';
+    const def = active ? this.mission.getDef() : null;
+    const speech = this.voice.current;
+    this.renderer3d!.draw3D({
+      car: this.vehicle,
+      traffic: this.traffic.cars,
+      cat: this.randomEvents.cat,
+      cones: this.randomEvents.cones,
+      potholes: this.mission.getPotholes(),
+      target: def?.target ?? null,
+      playerBubble: speech
+        ? {
+            line: speech.line,
+            x: this.vehicle.x,
+            y: this.vehicle.y,
+            portrait: SPEAKER_PORTRAIT[speech.speaker] ?? 'char_driver_01_idle',
+          }
+        : null,
+    });
+  }
+
+  /** حباب گفتار فارسی (RTL) بازیکن — فقط مسیر دوبعدی (در سه‌بعدی اورلی جای آن را می‌گیرد) */
   private drawSpeechBubble(ctx: CanvasRenderingContext2D): void {
     const info = this.voice.current;
-    if (!info) return;
+    if (!info || !this.renderer) return;
     const car = this.vehicle;
     // فاز 2: همه گوینده‌ها فعلاً پرتره راننده را دارند؛ با رسیدن پرتره‌های
     // Batch 2-4 کافی است SPEAKER_PORTRAIT در manifest به‌روز شود
@@ -587,6 +657,8 @@ export class GameManager {
     const h = this.canvas.clientHeight || window.innerHeight;
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
+    // رندر سه‌بعدی هم باید بداند (کانواس WebGL + اورلی + aspect دوربین)
+    if (this.renderer3d) this.renderer3d.resize(this.canvas.width, this.canvas.height, dpr);
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -613,6 +685,7 @@ export class GameManager {
     cancelAnimationFrame(this.raf);
     this.audio.stopEngine();
     this.input.detach();
+    this.renderer3d?.dispose(); // حذف اورلی + آزادسازی کانتکست GPU
     window.removeEventListener('resize', this.handleResize);
     window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('visibilitychange', this.onVisibility);

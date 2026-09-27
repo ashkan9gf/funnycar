@@ -197,6 +197,19 @@ export class TrafficManager {
 
   update(dt: number, player: PlayerLike): void {
     for (const car of this.cars) {
+      // ---------- بازیافت ایمنی (ضد خروج از نقشه/لاین خراب) ----------
+      // اگر ماشین بیرون دنیا است یا شماره جاده/گره یا لاین نامعتبر دارد،
+      // در نقطه معتبر دوباره اسپاونش کن (فاز 3D — QA)
+      if (
+        car.x < -80 || car.x > WORLD_SIZE + 80 ||
+        car.y < -80 || car.y > WORLD_SIZE + 80 ||
+        !Number.isFinite(car.lane) || car.lane < -80 || car.lane > WORLD_SIZE + 80 ||
+        car.roadIndex < 0 || car.roadIndex > ROAD_MAX ||
+        car.nodeIndex < 0 || car.nodeIndex > ROAD_MAX
+      ) {
+        if (this.spawnOne(car, 20)) continue;
+      }
+
       // تصمیم‌های تقاطع
       const s = signOf(car.dir);
       const along = alongOf(car.dir, car.x, car.y);
