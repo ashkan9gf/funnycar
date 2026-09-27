@@ -14,12 +14,13 @@ import { AudioManager } from '../managers/AudioManager';
 import { VoiceManager } from '../managers/VoiceManager';
 import { TrafficManager } from '../managers/TrafficManager';
 import { RandomEventManager } from '../managers/RandomEventManager';
+import { PedestrianManager } from '../managers/PedestrianManager';
 import { MissionManager, type MissionHud } from '../managers/MissionManager';
 import { Vehicle } from '../entities/Vehicle';
-import { World } from '../world/World';
+import { World, type WorldProp } from '../world/World';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
-import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D } from '../data/balance';
+import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS } from '../data/balance';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
 
@@ -41,6 +42,10 @@ export interface HudData {
   showFps: boolean;
   placeholders: number;
   mission: MissionHud | null;
+  /** سلامت ماشین ۰..۱۰۰ (فاز BIG-IR) */
+  health: number;
+  /** موتور خاموش است؟ (اورلی اسکران) */
+  engineDead: boolean;
 }
 
 /** نتیجه مأموریت برای پوسته React (فاز 4) */
@@ -90,6 +95,7 @@ export class GameManager {
   private vehicle = new Vehicle();
   private traffic: TrafficManager;
   private randomEvents: RandomEventManager;
+  private peds: PedestrianManager;
   private mission: MissionManager;
 
   private state: GameState = 'boot';
@@ -105,6 +111,10 @@ export class GameManager {
   private idleTimerSec = 12;
   private crashCooldown = 0;
   private bumpCooldown = 0;
+  private breakCooldown = 0;
+  private damageSmokeTimer = 0;
+  private repairVoiceLatch = false;
+  private engineDeadShown = false;
   private brakeSoundLatch = false;
   private skidSoundTimer = 0;
   private smokeTimer = 0;
@@ -152,6 +162,10 @@ export class GameManager {
     );
     this.randomEvents = new RandomEventManager(this.world, {
       onEvent: (kind, x, y) => this.onRandomEvent(kind, x, y),
+    });
+    // عابرهای پیاده (فاز BIG-IR) — ترس از ماشین سریع
+    this.peds = new PedestrianManager({
+      onScare: (x, y) => this.onPedScare(x, y),
     });
     // مأموریت‌ها (فاز 4)
     this.mission = new MissionManager(this.world, {
@@ -278,13 +292,14 @@ export class GameManager {
     return this.mission.list(this.save.get().completedMissions);
   }
 
-  /** شروع مأموریت: ورود به گیم‌پلی + ریست موقعیت برای شروع منصفانه */
+  /** شروع مأموریت: ورود به گیم‌پلی + ریست موقعیت و ماشین برای شروع منصفانه */
   startMission(id: string): void {
     if (!this.mission.start(id)) return;
     if (this.state !== 'playing') this.startGameplay();
     const spawn = this.world.playerSpawn();
     this.vehicle.reset(spawn.x, spawn.y, spawn.angle);
     this.camera.snapTo(spawn.x, spawn.y);
+    this.resetPlayerCar();
     this.voice.clear();
     this.voice.trigger('game_start', performance.now());
   }
@@ -369,7 +384,7 @@ export class GameManager {
     }
   }
 
-  /** برخورد بازیکن با خودروی ترافیک — بازیکن کنار می‌رود، ترافیک مکث می‌کند */
+  /** برخورد بازیکن با خودروی ترافیک — بازیکن کنار می‌رود، ترافیک مکث می‌کند + آسیب (فاز BIG-IR) */
   private resolveTrafficCollisions(dt: number): void {
     const v = this.vehicle;
     this.crashCooldown = Math.max(0, this.crashCooldown - dt);
@@ -396,6 +411,12 @@ export class GameManager {
         this.audio.crash(false);
         this.camera.addShake(CAM.maxShake * 0.5);
         this.fx.spawnBurst(v.x, v.y, '#B9B9B9', 10);
+        // آسیب برخورد با خودرو (مانع متحرک بزرگ) — جلو/عقب با جهت
+        const dmg = Math.min(DAMAGE.trafficHitMax, DAMAGE.trafficHitBase + impact * DAMAGE.trafficHitScale);
+        const fwd = Math.sin(v.angle) * (c.x - v.x) - Math.cos(v.angle) * (c.y - v.y);
+        const front = fwd > 0;
+        v.applyDamage(dmg, front);
+        this.renderer3d?.onPlayerDamaged(dmg, front, (v.x + c.x) / 2, (v.y + c.y) / 2);
         this.save.mutate((d) => {
           d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.trafficCrashPenalty);
         });
@@ -406,6 +427,144 @@ export class GameManager {
       }
       break; // یک برخورد در هر گام کافی است
     }
+  }
+
+  // ============ شکستنی‌ها (فاز BIG-IR) ============
+
+  /** رنگ ذرات هر نوع مانع کوچک */
+  private static readonly BREAK_COLORS: Record<string, string> = {
+    trash: '#4F772D',
+    cone: '#F4A261',
+    moto: '#8a8f94',
+    bags: '#2b2926',
+    crate: '#c98d4b',
+  };
+
+  /** مانع‌های کوچک با سرعت می‌شکنند + بعد از مدت‌هایی دوباره می‌آیند */
+  private updateBreakables(dt: number): void {
+    this.breakCooldown = Math.max(0, this.breakCooldown - dt);
+    const v = this.vehicle;
+
+    // تایمر بازگشت شکسته‌ها
+    for (const p of this.world.props) {
+      if (p.broken) {
+        p.brokenTimer = (p.brokenTimer ?? 0) - dt;
+        if (p.brokenTimer <= 0) p.broken = false;
+      }
+    }
+
+    if (this.breakCooldown > 0 || Math.abs(v.speed) < BREAKABLE.breakSpeed) return;
+    const hw = v.hitW / 2;
+    const hh = v.hitH / 2;
+
+    for (const p of this.world.props) {
+      if (!p.breakable || p.broken) continue;
+      // برخورد دایره ماشین با مستطیل مانع
+      const cx = Math.max(p.x, Math.min(v.x, p.x + p.w));
+      const cy = Math.max(p.y, Math.min(v.y, p.y + p.h));
+      const dx = v.x - cx;
+      const dy = v.y - cy;
+      if (dx * dx + dy * dy > hw * hw) continue;
+
+      // شکستن!
+      p.broken = true;
+      p.brokenTimer = BREAKABLE.respawnSec;
+      this.breakCooldown = BREAKABLE.breakCooldownSec;
+      const color = GameManager.BREAK_COLORS[p.kind] ?? '#9b9b9b';
+      this.fx.spawnBurst(p.x + p.w / 2, p.y + p.h / 2, color, 12, 230);
+      this.audio.bump();
+      this.camera.addShake(3.2);
+      v.speed *= BREAKABLE.speedLoss;
+      // گاهی یه سکه از وسطش می‌پرد!
+      if (Math.random() < BREAKABLE.coinChance) {
+        this.save.mutate((d) => { d.coins += 1; });
+        this.fx.spawnBurst(p.x + p.w / 2, p.y + p.h / 2, '#F2B705', 5, 140);
+      }
+      break; // یک شکستن در هر گام
+    }
+
+    // مخروط‌های رویداد هم با سرعت می‌شکنند (تکنیکی — همان سیستم)
+    const cones = this.randomEvents.cones;
+    for (let i = cones.length - 1; i >= 0; i--) {
+      const c = cones[i];
+      const dx = v.x - c.x;
+      const dy = v.y - c.y;
+      if (dx * dx + dy * dy < 60 * 60) {
+        cones.splice(i, 1);
+        this.fx.spawnBurst(c.x, c.y, '#F4A261', 8, 200);
+        this.audio.bump();
+        this.camera.addShake(2.4);
+      }
+    }
+  }
+
+  // ============ عابرها و تعمیر (فاز BIG-IR) ============
+
+  /** عابر ترسید — حباب طنز (با احتمال) */
+  private onPedScare(x: number, y: number): void {
+    if (this.state !== 'playing') return;
+    if (Math.random() < PEDESTRIANS.bubbleChance) {
+      this.fx.pushBubble(this.pickLine('pedestrian_scare'), x, y, 'char_pass_m_01_idle', 2.2);
+    }
+  }
+
+  /** زون تعمیرگاه: ترمیم تدریجی داخل شعاع */
+  private updateRepairZones(dt: number, nowMs: number): void {
+    const v = this.vehicle;
+    if (v.health >= DAMAGE.maxHealth) {
+      this.repairVoiceLatch = false;
+      return;
+    }
+    for (const z of this.world.repairZones) {
+      const d = Math.hypot(v.x - z.x, v.y - z.y);
+      if (d > DAMAGE.repairRadius) continue;
+
+      v.health = Math.min(DAMAGE.maxHealth, v.health + DAMAGE.repairRate * dt);
+      if (Math.random() < 0.25) {
+        this.fx.spawnBurst(v.x + (Math.random() - 0.5) * 60, v.y + (Math.random() - 0.5) * 60, '#2A9D8F', 2, 90);
+      }
+      if (v.health >= DAMAGE.maxHealth) {
+        v.fullRepair();
+        this.engineDeadShown = false;
+        this.renderer3d?.resetPlayerDamage();
+        this.audio.coin();
+        this.fx.spawnBurst(v.x, v.y, '#2A9D8F', 14, 160);
+        if (!this.repairVoiceLatch) {
+          this.repairVoiceLatch = true;
+          this.voice.trigger('repair_done', nowMs);
+        }
+      }
+      break;
+    }
+  }
+
+  /** اسکران به تعمیرگاه بعد از خاموشی — از پوسته React (فاز BIG-IR) */
+  towToRepair(): void {
+    if (!this.vehicle.dead) return;
+    // هزینه اگر پول داره (بقیه رایگان — رفیق مکانیکی!)
+    const coins = this.save.get().coins;
+    if (coins >= DAMAGE.towCost) {
+      this.save.mutate((d) => { d.coins -= DAMAGE.towCost; });
+    }
+    // نزدیک‌ترین زون
+    let best = this.world.repairZones[0];
+    let bestD = Infinity;
+    for (const z of this.world.repairZones) {
+      const d = Math.hypot(this.vehicle.x - z.x, this.vehicle.y - z.y);
+      if (d < bestD) { bestD = d; best = z; }
+    }
+    this.vehicle.reset(best.x, best.y, 0);
+    this.camera.snapTo(best.x, best.y);
+    this.resetPlayerCar();
+    this.audio.coin();
+    this.voice.trigger('repair_done', performance.now());
+  }
+
+  /** ریست کامل وضعیت ماشین (مأموریت جدید/اسکران) */
+  private resetPlayerCar(): void {
+    this.vehicle.fullRepair();
+    this.engineDeadShown = false;
+    this.renderer3d?.resetPlayerDamage();
   }
 
   // ============ حلقه ============
@@ -450,10 +609,15 @@ export class GameManager {
   };
 
   private step(dt: number): void {
-    const input = this.input.collect();
+    let input = this.input.collect();
 
     // بوق از کیبورد (H)
     if (input.hornPressed) this.pressHorn();
+
+    // ---------- موتور خاموش: گاز کار نمی‌کند (فاز BIG-IR) ----------
+    if (this.vehicle.dead) {
+      input = { ...input, gas: false };
+    }
 
     const result = this.vehicle.update(dt, input, this.world.colliders);
     const nowMs = performance.now();
@@ -467,7 +631,9 @@ export class GameManager {
       this.crashCooldown = 0.8;
       this.audio.crash(hard);
       this.camera.addShake(hard ? CAM.maxShake : CAM.maxShake * 0.45);
-      this.fx.spawnBurst(this.vehicle.x, this.vehicle.y, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
+      // نقطه برخورد داینامیک: ذرات + جرقه در نقطه تماس + خرابی بدنه (فاز BIG-IR)
+      this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
+      this.renderer3d?.onPlayerDamaged(result.damage, result.front, result.impactX, result.impactY);
       this.save.mutate((d) => {
         d.reputation = Math.max(REPUTATION.min, d.reputation - (hard ? REPUTATION.hardCrashPenalty : REPUTATION.softCrashPenalty));
       });
@@ -528,6 +694,39 @@ export class GameManager {
     // ---------- ترافیک (فاز 2) ----------
     this.traffic.update(dt, this.vehicle);
     this.resolveTrafficCollisions(dt);
+
+    // ---------- شکستنی‌ها (فاز BIG-IR) ----------
+    this.updateBreakables(dt);
+
+    // ---------- عابرهای پیاده (فاز BIG-IR) ----------
+    this.peds.update(dt, this.vehicle);
+
+    // ---------- دود ماشین آسیب‌دیده (فاز BIG-IR) ----------
+    if (this.vehicle.health < DAMAGE.smokeBelow) {
+      this.damageSmokeTimer -= dt;
+      if (this.damageSmokeTimer <= 0) {
+        const heavy = this.vehicle.health < DAMAGE.heavySmokeBelow;
+        this.damageSmokeTimer = heavy ? 0.09 : 0.16;
+        const front = this.vehicle.drawH * 0.36;
+        const sx = this.vehicle.x + Math.sin(this.vehicle.angle) * front;
+        const sy = this.vehicle.y - Math.cos(this.vehicle.angle) * front;
+        this.fx.spawnBurst(sx, sy, heavy ? 'rgba(60,60,64,0.8)' : 'rgba(120,120,125,0.7)', heavy ? 2 : 1, heavy ? 70 : 45);
+      }
+    }
+
+    // ---------- خاموشی موتور (فاز BIG-IR) ----------
+    if (this.vehicle.dead && !this.engineDeadShown) {
+      this.engineDeadShown = true;
+      this.audio.setEngineSpeed(0);
+      this.camera.addShake(CAM.maxShake * 0.6);
+      this.fx.spawnBurst(this.vehicle.x, this.vehicle.y, 'rgba(40,40,44,0.9)', 12, 120);
+      this.voice.trigger('breakdown', nowMs);
+      // اگر مأموریت فعال است، مثل تصادف سخت حساب می‌شود
+      this.mission.onCrash('hard');
+    }
+
+    // ---------- زون‌های تعمیرگاه (فاز BIG-IR) ----------
+    this.updateRepairZones(dt, nowMs);
 
     // ---------- رویدادهای تصادفی (فاز 2) ----------
     this.randomEvents.update(dt, this.vehicle);
@@ -635,6 +834,7 @@ export class GameManager {
       cat: this.randomEvents.cat,
       cones: this.randomEvents.cones,
       potholes: this.mission.getPotholes(),
+      peds: this.peds.peds,
       target: def?.target ?? null,
       playerBubble: speech
         ? {
@@ -670,6 +870,8 @@ export class GameManager {
       showFps: this.showFps,
       placeholders: this.assets.getReport().placeholders.length,
       mission: this.mission.hud(this.vehicle),
+      health: Math.round(this.vehicle.health),
+      engineDead: this.vehicle.dead,
     });
   }
 

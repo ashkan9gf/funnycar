@@ -78,8 +78,11 @@ function drawPatches(ctx: CanvasRenderingContext2D, w: number, h: number, count:
 }
 
 /**
- * آسفالت جاده با خط‌کشی وسط (چین‌چین سفید) + ترک + وصله + منهول
- * — خیابان‌های واقعی ایران. V در امتداد جاده.
+ * آسفالت جاده دوطرفه ۴ لاین (فاز BIG-IR — عرض 560px):
+ *  - خط دوگانه زرد وسط (تفکیک دو جهت)
+ *  - خط‌چین سفید بین لاین داخلی/بیرونی هر جهت
+ *  - ترک + وصله + منهول — حس خیابان واقعی تهران
+ * U در امتداد عرض جاده، V در امتداد طول.
  */
 export function getRoadStraightTexture(): THREE.CanvasTexture {
   if (roadStraightTex) return roadStraightTex;
@@ -103,15 +106,23 @@ export function getRoadStraightTexture(): THREE.CanvasTexture {
   ctx.strokeStyle = 'rgba(200,200,190,0.4)'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.arc(mx, my, 17, 0, Math.PI * 2); ctx.stroke();
 
-  // خط‌کشی وسط (در جهت V) — کمی ساییده
-  ctx.fillStyle = 'rgba(245,245,240,0.85)';
-  for (let y = 20; y < S; y += 120) {
-    ctx.fillRect(S / 2 - 5, y, 10, 84);
+  // خط دوگانه زرد وسط (تفکیک دو جهت — دوطرفه!)
+  ctx.fillStyle = 'rgba(226,190,80,0.85)';
+  ctx.fillRect(S / 2 - 9, 0, 6, S);
+  ctx.fillRect(S / 2 + 3, 0, 6, S);
+
+  // خط‌چین سفید بین لاین داخلی/بیرونی هر جهت (±130px از مرکز → ±119 در بافت)
+  ctx.fillStyle = 'rgba(245,245,240,0.8)';
+  for (const lx of [137, 375]) {
+    for (let y = 20; y < S; y += 120) {
+      ctx.fillRect(lx - 4, y, 8, 84);
+    }
   }
+
   // لبه‌های زرد کم‌رنگ و ساییده
   ctx.fillStyle = 'rgba(226,190,80,0.55)';
-  ctx.fillRect(16, 0, 7, S);
-  ctx.fillRect(S - 23, 0, 7, S);
+  ctx.fillRect(10, 0, 7, S);
+  ctx.fillRect(S - 17, 0, 7, S);
   // کثیفی لبه جاده
   ctx.fillStyle = 'rgba(40,36,30,0.14)';
   ctx.fillRect(0, 0, 12, S);
@@ -392,6 +403,10 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
       wall = '#c4c0b8'; trim = '#8f8f8a'; winBg = '#7f96a8';
       doorColor = '#5f6a75';
       signText = 'تعمیرگاه';
+      break;
+    case 'env_building_apartment_01':
+      // آپارتمان مدرن شمال تهران — شیشه‌ای با نوارهای افقی
+      wall = '#dde3e8'; trim = '#9fb2c0'; winBg = '#7fb3d5';
       break;
     default:
       wall = '#e7d9b8'; trim = '#c9b98a'; winBg = '#9fc4d8';

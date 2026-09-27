@@ -291,3 +291,127 @@ export function buildSpeedBump(length: number): THREE.Group {
   g.add(bump);
   return g;
 }
+
+// ============================================================
+// لندمارک‌های تهران (فاز BIG-IR — «نقشه تهران» کارتونی)
+// ============================================================
+
+const marbleMat = new THREE.MeshToonMaterial({ color: '#eae4d6' });
+const marbleTrim = new THREE.MeshToonMaterial({ color: '#d6cec0' });
+const concreteMat = new THREE.MeshToonMaterial({ color: '#ccd3d8' });
+const podMat = new THREE.MeshToonMaterial({ color: '#aebfc9' });
+const podGlassMat = new THREE.MeshPhongMaterial({ color: '#2c4656', shininess: 120 });
+
+/**
+ * برج آزادی — قوس Y معروف با سوراخ طاق (Extrude با hole)
+ * در صفحه XZ (پهنا × عمق) — ارتفاع ~360. پایه دو پله دارد.
+ */
+export function buildAzadiTower(): THREE.Group {
+  const g = new THREE.Group();
+  // نیم‌رخ بیرونی (ذوزنقه با سر پهن‌تر — امضای برج)
+  const shape = new THREE.Shape();
+  shape.moveTo(-150, 0);
+  shape.lineTo(150, 0);
+  shape.lineTo(122, 290);
+  shape.lineTo(86, 330);
+  shape.lineTo(-86, 330);
+  shape.lineTo(-122, 290);
+  shape.closePath();
+  // طاق داخلی (تیز بالای وسط — مثل { })
+  const hole = new THREE.Path();
+  hole.moveTo(-58, 0);
+  hole.lineTo(-58, 170);
+  hole.quadraticCurveTo(-30, 225, 0, 235);
+  hole.quadraticCurveTo(30, 225, 58, 170);
+  hole.lineTo(58, 0);
+  hole.closePath();
+  shape.holes.push(hole);
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: 130,
+    bevelEnabled: true,
+    bevelThickness: 4,
+    bevelSize: 4,
+    bevelSegments: 2,
+  });
+  geo.translate(0, 0, -65); // مرکز عمق
+  const body = new THREE.Mesh(geo, marbleMat);
+  body.position.y = 0;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  g.add(body);
+
+  // پله‌های پایه (میدان)
+  const step1 = new THREE.Mesh(new THREE.BoxGeometry(560, 18, 420), marbleTrim);
+  step1.position.y = 9;
+  step1.receiveShadow = true;
+  const step2 = new THREE.Mesh(new THREE.BoxGeometry(460, 16, 330), marbleTrim);
+  step2.position.y = 26;
+  step2.receiveShadow = true;
+  g.add(step1, step2);
+  body.position.y = 42;
+
+  return g;
+}
+
+/**
+ * برج میلاد — دکل هشت‌ضلعی + سر «نیلوفر» + آنتن بلند
+ * بلندترین نقطه نقشه — از همه‌جای تهران بزرگ دیده می‌شود!
+ */
+export function buildMiladTower(): THREE.Group {
+  const g = new THREE.Group();
+  const H = 1150;
+
+  // پایه مخروطی (پهن در پایین)
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(30, 62, H, 8), concreteMat);
+  shaft.position.y = H / 2;
+  shaft.castShadow = true;
+  g.add(shaft);
+
+  // سر نیلوفر — کره پخ با نوار شیشه
+  const pod = new THREE.Mesh(new THREE.SphereGeometry(95, 14, 10), podMat);
+  pod.scale.set(1, 0.66, 1);
+  pod.position.y = H + 42;
+  pod.castShadow = true;
+  g.add(pod);
+  const glassBand = new THREE.Mesh(new THREE.CylinderGeometry(88, 88, 52, 14), podGlassMat);
+  glassBand.position.y = H + 44;
+  g.add(glassBand);
+  // سقف سر
+  const podTop = new THREE.Mesh(new THREE.CylinderGeometry(52, 78, 34, 12), podMat);
+  podTop.position.y = H + 112;
+  g.add(podTop);
+
+  // آنتلن بلند
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(5, 11, 300, 8), concreteMat);
+  mast.position.y = H + 265;
+  g.add(mast);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(8, 8, 6), new THREE.MeshBasicMaterial({ color: '#e2574c' }));
+  tip.position.y = H + 420;
+  g.add(tip);
+
+  // پایه ساختمان‌های دور سر (هتل/نمایشگاه — دو جعبه)
+  const base1 = new THREE.Mesh(new THREE.BoxGeometry(190, 120, 190), concreteMat);
+  base1.position.set(150, 60, 150);
+  base1.castShadow = true;
+  g.add(base1);
+
+  return g;
+}
+
+/** جعبه چوبی شکستنی (دور تعمیرگاه‌ها) */
+export function buildCrate(): THREE.Group {
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(56, 50, 56), M.crate);
+  box.position.y = 25;
+  box.castShadow = true;
+  g.add(box);
+  // تخته‌های ضربدری
+  const plank = new THREE.Mesh(new THREE.BoxGeometry(58, 7, 8), M.wood);
+  plank.position.set(0, 25, 29);
+  plank.rotation.z = 0.5;
+  const plank2 = plank.clone();
+  plank2.rotation.z = -0.5;
+  g.add(plank, plank2);
+  return g;
+}

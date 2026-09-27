@@ -37,31 +37,92 @@ export const DRIFT = {
   skidSoundInterval: 0.28,
 } as const;
 
-/** ترافیک (فاز 2) — خودروهای AI روی لاین درست */
+/** ترافیک (فاز 2 + دوطرفه فاز BIG-IR) — خودروهای AI روی لاین درست */
 export const TRAFFIC = {
-  /** تعداد خودروی ترافیک فعال */
-  count: 7,
+  /** تعداد خودروی ترافیک فعال — نقشه بزرگ، دوطرفه */
+  count: 16,
   /** سرعت کروز (px/s) و محدوده تفاوت بین ماشین‌ها */
-  cruiseSpeed: 130,
-  cruiseJitter: 35,
-  accel: 160,
-  brakePower: 340,
+  cruiseSpeed: 150,
+  cruiseJitter: 40,
+  accel: 170,
+  brakePower: 360,
   /** فاصله امن پشت مانع جلویی (px) */
-  safeGap: 95,
+  safeGap: 100,
   /** برد دید جلو برای ترمز (px) */
-  lookAhead: 170,
+  lookAhead: 190,
   /** احتمال ادامه مسیر مستقیم در تقاطع (بقیه: نصف راست/نصف چپ) */
   straightChance: 0.55,
   /** وقتی جلوی‌شان بسته شد، بعد از این مدت بوق می‌زنند (ثانیه) */
   honkAfterBlockedSec: 2.5,
   /** برد واکنش به بوق بازیکن (px) */
-  honkReactionRadius: 320,
+  honkReactionRadius: 340,
   /** احتمال بوق جواب دادن */
   honkBackChance: 0.45,
   /** پس از برخورد با بازیکن، چند ثانیه مکث می‌کنند */
   stunnedSec: 2.2,
   /** ابعاد رسم ترافیک (نسبت 4:7 مثل بازیکن) */
   drawW: 104,
+  /** آستانه عرضی دید جلو — فقط هم‌لاین‌ها ترمز می‌کنند (لاین‌ها ۱۲۰px فاصله) */
+  laneWidth: 110,
+} as const;
+
+/**
+ * آسیب خودرو (فاز BIG-IR) — برخورد با موانع بزرگ ماشین را خراب می‌کند
+ * سلامت 100..0؛ زیر آستانه‌ها دود، صفر = خاموشی (اسکران به تعمیرگاه)
+ */
+export const DAMAGE = {
+  maxHealth: 100,
+  /** آسیب برخورد با موانع ثابت: base + impact × scale (سقف max) */
+  worldHitBase: 3,
+  worldHitScale: 0.05,
+  worldHitMax: 26,
+  /** آسیب برخورد با خودروی ترافیک */
+  trafficHitBase: 2,
+  trafficHitScale: 0.04,
+  trafficHitMax: 16,
+  /** زیر این سلامتی دود می‌کند */
+  smokeBelow: 45,
+  heavySmokeBelow: 20,
+  /** حداکثر افت سرعت در بدترین وضعیت */
+  maxSpeedPenalty: 0.35,
+  /** شعاع زون تعمیرگاه + نرخ ترمیم (سلامت/ثانیه) */
+  repairRadius: 150,
+  repairRate: 30,
+  /** هزینه اسکران وقتی ماشین خاموش شد (سکه) */
+  towCost: 30,
+  /** آسیب تجمعی جلو برای جدا شدن سپر */
+  bumperBreakDamage: 30,
+} as const;
+
+/** شکستنی‌ها (فاز BIG-IR) — مانع‌های کوچک با سرعت می‌شکنند */
+export const BREAKABLE = {
+  /** کمترین سرعت برای شکستن */
+  breakSpeed: 70,
+  /** بعد از چند ثانیه دوباره ظاهر شوند */
+  respawnSec: 40,
+  /** احتمال افتادن سکه از وسط شکسته‌شده */
+  coinChance: 0.35,
+  /** افت جزئی سرعت ماشین هنگام شکستن */
+  speedLoss: 0.965,
+  /** سردشدن بین دو شکستن (ثانیه) */
+  breakCooldownSec: 0.25,
+} as const;
+
+/** عابرهای پیاده (فاز BIG-IR) — زندگی خیابان سبک GTA */
+export const PEDESTRIANS = {
+  count: 20,
+  walkSpeed: 46,
+  /** شعاع ترس از ماشین */
+  scareRadius: 100,
+  /** کمترین سرعت ماشین برای ترساندن */
+  scareSpeed: 110,
+  /** احتمال حباب طنز موقع ترسیدن */
+  bubbleChance: 0.45,
+  /** سردشدن ترس هر عابر (ثانیه) */
+  scareCooldownSec: 8,
+  /** پرش ترس (ارتفاع px و مدت) */
+  hopHeight: 26,
+  hopSec: 0.5,
 } as const;
 
 /** رویدادهای تصادفی واقعی (فاز 2) */
@@ -168,9 +229,9 @@ export const RENDER3D = {
   camAngleLerp: 3.6,
   /** نرمی پیگرد موقعیت */
   camPosLerp: 6.5,
-  /** مه و رنگ آسمان */
-  fogNear: 900,
-  fogFar: 2600,
+  /** مه و رنگ آسمان (نقشه بزرگ — دورتر) */
+  fogNear: 1000,
+  fogFar: 3300,
   skyColor: '#AEDCEB',
   /** نور */
   sunIntensity: 1.35,
@@ -183,10 +244,11 @@ export const RENDER3D = {
     env_building_home_01: 400,
     env_building_shop_01: 300,
     env_building_garage_01: 235,
+    env_building_apartment_01: 560,
   },
   gasStationShopHeight: 210,
   /** مینی‌مپ سبک GTA — اندازه (پیکسل CSS) */
-  minimapSize: 150,
+  minimapSize: 158,
   /** سرعت‌گیر (فاز GTA-IR) — ضریب کندی + آستانه سرعت + سردشدن + لرزش دوربین */
   bumpSlowFactor: 0.78,
   bumpMinSpeed: 80,

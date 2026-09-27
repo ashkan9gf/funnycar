@@ -1,39 +1,32 @@
 /**
- * TrafficManager.ts — مدیر ترافیک: شبکه جاده، لاین دست‌راست، تصمیم تقاطع (فاز 2)
+ * TrafficManager.ts — مدیر ترافیک دوطرفه (فاز 2 + فاز BIG-IR)
  * ============================================================
- * هندسه جاده:
- *   - جاده‌ها روی محور k*1024 مرکز 128+k*1024 (k = 0..roadCount) — از World
- *   - لاین دست‌راست: آفست 64px از مرکز جاده (نصف عرض لاین)
- *       N (رو به شمال) → لاین شرقی  |  S → لاین غربی
- *       E (رو به شرق)  → لاین جنوبی |  W → لاین شمالی
- *   - گره‌ها = تقاطع‌ها؛ هر ماشین گره بعدی را می‌داند و در نزدیک‌ترین
- *     نقطه تصمیم (خط لاینِ پیچ) اقدام می‌کند: مستقیم / راست / چپ
+ * هندسه جاده (نقشه بزرگ تهران):
+ *   - جاده‌ها روی محور k*1400 مرکز 280+k*1400 (k = 0..roadCount) — از World
+ *   - دو لاین هر جهت (دوطرفه): لاین داخلی ±70 و بیرونی ±210 از مرکز
+ *       N (رو به شمال) → سمت شرق  |  S → سمت غرب
+ *       E (رو به شرق)  → سمت جنوب |  W → سمت شمال
+ *   - هر ماشین لاین داخلی یا بیرونی را تصادفی نگه می‌دارد و در پیچ با
+ *     همان آفست می‌پیچد (ترافیک طبیعی دوطرفه)
  * تصمیم‌ها Deterministic-Per-Random: با Math.random ولی محدود به گزینه‌های معتبر
  * (هرگز از دنیا بیرون نمی‌زند — گره لبه گزینه نامعتبر را حذف می‌کند)
  */
 
 import { TRAFFIC } from '../data/balance';
-import { WORLD, WORLD_SIZE } from '../world/World';
+import { WORLD, WORLD_SIZE, roadCenter } from '../world/World';
 import { TrafficCar, TrafficDir, DIR_INFO } from '../entities/TrafficCar';
 
 /** بیشترین شماره جاده (جاده‌ها = roadCount+1 تا لبه‌های دنیا هم جاده باشند) */
-const ROAD_MAX = WORLD.roadCount; // 4 → 5 جاده (0..4)
-/** آفست لاین از مرکز جاده */
-const LANE_OFF = WORLD.roadW / 4; // 64
+const ROAD_MAX = WORLD.roadCount; // 6 → ۷ جاده (0..6)
 
-/** مرکز جاده k-ام */
-export function roadCenter(k: number): number {
-  return k * WORLD.pitch + WORLD.roadW / 2;
-}
-
-/** مختصات لاین برای یک جهت روی جاده idx (قاعده دست‌راست) */
-function laneFor(dir: TrafficDir, idx: number): number {
+/** مختصات لاین برای یک جهت روی جاده idx با آفست مشخص (قاعده دست‌راست) */
+function laneFor(dir: TrafficDir, idx: number, off: number): number {
   const c = roadCenter(idx);
   switch (dir) {
-    case 'N': return c + LANE_OFF;
-    case 'S': return c - LANE_OFF;
-    case 'E': return c + LANE_OFF;
-    case 'W': return c - LANE_OFF;
+    case 'N': return c + off;
+    case 'S': return c - off;
+    case 'E': return c + off;
+    case 'W': return c - off;
   }
 }
 
@@ -108,20 +101,22 @@ export class TrafficManager {
       const vertical = dir === 'N' || dir === 'S';
       // شماره جاده‌ای که روی آن حرکت می‌کنیم + گره مقصد
       const roadIdx = Math.floor(Math.random() * (ROAD_MAX + 1));
-      // گره مقصد: نه لبه‌ای که پشت سرش استاب مرزی است — بین 1..ROAD_MAX-1 برای سگمنت امن
+      // گره مقصد: بین 1..ROAD_MAX-1 برای سگمنت امن
       const nodeIdx = 1 + Math.floor(Math.random() * (ROAD_MAX - 1));
       const tt = 0.3 + Math.random() * 0.4;
+      // لاین داخلی یا بیرونی (دو لاین هر جهت)
+      const laneOff = Math.random() < 0.5 ? WORLD.laneIn : WORLD.laneOut;
       let x: number; let y: number;
       if (vertical) {
-        x = laneFor(dir, roadIdx);
+        x = laneFor(dir, roadIdx, laneOff);
         const c = roadCenter(nodeIdx);
         y = dir === 'N' ? c + WORLD.pitch * tt : c - WORLD.pitch * tt;
-        if (y < 60 || y > WORLD_SIZE - 60) continue;
+        if (y < 80 || y > WORLD_SIZE - 80) continue;
       } else {
-        y = laneFor(dir, roadIdx);
+        y = laneFor(dir, roadIdx, laneOff);
         const c = roadCenter(nodeIdx);
         x = dir === 'E' ? c - WORLD.pitch * tt : c + WORLD.pitch * tt;
-        if (x < 60 || x > WORLD_SIZE - 60) continue;
+        if (x < 80 || x > WORLD_SIZE - 80) continue;
       }
       if (
         this.avoidSpawn.r > 0 &&
@@ -133,6 +128,7 @@ export class TrafficManager {
       car.setDir(dir, true);
       car.roadIndex = roadIdx;
       car.nodeIndex = nodeIdx;
+      car.laneOff = laneOff;
       car.lane = vertical ? x : y;
       car.decided = false;
       car.pendingTrigger = Number.NaN;
@@ -170,8 +166,8 @@ export class TrafficManager {
     const nd: TrafficDir = action === 'right' ? right : left;
     // جاده مقصد: N/S به جاده افقی (nodeIndex فعلی)، E/W به جاده عمودی (nodeIndex فعلی)
     const ontoIdx = car.nodeIndex;
-    // نقطه اجرای پیچ = خط لاینِ جهت جدید روی همان محور حرکت
-    car.pendingTrigger = laneFor(nd, ontoIdx);
+    // نقطه اجرای پیچ = خط لاینِ جهت جدید (همان آفست لاین خودش)
+    car.pendingTrigger = laneFor(nd, ontoIdx, car.laneOff);
     car.decided = true;
     car.pendingDir = nd;
   }
@@ -180,7 +176,7 @@ export class TrafficManager {
     const nd = car.pendingDir as TrafficDir;
     const ontoIdx = car.nodeIndex;
     car.setDir(nd, false);
-    car.lane = laneFor(nd, ontoIdx);
+    car.lane = laneFor(nd, ontoIdx, car.laneOff);
     // جای‌گذاری روی لاین جدید (محور ثابت سِناپ می‌شود)
     if (nd === 'N' || nd === 'S') car.x = car.lane;
     else car.y = car.lane;
@@ -198,8 +194,6 @@ export class TrafficManager {
   update(dt: number, player: PlayerLike): void {
     for (const car of this.cars) {
       // ---------- بازیافت ایمنی (ضد خروج از نقشه/لاین خراب) ----------
-      // اگر ماشین بیرون دنیا است یا شماره جاده/گره یا لاین نامعتبر دارد،
-      // در نقطه معتبر دوباره اسپاونش کن (فاز 3D — QA)
       if (
         car.x < -80 || car.x > WORLD_SIZE + 80 ||
         car.y < -80 || car.y > WORLD_SIZE + 80 ||
@@ -214,8 +208,8 @@ export class TrafficManager {
       const s = signOf(car.dir);
       const along = alongOf(car.dir, car.x, car.y);
       if (!car.decided) {
-        const farTrigger = roadCenter(car.nodeIndex) - LANE_OFF * s;
-        if (s < 0 ? along <= farTrigger : along >= farTrigger) this.decideAtNode(car);
+        const nearTrigger = roadCenter(car.nodeIndex) - car.laneOff * s;
+        if (s < 0 ? along <= nearTrigger : along >= nearTrigger) this.decideAtNode(car);
       } else if (!Number.isNaN(car.pendingTrigger)) {
         if (s < 0 ? along <= car.pendingTrigger : along >= car.pendingTrigger) this.executeTurn(car);
       }
@@ -238,7 +232,7 @@ export class TrafficManager {
     }
   }
 
-  /** سرعت مطلوب بر اساس موانع جلویی (بازیکن + ترافیک) */
+  /** سرعت مطلوب بر اساس موانع جلویی (بازیکن + ترافیک هم‌لاین) */
   private desiredSpeed(car: TrafficCar, player: PlayerLike): number {
     const v = DIR_INFO[car.dir];
     let desired = car.cruise;
@@ -249,7 +243,8 @@ export class TrafficManager {
       const forward = dx * v.x + dy * v.y;
       const lateral = Math.abs(dx * v.y - dy * v.x); // |ضرب خارجی|
       if (forward <= 0 || forward > TRAFFIC.lookAhead + Math.max(ohw, ohh)) return;
-      if (lateral > LANE_OFF + Math.min(ohw, ohh) * 0.4) return;
+      // فقط هم‌لاین‌ها: لاین مجاور/خلاف جهت (فاصله 140+) ترمز نمی‌کند
+      if (lateral > TRAFFIC.laneWidth + Math.min(ohw, ohh) * 0.25) return;
       const gap = forward - (car.hitH / 2 + ohh / 2);
       if (gap < TRAFFIC.safeGap * 0.5) desired = 0;
       else desired = Math.min(desired, Math.max(0, (gap - TRAFFIC.safeGap * 0.4) * 2.4));

@@ -35,6 +35,8 @@ export interface GameInstance {
   listMissions: () => MissionListItem[];
   startMission: (id: string) => void;
   abandonMission: () => void;
+  /** فاز BIG-IR: اسکران به تعمیرگاه بعد از خاموشی */
+  towToRepair: () => void;
   dispose: () => void;
 }
 
@@ -61,6 +63,7 @@ export async function createGame(
     listMissions: () => gm.listMissions(),
     startMission: (id) => gm.startMission(id),
     abandonMission: () => gm.abandonMission(),
+    towToRepair: () => gm.towToRepair(),
     dispose: () => gm.dispose(),
   };
 }

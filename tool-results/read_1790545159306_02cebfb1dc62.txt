@@ -1,0 +1,661 @@
+     1→"use client";
+     2→
+     3→/**
+     4→ * GameShell.tsx — پوسته بازی: بوت، منو، HUD، توقف، تنظیمات
+     5→ * ============================================================
+     6→ * - تمام متن‌ها فارسی RTL با اعداد فارسی
+     7→ * - مرز لایه‌ها: این کامپوننت فقط از API عمومی موتور (createGame) استفاده می‌کند
+     8→ * - دکمه‌های لمسی: HoldButton/TapButton (touch-controls.tsx)
+     9→ */
+    10→
+    11→import { useCallback, useEffect, useRef, useState } from "react";
+    12→import {
+    13→  ArrowUp,
+    14→  Car,
+    15→  ChevronLeft,
+    16→  ChevronRight,
+    17→  Coffee,
+    18→  Coins,
+    19→  Gauge,
+    20→  Home,
+    21→  Loader2,
+    22→  Map,
+    23→  Megaphone,
+    24→  Mic,
+    25→  Music,
+    26→  PartyPopper,
+    27→  Pause,
+    28→  Play,
+    29→  Square,
+    30→  Target,
+    31→  Users,
+    32→  Volume2,
+    33→  X,
+    34→} from "lucide-react";
+    35→import { createGame, type GameInstance, type GameState, type HudData, type MissionListItem, type MissionResultData } from "@/game";
+    36→import { HoldButton, TapButton } from "./touch-controls";
+    37→
+    38→/** تبدیل اعداد به فارسی */
+    39→const FA = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+    40→const fa = (n: number | string): string => String(n).replace(/[0-9]/g, (d) => FA[Number(d)]);
+    41→
+    42→interface Settings {
+    43→  music: number;
+    44→  sfx: number;
+    45→  voice: number;
+    46→}
+    47→
+    48→/** پنل تنظیمات صدا (در منو و Pause استفاده می‌شود) */
+    49→function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => void }) {
+    50→  const [s, setS] = useState<Settings>(game.getSettings());
+    51→  const rows: Array<{ key: keyof Settings; label: string; icon: React.ReactNode }> = [
+    52→    { key: "music", label: "موسیقی", icon: <Music className="h-5 w-5" /> },
+    53→    { key: "sfx", label: "افکت‌ها", icon: <Volume2 className="h-5 w-5" /> },
+    54→    { key: "voice", label: "جملات طنز", icon: <Mic className="h-5 w-5" /> },
+    55→  ];
+    56→  return (
+    57→    <div className="w-full space-y-3">
+    58→      {rows.map((r) => (
+    59→        <div key={r.key} className="flex items-center gap-3">
+    60→          <span className="text-[#3a2e2a]">{r.icon}</span>
+    61→          <span className="w-24 text-sm font-bold text-[#3a2e2a]">{r.label}</span>
+    62→          <input
+    63→            type="range"
+    64→            className="fc-range flex-1"
+    65→            min={0}
+    66→            max={1}
+    67→            step={0.05}
+    68→            value={s[r.key]}
+    69→            aria-label={`صدای ${r.label}`}
+    70→            onChange={(e) => {
+    71→              const v = Number(e.target.value);
+    72→              setS((p) => ({ ...p, [r.key]: v }));
+    73→              game.setSetting(r.key, v);
+    74→            }}
+    75→          />
+    76→          <span className="w-10 text-center text-sm font-bold text-[#3a2e2a]">{fa(Math.round(s[r.key] * 100))}٪</span>
+    77→        </div>
+    78→      ))}
+    79→      <div className="flex items-center gap-3 opacity-50">
+    80→        <span className="text-sm font-bold text-[#3a2e2a]">لرزش گوشی</span>
+    81→        <span className="text-xs text-[#3a2e2a]">(فازهای بعدی)</span>
+    82→      </div>
+    83→      {onClose && (
+    84→        <button
+    85→          type="button"
+    86→          className="fc-btn mt-2 w-full rounded-2xl bg-[#3a2e2a] py-2.5 text-white"
+    87→          onPointerDown={(e) => {
+    88→            e.preventDefault();
+    89→            onClose();
+    90→          }}
+    91→        >
+    92→          بستن
+    93→        </button>
+    94→      )}
+    95→    </div>
+    96→  );
+    97→}
+    98→
+    99→/** متن علت شکست مأموریت برای نمایش */
+   100→const FAIL_REASON_FA: Record<string, string> = {
+   101→  time_up: "وقت تموم شد!",
+   102→  engine_died: "ماشین خاموش شد!",
+   103→  too_many_crashes: "تصادف‌ها از حد گذشت!",
+   104→  too_many_potholes: "چاله‌ها بیشتر از حد مجاز!",
+   105→};
+   106→
+   107→export default function GameShell() {
+   108→  const canvasRef = useRef<HTMLCanvasElement>(null);
+   109→  const gameRef = useRef<GameInstance | null>(null);
+   110→  const steerRef = useRef({ left: false, right: false });
+   111→  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+   112→
+   113→  /** نمونه بازی در state برای رندر امن React (gameRef فقط در event handlerها استفاده می‌شود) */
+   114→  const [game, setGame] = useState<GameInstance | null>(null);
+   115→
+   116→  const [phase, setPhase] = useState<GameState | "boot">("boot");
+   117→  const [bootProgress, setBootProgress] = useState(0);
+   118→  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null });
+   119→  const [toast, setToast] = useState<string | null>(null);
+   120→  const [showSettings, setShowSettings] = useState(false);
+   121→  const [showMissions, setShowMissions] = useState(false);
+   122→  const [missions, setMissions] = useState<MissionListItem[]>([]);
+   123→  const [missionResult, setMissionResult] = useState<MissionResultData | null>(null);
+   124→
+   125→  const showToast = useCallback((msg: string) => {
+   126→    setToast(msg);
+   127→    if (toastTimer.current) clearTimeout(toastTimer.current);
+   128→    toastTimer.current = setTimeout(() => setToast(null), 1800);
+   129→  }, []);
+   130→
+   131→  // ---------- راه‌اندازی موتور ----------
+   132→  useEffect(() => {
+   133→    let cancelled = false;
+   134→    const canvas = canvasRef.current;
+   135→    if (!canvas) return;
+   136→    createGame(
+   137→      canvas,
+   138→      {
+   139→        onStateChange: (s) => setPhase(s),
+   140→        onHud: (h) => setHud(h),
+   141→        onMissionEnd: (r) => setMissionResult(r),
+   142→      },
+   143→      (done, total) => setBootProgress(Math.round((done / total) * 100)),
+   144→    ).then((inst) => {
+   145→      if (cancelled) {
+   146→        inst.dispose();
+   147→        return;
+   148→      }
+   149→      gameRef.current = inst;
+   150→      setGame(inst);
+   151→    });
+   152→    return () => {
+   153→      cancelled = true;
+   154→      gameRef.current?.dispose();
+   155→      gameRef.current = null;
+   156→    };
+   157→  }, []);
+   158→
+   159→  // ---------- فرمان ترکیبی (چپ+راست هم‌زمان = مستقیم) ----------
+   160→  const applySteer = useCallback(() => {
+   161→    const { left, right } = steerRef.current;
+   162→    gameRef.current?.setVirtualSteer(left === right ? 0 : right ? 1 : -1);
+   163→  }, []);
+   164→  const steerLeft = useCallback(
+   165→    (down: boolean) => {
+   166→      steerRef.current.left = down;
+   167→      applySteer();
+   168→    },
+   169→    [applySteer],
+   170→  );
+   171→  const steerRight = useCallback(
+   172→    (down: boolean) => {
+   173→      steerRef.current.right = down;
+   174→      applySteer();
+   175→    },
+   176→    [applySteer],
+   177→  );
+   178→
+   179→  const comingSoon = useCallback(() => showToast("این حالت به‌زودی می‌آید! طبق نقشه راه فاز ۴ به ۷ ساخته می‌شود."), [showToast]);
+   180→
+   181→  const repColor = hud.reputation >= 70 ? "#8AC926" : hud.reputation >= 35 ? "#F2B705" : "#D64545";
+   182→
+   183→  return (
+   184→    <div className="fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
+   185→      {/* بوم بازی — زیر همه لایه‌ها */}
+   186→      <canvas ref={canvasRef} className="fc-canvas absolute inset-0 h-full w-full" />
+   187→
+   188→      {/* ============ صفحه بوت ============ */}
+   189→      {phase === "boot" && (
+   190→        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#2A9D8F]">
+   191→          <div className="fc-panel fc-pop flex flex-col items-center gap-4 bg-[#FFF9EC] px-10 py-8">
+   192→            <Loader2 className="h-10 w-10 animate-spin text-[#2A9D8F]" />
+   193→            <p className="text-xl font-extrabold text-[#3a2e2a]">در حال باز کردن گاراژ...</p>
+   194→            <div className="h-4 w-56 overflow-hidden rounded-full border-4 border-[#3a2e2a] bg-[#FFF3D6]">
+   195→              <div className="h-full bg-[#8AC926] transition-all" style={{ width: `${bootProgress}%` }} />
+   196→            </div>
+   197→            <p className="text-sm font-bold text-[#3a2e2a]">٪{fa(bootProgress)}</p>
+   198→          </div>
+   199→        </div>
+   200→      )}
+   201→
+   202→      {/* ============ منوی اصلی ============ */}
+   203→      {phase === "menu" && (
+   204→        <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
+   205→          <div className="fc-pop mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 px-6 py-8">
+   206→            {/* لوگو */}
+   207→            <div className="flex flex-col items-center gap-2">
+   208→              <div className="fc-btn flex h-20 w-20 items-center justify-center rounded-3xl bg-[#F2B705]">
+   209→                <Car className="h-11 w-11 text-[#3a2e2a]" strokeWidth={2.4} />
+   210→              </div>
+   211→              <h1 className="mt-2 text-5xl font-extrabold text-white drop-shadow-[0_4px_0_rgba(58,46,42,0.9)]">فانی‌کار</h1>
+   212→              <p className="text-sm font-bold text-white/90 drop-shadow-[0_2px_0_rgba(58,46,42,0.7)]">
+   213→                آبرو می‌بری یا می‌ریزی؟
+   214→              </p>
+   215→            </div>
+   216→
+   217→            {/* آمار بازیکن */}
+   218→            <div className="flex items-center gap-3">
+   219→              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC] px-4 py-2">
+   220→                <Coins className="h-5 w-5 text-[#B8801A]" />
+   221→                <span className="font-extrabold text-[#3a2e2a]">{fa(hud.coins)}</span>
+   222→              </div>
+   223→              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC] px-4 py-2">
+   224→                <Coffee className="h-5 w-5 text-[#D64545]" />
+   225→                <span className="font-extrabold text-[#3a2e2a]">آبرو: {fa(hud.reputation)}</span>
+   226→              </div>
+   227→            </div>
+   228→
+   229→            {/* دکمه اصلی */}
+   230→            <button
+   231→              type="button"
+   232→              className="fc-btn w-full max-w-xs rounded-3xl bg-[#8AC926] py-4 text-2xl font-extrabold text-[#3a2e2a]"
+   233→              onPointerDown={(e) => {
+   234→                e.preventDefault();
+   235→                gameRef.current?.startGameplay();
+   236→              }}
+   237→            >
+   238→              رانندگی آزاد
+   239→            </button>
+   240→
+   241→            {/* حالت‌های بعدی */}
+   242→            <div className="grid w-full max-w-xs grid-cols-2 gap-3">
+   243→              {/* مأموریت‌ها — فاز 4 آماده است */}
+   244→              <button
+   245→                type="button"
+   246→                className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#8AC926] py-3 text-[#3a2e2a]"
+   247→                onPointerDown={(e) => {
+   248→                  e.preventDefault();
+   249→                  setMissions(gameRef.current?.listMissions() ?? []);
+   250→                  setShowMissions(true);
+   251→                }}
+   252→              >
+   253→                <Map className="h-6 w-6" />
+   254→                <span className="text-sm font-extrabold">مأموریت‌ها</span>
+   255→                <span className="text-[10px] font-bold opacity-60">فاز ۴ ✓</span>
+   256→              </button>
+   257→              {[
+   258→                { icon: <Target className="h-6 w-6" />, label: "پارک دوبل" },
+   259→                { icon: <Users className="h-6 w-6" />, label: "مسافرکشی" },
+   260→                { icon: <PartyPopper className="h-6 w-6" />, label: "چالش‌ها" },
+   261→              ].map((m) => (
+   262→                <button
+   263→                  key={m.label}
+   264→                  type="button"
+   265→                  className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#FFF3D6] py-3 text-[#3a2e2a]"
+   266→                  onPointerDown={(e) => {
+   267→                    e.preventDefault();
+   268→                    comingSoon();
+   269→                  }}
+   270→                >
+   271→                  {m.icon}
+   272→                  <span className="text-sm font-extrabold">{m.label}</span>
+   273→                  <span className="text-[10px] font-bold opacity-60">به‌زودی</span>
+   274→                </button>
+   275→              ))}
+   276→            </div>
+   277→
+   278→            {/* تنظیمات */}
+   279→            {showSettings ? (
+   280→              <div className="fc-panel fc-pop w-full max-w-xs bg-[#FFF9EC] p-4">
+   281→                <div className="mb-3 flex items-center justify-between">
+   282→                  <span className="text-lg font-extrabold text-[#3a2e2a]">تنظیمات</span>
+   283→                  <TapButton ariaLabel="بستن تنظیمات" className="h-9 w-9 bg-[#D64545] text-white" onTap={() => setShowSettings(false)}>
+   284→                    <X className="h-5 w-5" />
+   285→                  </TapButton>
+   286→                </div>
+   287→                {game && <SettingsPanel game={game} />}
+   288→              </div>
+   289→            ) : (
+   290→              <button
+   291→                type="button"
+   292→                className="fc-btn flex items-center gap-2 rounded-2xl bg-[#FFF9EC] px-6 py-2.5 font-extrabold text-[#3a2e2a]"
+   293→                onPointerDown={(e) => {
+   294→                  e.preventDefault();
+   295→                  setShowSettings(true);
+   296→                }}
+   297→              >
+   298→                <Settings className="h-5 w-5" />
+   299→                تنظیمات
+   300→              </button>
+   301→            )}
+   302→
+   303→            {/* یادداشت Placeholder (شفافیت — قانون بخش ۳۲ سند مادر) */}
+   304→            {hud.placeholders > 0 && (
+   305→              <p className="max-w-xs text-center text-[11px] font-bold leading-5 text-white/80">
+   306→                {fa(hud.placeholders)} فایل موقت (Placeholder) فعال است — طبق مستندات
+   307→                «ASSET_HANDBOOK» و «ASSET_INVENTORY» به‌تدریج با Assetهای واقعی جایگزین می‌شود.
+   308→              </p>
+   309→            )}
+   310→
+   311→            <p className="mt-auto text-center text-[11px] font-bold leading-5 text-white/70">
+   312→              دسکتاپ: جهت‌نما / WASD رانندگی — H بوق — P توقف — F شمارنده FPS
+   313→              <br />
+   314→              نسخه فاز ۱ • موتور اختصاصی HTML5
+   315→            </p>
+   316→          </div>
+   317→        </div>
+   318→      )}
+   319→
+   320→      {/* ============ انتخاب مأموریت (فاز 4) ============ */}
+   321→      {phase === "menu" && showMissions && (
+   322→        <div className="absolute inset-0 z-40 flex flex-col overflow-y-auto bg-[#3a2e2a]/70 px-4 py-6 backdrop-blur-[2px]">
+   323→          <div className="fc-pop mx-auto flex w-full max-w-md flex-col gap-3">
+   324→            <div className="flex items-center justify-between">
+   325→              <h2 className="flex items-center gap-2 text-2xl font-extrabold text-white drop-shadow-[0_2px_0_rgba(58,46,42,0.9)]">
+   326→                <Map className="h-7 w-7 text-[#F2B705]" />
+   327→                مأموریت‌ها
+   328→              </h2>
+   329→              <TapButton
+   330→                ariaLabel="بستن مأموریت‌ها"
+   331→                className="h-11 w-11 bg-[#FFF9EC] text-[#3a2e2a]"
+   332→                onTap={() => setShowMissions(false)}
+   333→              >
+   334→                <X className="h-6 w-6" />
+   335→              </TapButton>
+   336→            </div>
+   337→            {missions.map((m) => (
+   338→              <button
+   339→                key={m.id}
+   340→                type="button"
+   341→                className="fc-btn fc-panel flex w-full flex-col items-start gap-1 bg-[#FFF9EC] p-4 text-right"
+   342→                onPointerDown={(e) => {
+   343→                  e.preventDefault();
+   344→                  gameRef.current?.startMission(m.id);
+   345→                  setShowMissions(false);
+   346→                }}
+   347→              >
+   348→                <div className="flex w-full items-center justify-between">
+   349→                  <span className="text-lg font-extrabold text-[#3a2e2a]">{m.title}</span>
+   350→                  {m.done && (
+   351→                    <span className="rounded-full bg-[#8AC926] px-3 py-0.5 text-xs font-extrabold text-[#3a2e2a]">انجام شد ✓</span>
+   352→                  )}
+   353→                </div>
+   354→                <p className="text-xs font-bold leading-5 text-[#3a2e2a]/75">{m.intro}</p>
+   355→                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-extrabold">
+   356→                  <span className="flex items-center gap-1 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[#B8801A]">
+   357→                    <Coins className="h-3.5 w-3.5" /> +{fa(m.rewardCoins)}
+   358→                  </span>
+   359→                  <span className="flex items-center gap-1 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[#D64545]">
+   360→                    <Coffee className="h-3.5 w-3.5" /> +{fa(m.rewardRep)} آبرو
+   361→                  </span>
+   362→                  {m.timeLimitSec > 0 && (
+   363→                    <span className="flex items-center gap-1 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[#2A9D8F]">
+   364→                      <Gauge className="h-3.5 w-3.5" /> {fa(m.timeLimitSec)} ثانیه
+   365→                    </span>
+   366→                  )}
+   367→                </div>
+   368→              </button>
+   369→            ))}
+   370→            <p className="mt-1 text-center text-[11px] font-bold text-white/75">
+   371→              مأموریت موفق: ۲۰ تا ۱۰۰ سکه + ۸ تا ۱۵ آبرو (طبق سند طراحی)
+   372→            </p>
+   373→          </div>
+   374→        </div>
+   375→      )}
+   376→
+   377→      {/* ============ HUD گیم‌پلی ============ */}
+   378→      {phase === "playing" && (
+   379→        <>
+   380→          {/* نوار بالا */}
+   381→          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-3">
+   382→            <div className="pointer-events-auto">
+   383→              <TapButton ariaLabel="توقف بازی" className="h-12 w-12 bg-[#FFF9EC] text-[#3a2e2a]" onTap={() => gameRef.current?.pause()}>
+   384→                <Pause className="h-6 w-6" />
+   385→              </TapButton>
+   386→            </div>
+   387→            <div className="flex flex-col items-end gap-2">
+   388→              {/* پنل مأموریت فعال (فاز 4) */}
+   389→              {hud.mission && (
+   390→                <div className="fc-panel pointer-events-auto w-[248px] bg-[#FFF9EC]/95 p-3">
+   391→                  <div className="flex items-center justify-between gap-2">
+   392→                    <span className="text-sm font-extrabold text-[#3a2e2a]">{hud.mission.title}</span>
+   393→                    <TapButton
+   394→                      ariaLabel="انصراف از مأموریت"
+   395→                      className="h-7 w-7 bg-[#D64545] text-white"
+   396→                      onTap={() => gameRef.current?.abandonMission()}
+   397→                    >
+   398→                      <X className="h-4 w-4" />
+   399→                    </TapButton>
+   400→                  </div>
+   401→                  <p className="mt-0.5 text-[10px] font-bold leading-4 text-[#3a2e2a]/70">{hud.mission.objective}</p>
+   402→                  {hud.mission.timeLeft >= 0 && (
+   403→                    <div className="mt-1.5">
+   404→                      <div className="h-2.5 w-full overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
+   405→                        <div
+   406→                          className="h-full transition-all"
+   407→                          style={{
+   408→                            width: `${hud.mission.timeLimit > 0 ? Math.max(0, Math.min(100, (hud.mission.timeLeft / hud.mission.timeLimit) * 100)) : 0}%`,
+   409→                            backgroundColor: hud.mission.timeLeft > 15 ? "#8AC926" : hud.mission.timeLeft > 7 ? "#F2B705" : "#D64545",
+   410→                          }}
+   411→                        />
+   412→                      </div>
+   413→                      <div className="mt-0.5 flex items-center justify-between text-[10px] font-extrabold text-[#3a2e2a]/80">
+   414→                        <span>{fa(Math.ceil(hud.mission.timeLeft))} ثانیه</span>
+   415→                        <span>{fa(hud.mission.distM)} متر</span>
+   416→                      </div>
+   417→                    </div>
+   418→                  )}
+   419→                  {hud.mission.timeLeft < 0 && (
+   420→                    <div className="mt-1 text-[10px] font-extrabold text-[#3a2e2a]/80">{fa(hud.mission.distM)} متر تا هدف</div>
+   421→                  )}
+   422→                  {hud.mission.extra && (
+   423→                    <div className="mt-1 rounded-full bg-[#FFF3D6] px-2 py-0.5 text-center text-[10px] font-extrabold text-[#3a2e2a]">{hud.mission.extra}</div>
+   424→                  )}
+   425→                </div>
+   426→              )}
+   427→              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
+   428→                <Coins className="h-5 w-5 text-[#B8801A]" />
+   429→                <span className="font-extrabold text-[#3a2e2a]">{fa(hud.coins)}</span>
+   430→              </div>
+   431→              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
+   432→                <Coffee className="h-5 w-5 text-[#D64545]" />
+   433→                <div className="h-3 w-20 overflow-hidden rounded-full border-[3px] border-[#3a2e2a] bg-white">
+   434→                  <div className="h-full transition-all" style={{ width: `${hud.reputation}%`, backgroundColor: repColor }} />
+   435→                </div>
+   436→              </div>
+   437→              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
+   438→                <Gauge className="h-5 w-5 text-[#2A9D8F]" />
+   439→                <span className="font-extrabold text-[#3a2e2a]">{fa(hud.speedKmh)} کیلومتر/ساعت</span>
+   440→              </div>
+   441→              {hud.showFps && (
+   442→                <div className="fc-panel bg-[#3a2e2a]/85 px-3 py-1">
+   443→                  <span className="text-xs font-extrabold text-white">FPS: {fa(hud.fps)}</span>
+   444→                </div>
+   445→              )}
+   446→            </div>
+   447→          </div>
+   448→
+   449→          {/* کنترل‌ها: فرمان پایین-چپ، گاز/ترمز پایین-راست (GAME_DESIGN بخش ۱۳) */}
+   450→          <div className="pointer-events-none absolute inset-0 z-20">
+   451→            <div className="pointer-events-auto absolute" style={{ left: 20, bottom: 28, display: "flex", gap: 14 }}>
+   452→              <HoldButton
+   453→                ariaLabel="فرمان چپ"
+   454→                onHold={steerLeft}
+   455→                className="h-[88px] w-[88px] bg-[#FFF3D6] text-[#3a2e2a]"
+   456→              >
+   457→                <ChevronLeft className="h-12 w-12" strokeWidth={2.6} />
+   458→              </HoldButton>
+   459→              <HoldButton
+   460→                ariaLabel="فرمان راست"
+   461→                onHold={steerRight}
+   462→                className="h-[88px] w-[88px] bg-[#FFF3D6] text-[#3a2e2a]"
+   463→              >
+   464→                <ChevronRight className="h-12 w-12" strokeWidth={2.6} />
+   465→              </HoldButton>
+   466→            </div>
+   467→            <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: 20, bottom: 28 }}>
+   468→              <div className="flex flex-col items-center gap-3">
+   469→                <TapButton
+   470→                  ariaLabel="بوق"
+   471→                  onTap={() => gameRef.current?.pressHorn()}
+   472→                  className="h-[60px] w-[60px] bg-[#F2B705] text-[#3a2e2a]"
+   473→                >
+   474→                  <Megaphone className="h-7 w-7" />
+   475→                </TapButton>
+   476→                <HoldButton
+   477→                  ariaLabel="ترمز"
+   478→                  onHold={(d) => gameRef.current?.setVirtualBrake(d)}
+   479→                  className="h-[76px] w-[76px] bg-[#D64545] text-white"
+   480→                >
+   481→                  <Square className="h-8 w-8" strokeWidth={2.6} />
+   482→                </HoldButton>
+   483→              </div>
+   484→              <HoldButton
+   485→                ariaLabel="گاز"
+   486→                onHold={(d) => gameRef.current?.setVirtualGas(d)}
+   487→                className="h-[100px] w-[100px] bg-[#8AC926] text-[#3a2e2a]"
+   488→              >
+   489→                <ArrowUp className="h-12 w-12" strokeWidth={2.6} />
+   490→              </HoldButton>
+   491→            </div>
+   492→          </div>
+   493→        </>
+   494→      )}
+   495→
+   496→      {/* ============ صفحه توقف ============ */}
+   497→      {phase === "paused" && (
+   498→        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#3a2e2a]/45 backdrop-blur-[2px]">
+   499→          <div className="fc-panel fc-pop mx-6 w-full max-w-sm bg-[#FFF9EC] p-6">
+   500→            <h2 className="mb-1 text-center text-2xl font-extrabold text-[#3a2e2a]">استراحت کوچولو!</h2>
+   501→            <p className="mb-4 text-center text-xs font-bold text-[#3a2e2a]/60">ماشین هم نفس تازه می‌کند</p>
+   502→            <div className="mb-4 space-y-2">
+   503→              <button
+   504→                type="button"
+   505→                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#8AC926] py-3 text-lg font-extrabold text-[#3a2e2a]"
+   506→                onPointerDown={(e) => {
+   507→                  e.preventDefault();
+   508→                  gameRef.current?.resume();
+   509→                }}
+   510→              >
+   511→                <Play className="h-5 w-5" />
+   512→                ادامه بازی
+   513→              </button>
+   514→              <button
+   515→                type="button"
+   516→                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
+   517→                onPointerDown={(e) => {
+   518→                  e.preventDefault();
+   519→                  setShowSettings((v) => !v);
+   520→                }}
+   521→              >
+   522→                <Settings className="h-5 w-5" />
+   523→                تنظیمات صدا
+   524→              </button>
+   525→              <button
+   526→                type="button"
+   527→                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D64545] py-3 font-extrabold text-white"
+   528→                onPointerDown={(e) => {
+   529→                  e.preventDefault();
+   530→                  gameRef.current?.backToMenu();
+   531→                }}
+   532→              >
+   533→                <Home className="h-5 w-5" />
+   534→                منوی اصلی
+   535→              </button>
+   536→            </div>
+   537→            {showSettings && game && (
+   538→              <div className="rounded-2xl bg-[#FFF3D6] p-3">
+   539→                <SettingsPanel game={game} />
+   540→              </div>
+   541→            )}
+   542→          </div>
+   543→        </div>
+   544→      )}
+   545→
+   546→      {/* ============ نتیجه مأموریت (فاز 4) ============ */}
+   547→      {phase === "playing" && missionResult && (
+   548→        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#3a2e2a]/45 px-6 backdrop-blur-[2px]">
+   549→          <div
+   550→            className={`fc-panel fc-pop w-full max-w-sm p-6 text-center ${
+   551→              missionResult.success ? "bg-[#FFF9EC]" : "bg-[#F4E7DA]"
+   552→            }`}
+   553→          >
+   554→            <div
+   555→              className={`mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-3xl ${
+   556→                missionResult.success ? "bg-[#8AC926]" : "bg-[#D64545]"
+   557→              }`}
+   558→            >
+   559→              {missionResult.success ? (
+   560→                <PartyPopper className="h-9 w-9 text-[#3a2e2a]" />
+   561→              ) : (
+   562→                <X className="h-9 w-9 text-white" />
+   563→              )}
+   564→            </div>
+   565→            <h2 className="text-2xl font-extrabold text-[#3a2e2a]">
+   566→              {missionResult.success ? "مأموریت موفق!" : "مأموریت شکست!"}
+   567→            </h2>
+   568→            <p className="mt-0.5 text-sm font-bold text-[#3a2e2a]/70">{missionResult.title}</p>
+   569→            {!missionResult.success && missionResult.reason && (
+   570→              <p className="mt-1 text-sm font-extrabold text-[#D64545]">
+   571→                {FAIL_REASON_FA[missionResult.reason] ?? missionResult.reason}
+   572→              </p>
+   573→            )}
+   574→            {missionResult.success && (
+   575→              <div className="mt-3 flex items-center justify-center gap-2">
+   576→                <span className="fc-panel flex items-center gap-1.5 bg-[#FFF3D6] px-3 py-1.5 text-[#B8801A]">
+   577→                  <Coins className="h-5 w-5" />
+   578→                  <span className="font-extrabold">+{fa(missionResult.coins)}</span>
+   579→                </span>
+   580→                <span className="fc-panel flex items-center gap-1.5 bg-[#FFF3D6] px-3 py-1.5 text-[#D64545]">
+   581→                  <Coffee className="h-5 w-5" />
+   582→                  <span className="font-extrabold">+{fa(missionResult.rep)} آبرو</span>
+   583→                </span>
+   584→              </div>
+   585→            )}
+   586→            <p className="mt-3 rounded-2xl bg-[#FFF3D6] px-3 py-2 text-sm font-bold leading-6 text-[#3a2e2a]">
+   587→              «{missionResult.line}»
+   588→            </p>
+   589→            <div className="mt-4 space-y-2">
+   590→              <button
+   591→                type="button"
+   592→                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#8AC926] py-3 text-lg font-extrabold text-[#3a2e2a]"
+   593→                onPointerDown={(e) => {
+   594→                  e.preventDefault();
+   595→                  setMissionResult(null);
+   596→                  gameRef.current?.startMission(missionResult.missionId);
+   597→                }}
+   598→              >
+   599→                <Play className="h-5 w-5" />
+   600→                تلاش دوباره
+   601→              </button>
+   602→              <button
+   603→                type="button"
+   604→                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
+   605→                onPointerDown={(e) => {
+   606→                  e.preventDefault();
+   607→                  setMissionResult(null);
+   608→                  gameRef.current?.abandonMission();
+   609→                }}
+   610→              >
+   611→                <Gauge className="h-5 w-5" />
+   612→                ادامه رانندگی آزاد
+   613→              </button>
+   614→              <button
+   615→                type="button"
+   616→                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D64545] py-3 font-extrabold text-white"
+   617→                onPointerDown={(e) => {
+   618→                  e.preventDefault();
+   619→                  setMissionResult(null);
+   620→                  gameRef.current?.backToMenu();
+   621→                }}
+   622→              >
+   623→                <Home className="h-5 w-5" />
+   624→                منوی اصلی
+   625→              </button>
+   626→            </div>
+   627→          </div>
+   628→        </div>
+   629→      )}
+   630→
+   631→      {/* ============ Toast ============ */}
+   632→      {toast && (
+   633→        <div className="pointer-events-none absolute inset-x-0 bottom-28 z-50 flex justify-center px-6">
+   634→          <div className="fc-pop fc-panel bg-[#3a2e2a] px-5 py-2.5 text-center text-sm font-extrabold text-white">
+   635→            {toast}
+   636→          </div>
+   637→        </div>
+   638→      )}
+   639→    </div>
+   640→  );
+   641→}
+   642→
+   643→/* آیکون تنظیمات به‌صورت مستقیم برای جلوگیری از import اضافه */
+   644→function Settings(props: React.SVGProps<SVGSVGElement>) {
+   645→  return (
+   646→    <svg
+   647→      xmlns="http://www.w3.org/2000/svg"
+   648→      viewBox="0 0 24 24"
+   649→      fill="none"
+   650→      stroke="currentColor"
+   651→      strokeWidth={2}
+   652→      strokeLinecap="round"
+   653→      strokeLinejoin="round"
+   654→      {...props}
+   655→    >
+   656→      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+   657→      <circle cx="12" cy="12" r="3" />
+   658→    </svg>
+   659→  );
+   660→}
+   661→

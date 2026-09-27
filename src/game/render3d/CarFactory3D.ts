@@ -1,19 +1,14 @@
 /**
- * CarFactory3D.ts — کارخانه ماشین‌های ایرانی Low-Poly (فاز GTA-IR)
+ * CarFactory3D.ts — کارخانه ماشین‌های ایرانی v3 (فاز BIG-IR — «شبیه GTA»)
  * ============================================================
+ * ارتقای بزرگ نسبت به v2:
+ *  - بدنه از «نیم‌رخ واقعی» هر خودرو با ExtrudeGeometry + bevel → بدنه گرد و نرم
+ *  - MeshToonMaterial با گرادیان ۳ پله → سایه‌بندی کارتونی (انیمیشنی، نه سینمایی)
+ *  - خط دور (Outline) معکوس روی بدنه → حس کمیک/GTA کارتونی
+ *  - شیشه باندی، خط در، دستگیره، آینه، جلوپنجره کروم، پلاک ایرانی
+ *  - راننده داخل کابین دیده می‌شود (سر + تن)
+ *  - سپر جداشدنی (سیستم آسیب) + چراغ‌گردان پلیس با فلش + تیرگی بدنه با آسیب
  * ماشین رو به -Z ساخته می‌شود (شمال = angle صفر قرارداد Vehicle).
- * چرخش در دنیا: group.rotation.y = -angle
- *
- * خودروهای ایرانی قابل‌تشخیص:
- *  - پراید (سایپا) — جعبه‌ای کوچک، همه‌جای ایران!
- *  - پژو ۴۰۵ — سدان بلند با کاپوت جلوبلند
- *  - سمند — بزرگ‌تر با جلوپنجره پهن
- *  - نیسان آبی (وانت Z24) — آیکون وانت‌های ایران
- *  - تیبا — هاچ‌بک کوچک
- *  - تاکسی زرد (۴۰۵) با علامت «تاکسی» روی سقف
- *  - پلیس — سمند سفید با نوار سبز + چراغ‌گردان
- *
- * جزئیات مشترک: پلاک ایرانی (نوار آبی + سفید)، آینه بغل، اگزوز، سپر.
  */
 
 import * as THREE from 'three';
@@ -29,45 +24,68 @@ export interface CarModel3D {
   wheels: THREE.Mesh[];
   /** رنگ بدنه برای ذرات/جلوه‌ها */
   bodyColor: string;
+  /** متریال بدنه — برای تیره‌شدن با آسیب */
+  bodyMat: THREE.MeshToonMaterial;
+  /** سپرهای جداشدنی (سیستم آسیب داینامیک) */
+  bumpers: { front: THREE.Mesh | null; rear: THREE.Mesh | null };
+  /** چراغ‌گردان پلیس (فلاش قرمز/آبی) */
+  lightBar?: { red: THREE.Mesh; blue: THREE.Mesh };
+  /** شیشه‌ها — برای خوردگی بصری */
+  len: number;
+  wid: number;
 }
 
-// ---------- متریال‌های مشترک (ساخته یک‌بار) ----------
-let glassMat: THREE.MeshLambertMaterial | null = null;
-let tireMat: THREE.MeshLambertMaterial | null = null;
-let hubMat: THREE.MeshLambertMaterial | null = null;
-let darkMat: THREE.MeshLambertMaterial | null = null;
-let chromeMat: THREE.MeshLambertMaterial | null = null;
+// ---------- متریال مشترک ----------
+let glassMat: THREE.MeshPhongMaterial | null = null;
+let tireMat: THREE.MeshToonMaterial | null = null;
+let rimMat: THREE.MeshPhongMaterial | null = null;
+let darkMat: THREE.MeshToonMaterial | null = null;
+let chromeMat: THREE.MeshPhongMaterial | null = null;
 let headMat: THREE.MeshBasicMaterial | null = null;
 let tailMat: THREE.MeshBasicMaterial | null = null;
 let plateMat: THREE.MeshLambertMaterial | null = null;
 let taxiSignMat: THREE.MeshLambertMaterial | null = null;
-
-let wheelGeo: THREE.CylinderGeometry | null = null;
-let hubGeo: THREE.CylinderGeometry | null = null;
-let plateGeo: THREE.BoxGeometry | null = null;
+let outlineMat: THREE.MeshBasicMaterial | null = null;
+let driverShirtMat: THREE.MeshToonMaterial | null = null;
+let skinMat: THREE.MeshToonMaterial | null = null;
+let gradientMap: THREE.DataTexture | null = null;
 
 function ensureShared(): void {
-  if (glassMat) return;
-  glassMat = new THREE.MeshLambertMaterial({ color: '#25333f' });
-  tireMat = new THREE.MeshLambertMaterial({ color: '#23211f' });
-  hubMat = new THREE.MeshLambertMaterial({ color: '#c9c4ba' });
-  darkMat = new THREE.MeshLambertMaterial({ color: '#3a2e2a' });
-  chromeMat = new THREE.MeshLambertMaterial({ color: '#9aa2a8' });
-  headMat = new THREE.MeshBasicMaterial({ color: '#fff3c2' });
+  if (gradientMap) return;
+  // گرادیان ۳ پله برای سایه‌بندی تون (کارتونی)
+  const data = new Uint8Array([
+    150, 150, 150, 255,
+    210, 210, 210, 255,
+    255, 255, 255, 255,
+  ]);
+  gradientMap = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
+  gradientMap.minFilter = THREE.NearestFilter;
+  gradientMap.magFilter = THREE.NearestFilter;
+  gradientMap.needsUpdate = true;
+
+  glassMat = new THREE.MeshPhongMaterial({ color: '#20303c', shininess: 130, specular: '#9fb6c4', transparent: true, opacity: 0.94 });
+  tireMat = new THREE.MeshToonMaterial({ color: '#23211f', gradientMap });
+  rimMat = new THREE.MeshPhongMaterial({ color: '#cfd3d8', shininess: 90, specular: '#ffffff' });
+  darkMat = new THREE.MeshToonMaterial({ color: '#2e2622', gradientMap });
+  chromeMat = new THREE.MeshPhongMaterial({ color: '#c2c8ce', shininess: 110, specular: '#ffffff' });
+  headMat = new THREE.MeshBasicMaterial({ color: '#fff6cc' });
   tailMat = new THREE.MeshBasicMaterial({ color: '#e2574c' });
   plateMat = new THREE.MeshLambertMaterial({ map: getPlateTexture() });
   taxiSignMat = new THREE.MeshLambertMaterial({ map: getTaxiSignTexture() });
-  wheelGeo = new THREE.CylinderGeometry(1, 1, 1, 14);
-  wheelGeo.rotateZ(Math.PI / 2); // محور چرخش = X
-  hubGeo = new THREE.CylinderGeometry(1, 1, 1, 10);
-  hubGeo.rotateZ(Math.PI / 2);
-  plateGeo = new THREE.BoxGeometry(1, 1, 1);
+  outlineMat = new THREE.MeshBasicMaterial({ color: '#231a14', side: THREE.BackSide });
+  driverShirtMat = new THREE.MeshToonMaterial({ color: '#5b6770', gradientMap });
+  skinMat = new THREE.MeshToonMaterial({ color: '#e8b98e', gradientMap });
+}
+
+/** متریال تون با رنگ دلخواه */
+function toon(color: string): THREE.MeshToonMaterial {
+  return new THREE.MeshToonMaterial({ color, gradientMap: gradientMap as THREE.DataTexture });
 }
 
 // ---------- پالت رنگ خیابان‌های ایران ----------
 const COLORS = {
-  pride: ['#f4f4f0', '#d9d9d4', '#3f7fd4', '#b03a2e', '#e8d9b0', '#7f8c8d', '#f4f4f0'],
-  peugeot405: ['#f7f7f2', '#c8c8c4', '#5d6d7e', '#7b241c', '#34495e', '#f7f7f2'],
+  pride: ['#f4f4f0', '#d9d9d4', '#3f7fd4', '#b03a2e', '#e8d9b0', '#7f8c8d', '#e8a33d'],
+  peugeot405: ['#f7f7f2', '#c8c8c4', '#5d6d7e', '#7b241c', '#34495e', '#e8a33d'],
   samand: ['#bfc9ca', '#f2f3f4', '#424949', '#5d8aa8', '#f2f3f4'],
   tiba: ['#b03a2e', '#d5dbdb', '#f4f4f0', '#1a5276'],
 };
@@ -75,90 +93,92 @@ function pickColor(list: string[]): string {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-// ---------- مشخصات بدنه هر خودرو (واحد: پیکسل منطقی) ----------
-interface BodySpec {
-  len: number;       // طول کامل
-  wid: number;       // عرض
-  bodyH: number;     // ارتفاع بدنه پایین
-  wheelR: number;    // شعاع چرخ
-  /** کابین: سهم کاپوت/کابین/صندوق از طول (جمع = ۱) */
-  hoodFrac: number;
-  cabFrac: number;
-  trunkFrac: number;
-  cabH: number;      // ارتفاع گلخانه (کابین شیشه‌ای)
-  frontSlope: number; // شیب شیشه جلو (رادیان؛ بزرگ‌تر = خوابیده‌تر)
-  rearSlope: number;  // شیب شیشه عقب (۰ = عمودی مثل پراید)
-  grille: 'thin' | 'wide';
-}
+// ---------- نیم‌رخ هر خودرو (z: جلو منفی → عقب مثبت، y: ارتفاع) ----------
+type Profile = Array<[number, number]>;
 
-const SPECS: Record<CarVariant, BodySpec> = {
-  // پراید: جعبه‌ای کوچک، شیشه عقب عمودی، کاپوت کوتاه
-  player:      { len: 172, wid: 100, bodyH: 44, wheelR: 21, hoodFrac: 0.30, cabFrac: 0.42, trunkFrac: 0.28, cabH: 40, frontSlope: 0.42, rearSlope: 0.08, grille: 'thin' },
-  pride:       { len: 172, wid: 100, bodyH: 44, wheelR: 21, hoodFrac: 0.30, cabFrac: 0.42, trunkFrac: 0.28, cabH: 40, frontSlope: 0.42, rearSlope: 0.08, grille: 'thin' },
-  // پژو ۴۰۵: کاپوت بلند جلوبلند، شیشه‌های خوابیده
-  peugeot405:  { len: 196, wid: 106, bodyH: 48, wheelR: 23, hoodFrac: 0.36, cabFrac: 0.38, trunkFrac: 0.26, cabH: 42, frontSlope: 0.50, rearSlope: 0.34, grille: 'thin' },
-  // تاکسی = شکل ۴۰۵
-  taxi:        { len: 196, wid: 106, bodyH: 48, wheelR: 23, hoodFrac: 0.36, cabFrac: 0.38, trunkFrac: 0.26, cabH: 42, frontSlope: 0.50, rearSlope: 0.34, grille: 'thin' },
-  // سمند: پهن و بلند با جلوپنجره بزرگ
-  samand:      { len: 206, wid: 112, bodyH: 52, wheelR: 24, hoodFrac: 0.34, cabFrac: 0.38, trunkFrac: 0.28, cabH: 46, frontSlope: 0.46, rearSlope: 0.30, grille: 'wide' },
-  police:      { len: 206, wid: 112, bodyH: 52, wheelR: 24, hoodFrac: 0.34, cabFrac: 0.38, trunkFrac: 0.28, cabH: 46, frontSlope: 0.46, rearSlope: 0.30, grille: 'wide' },
-  // نیسان آبی: وانت — کابین جلو، بدنه بار باز
-  nissan:      { len: 200, wid: 112, bodyH: 56, wheelR: 26, hoodFrac: 0.28, cabFrac: 0.30, trunkFrac: 0.42, cabH: 48, frontSlope: 0.38, rearSlope: 0.10, grille: 'wide' },
-  // تیبا: هاچ‌بک کوچک با عقب مایل
-  tiba:        { len: 168, wid: 100, bodyH: 46, wheelR: 22, hoodFrac: 0.32, cabFrac: 0.44, trunkFrac: 0.24, cabH: 42, frontSlope: 0.44, rearSlope: 0.46, grille: 'thin' },
+const PROFILES: Record<CarVariant, Profile> = {
+  // پراید: جعبه‌ای، شیشه عقب پرشیب کم
+  player: [[-86, 12], [-87, 38], [-84, 50], [-26, 53], [-19, 88], [28, 88], [37, 55], [76, 53], [82, 36], [86, 13]],
+  pride:  [[-86, 12], [-87, 38], [-84, 50], [-26, 53], [-19, 88], [28, 88], [37, 55], [76, 53], [82, 36], [86, 13]],
+  // پژو ۴۰۵: کاپوت بلند، صندوق بالا
+  peugeot405: [[-98, 12], [-99, 36], [-96, 48], [-28, 52], [-20, 87], [26, 87], [35, 60], [90, 58], [96, 36], [98, 13]],
+  taxi:       [[-98, 12], [-99, 36], [-96, 48], [-28, 52], [-20, 87], [26, 87], [35, 60], [90, 58], [96, 36], [98, 13]],
+  // سمند: پهن و بلند
+  samand: [[-103, 13], [-104, 38], [-101, 52], [-32, 55], [-24, 93], [30, 93], [40, 62], [95, 60], [101, 38], [103, 14]],
+  police: [[-103, 13], [-104, 38], [-101, 52], [-32, 55], [-24, 93], [30, 93], [40, 62], [95, 60], [101, 38], [103, 14]],
+  // نیسان: وانت — کابین جلو، دیواره بلند عقب
+  nissan: [[-100, 12], [-101, 36], [-98, 52], [-46, 55], [-38, 97], [0, 97], [9, 62], [13, 64], [95, 64], [98, 34], [100, 12]],
+  // تیبا: هاچ‌بک با عقب مایل
+  tiba: [[-84, 12], [-85, 36], [-82, 48], [-24, 51], [-16, 86], [22, 85], [46, 58], [72, 50], [80, 34], [84, 12]],
 };
 
-/**
- * ساخت گلخانه (کابین شیشه‌ای) با شیب جلو/عقب
- * ز = مرکز کابین روی محور طول، topY = سطح بالای بدنه
- */
-function buildGreenhouse(
-  g: THREE.Group, spec: BodySpec, bodyTopY: number,
-  cabLen: number, roofMat: THREE.MeshLambertMaterial,
-): number {
-  const cabW = spec.wid * 0.78;
-  const glass = glassMat as THREE.MeshLambertMaterial;
+/** ناحیه شیشه هر خودرو: [ز جلو، ز عقب، ارتفاع پایین شیشه، ارتفاع بالا] */
+const GLASS_BAND: Record<CarVariant, [number, number, number, number]> = {
+  player: [-18, 36, 54, 82],
+  pride: [-18, 36, 54, 82],
+  peugeot405: [-19, 34, 53, 81],
+  taxi: [-19, 34, 53, 81],
+  samand: [-23, 38, 56, 86],
+  police: [-23, 38, 56, 86],
+  nissan: [-37, 8, 56, 90],
+  tiba: [-15, 30, 52, 79],
+};
 
-  // شیشه‌های جلو و عقب (بکس‌های کج)
-  const th = 7;
-  const front = new THREE.Mesh(new THREE.BoxGeometry(cabW * 0.96, spec.cabH, th), glass);
-  front.position.set(0, bodyTopY + spec.cabH / 2 - 2, -cabLen / 2);
-  front.rotation.x = spec.frontSlope;
-  front.castShadow = true;
-  const rear = new THREE.Mesh(new THREE.BoxGeometry(cabW * 0.96, spec.cabH, th), glass);
-  rear.position.set(0, bodyTopY + spec.cabH / 2 - 2, cabLen / 2);
-  rear.rotation.x = -spec.rearSlope;
-  rear.castShadow = true;
+/** مشخصات بدنه هر خودرو (واحد: پیکسل منطقی) */
+const SPECS: Record<CarVariant, { len: number; wid: number; wheelR: number; hoodFrac: number }> = {
+  player:     { len: 172, wid: 100, wheelR: 21, hoodFrac: 0.32 },
+  pride:      { len: 172, wid: 100, wheelR: 21, hoodFrac: 0.32 },
+  peugeot405: { len: 196, wid: 106, wheelR: 23, hoodFrac: 0.36 },
+  taxi:       { len: 196, wid: 106, wheelR: 23, hoodFrac: 0.36 },
+  samand:     { len: 206, wid: 112, wheelR: 24, hoodFrac: 0.34 },
+  police:     { len: 206, wid: 112, wheelR: 24, hoodFrac: 0.34 },
+  nissan:     { len: 200, wid: 112, wheelR: 26, hoodFrac: 0.28 },
+  tiba:       { len: 168, wid: 100, wheelR: 22, hoodFrac: 0.32 },
+};
 
-  // شیشه‌های کنار (بکس شیشه‌ای بین دو شیشه)
-  const sides = new THREE.Mesh(new THREE.BoxGeometry(cabW, spec.cabH * 0.82, cabLen * 0.9), glass);
-  sides.position.set(0, bodyTopY + spec.cabH * 0.5, 0);
+/** ساخت بدنه اکسترودشده از نیم‌رخ — عرض در محور X، جلو سمت -Z */
+function buildExtrudedBody(profile: Profile, wid: number, mat: THREE.Material): THREE.Mesh {
+  const shape = new THREE.Shape();
+  shape.moveTo(profile[0][0], profile[0][1]);
+  for (let i = 1; i < profile.length; i++) shape.lineTo(profile[i][0], profile[i][1]);
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: wid - 10,
+    bevelEnabled: true,
+    bevelThickness: 5,
+    bevelSize: 5,
+    bevelSegments: 2,
+    curveSegments: 4,
+  });
+  geo.rotateY(-Math.PI / 2); // محور طول → Z (جلو -Z)، اکسترود → X
+  geo.translate((wid - 10) / 2, 0, 0); // مرکز عرض (x اکسترود = -z اصلی)
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  return mesh;
+}
 
-  // ستون‌های تیره لبه سقف (حس اسکلتی — سبک GTA کارتونی)
-  const pillarMat = roofMat;
-  const pillarGeo = new THREE.BoxGeometry(cabW * 1.02, spec.cabH * 0.16, 8);
-  for (const zz of [-cabLen / 2 + 2, cabLen / 2 - 2]) {
-    const p = new THREE.Mesh(pillarGeo, pillarMat);
-    p.position.set(0, bodyTopY + spec.cabH - 4, zz);
-    g.add(p);
-  }
-
-  // سقف
-  const roofTh = 7;
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(cabW * 1.04, roofTh, cabLen * 0.92), roofMat);
-  roof.position.set(0, bodyTopY + spec.cabH, 0);
-  roof.castShadow = true;
-
-  g.add(front, rear, sides, roof);
-  return bodyTopY + spec.cabH; // سطح بالای سقف
+/** خط دور کارتونی (hull معکوس) روی یک مش */
+function addOutline(mesh: THREE.Mesh, scale = 1.045): THREE.Mesh {
+  const o = new THREE.Mesh(mesh.geometry, outlineMat as THREE.MeshBasicMaterial);
+  o.scale.setScalar(scale);
+  mesh.add(o);
+  return o;
 }
 
 // ---------- ساخت ماشین ----------
-export function buildCar3D(variant: CarVariant, _W: number, L: number): CarModel3D {
+export function buildCar3D(
+  variant: CarVariant,
+  _W: number,
+  L: number,
+  opts: { lite?: boolean } = {},
+): CarModel3D {
   ensureShared();
   const spec = SPECS[variant] ?? SPECS.pride;
+  const profile = PROFILES[variant] ?? PROFILES.pride;
+  const lite = opts.lite === true;
 
-  // رنگ بدنه بر اساس واریانت
+  // رنگ بدنه
   let body = '#f4f4f0';
   if (variant === 'pride' || variant === 'tiba' || variant === 'peugeot405' || variant === 'samand') {
     body = pickColor(COLORS[variant]);
@@ -166,219 +186,237 @@ export function buildCar3D(variant: CarVariant, _W: number, L: number): CarModel
   else if (variant === 'police') body = '#f7f7f2';
   else if (variant === 'nissan') body = '#2f6fae'; // نیسان آبی معروف!
 
-  const bodyMat = new THREE.MeshLambertMaterial({ color: body });
-  const roofMat = new THREE.MeshLambertMaterial({ color: body });
-  const accentMat = new THREE.MeshLambertMaterial({ color: '#3a2e2a' });
-
+  const bodyMat = toon(body);
   const g = new THREE.Group();
   const s = spec;
-  const bodyTopY = s.wheelR * 0.75 + s.bodyH;
 
-  // ---------- بدنه پایین ----------
-  const lower = new THREE.Mesh(new THREE.BoxGeometry(s.wid, s.bodyH, s.len), bodyMat);
-  lower.position.y = s.wheelR * 0.75 + s.bodyH / 2;
-  lower.castShadow = true;
-  g.add(lower);
+  // ---------- بدنه اصلی (نیم‌رخ واقعی + bevel گرد) ----------
+  const bodyMesh = buildExtrudedBody(profile, s.wid, bodyMat);
+  g.add(bodyMesh);
+  if (!lite) addOutline(bodyMesh, 1.04);
 
-  // ---------- گلخانه / بدنه بار ----------
-  let topY = bodyTopY;
-  if (variant === 'nissan') {
-    // وانت نیسان: کابین + دیواره‌های بدنه بار باز
-    const cabLen = s.len * s.cabFrac;
-    const cabZ = -s.len / 2 + s.len * s.hoodFrac + cabLen / 2;
-    const cab = new THREE.Group();
-    const gh = new THREE.Group();
-    const cabinTop = buildGreenhouseInner(gh, s, bodyTopY, cabLen, roofMat);
-    cab.add(gh);
-    cab.position.z = cabZ;
-    g.add(cab);
-
-    // بدنه بار باز (سه دیواره)
-    const bedLen = s.len * s.trunkFrac - 6;
-    const bedZ = s.len / 2 - s.len * s.trunkFrac / 2;
-    const wallH = s.bodyH * 0.62;
-    const wallTh = 7;
-    const bedMat = new THREE.MeshLambertMaterial({ color: body });
-    const back = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.96, wallH, wallTh), bedMat);
-    back.position.set(0, bodyTopY + wallH / 2, bedZ + bedLen / 2);
-    back.castShadow = true;
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.92, 5, bedLen), darkMat as THREE.MeshLambertMaterial);
-    floor.position.set(0, bodyTopY + 3, bedZ);
-    for (const sx of [-s.wid * 0.44, s.wid * 0.44]) {
-      const side = new THREE.Mesh(new THREE.BoxGeometry(wallTh, wallH, bedLen), bedMat);
-      side.position.set(sx, bodyTopY + wallH / 2, bedZ);
-      side.castShadow = true;
-      g.add(side);
-    }
-    g.add(back, floor);
-    topY = cabinTop;
-  } else {
-    // سدان/هاچ‌بک: کاپوت + کابین + صندوق
-    const hoodLen = s.len * s.hoodFrac;
-    const cabLen = s.len * s.cabFrac;
-    const trunkLen = s.len * s.trunkFrac;
-
-    // کاپوت (پله پایین‌تر از شانه بدنه — پراید جعبه‌ای است، بقیه شیب ملایم)
-    const hoodDrop = variant === 'pride' || variant === 'player' ? 0 : s.bodyH * 0.10;
-    const hood = new THREE.Mesh(
-      new THREE.BoxGeometry(s.wid * 0.94, s.bodyH - hoodDrop, hoodLen),
-      bodyMat,
-    );
-    hood.position.set(0, s.wheelR * 0.75 + (s.bodyH - hoodDrop) / 2, -s.len / 2 + hoodLen / 2);
-    hood.castShadow = true;
-    g.add(hood);
-
-    const gh = new THREE.Group();
-    topY = buildGreenhouse(gh, s, bodyTopY, cabLen, roofMat);
-    gh.position.z = -s.len / 2 + hoodLen + cabLen / 2;
-    g.add(gh);
-
-    // صندوق (پراید/نیسان هم‌سطح بدنه؛ ۴۰۵/سمند/تیبا یک پله پایین‌تر)
-    const trunkDrop = variant === 'tiba' ? s.bodyH * 0.26 : s.bodyH * 0.12;
-    const trunk = new THREE.Mesh(
-      new THREE.BoxGeometry(s.wid * 0.94, s.bodyH - trunkDrop, trunkLen),
-      bodyMat,
-    );
-    trunk.position.set(0, s.wheelR * 0.75 + (s.bodyH - trunkDrop) / 2, s.len / 2 - trunkLen / 2);
-    trunk.castShadow = true;
-    g.add(trunk);
-  }
-
-  // ---------- سپرها ----------
-  const bumperGeo = new THREE.BoxGeometry(s.wid * 0.98, s.bodyH * 0.4, s.len * 0.05);
-  for (const zz of [-s.len / 2 - s.len * 0.012, s.len / 2 + s.len * 0.012]) {
-    const b = new THREE.Mesh(bumperGeo, darkMat as THREE.MeshLambertMaterial);
-    b.position.set(0, s.wheelR * 0.75 + s.bodyH * 0.18, zz);
-    b.castShadow = true;
-    g.add(b);
-  }
-
-  // ---------- جلوپنجره ----------
-  const grilleH = s.bodyH * 0.28;
-  const grille = new THREE.Mesh(
-    new THREE.BoxGeometry(s.wid * (s.grille === 'wide' ? 0.62 : 0.44), grilleH, 5),
-    darkMat as THREE.MeshLambertMaterial,
+  // ---------- باند شیشه کنار + شیشه جلو/عقب ----------
+  const [gz0, gz1, gy0, gy1] = GLASS_BAND[variant] ?? GLASS_BAND.pride;
+  const bandH = gy1 - gy0;
+  const bandLen = gz1 - gz0;
+  const glassBand = new THREE.Mesh(
+    new THREE.BoxGeometry(s.wid + 1.5, bandH, bandLen),
+    glassMat as THREE.MeshPhongMaterial,
   );
-  grille.position.set(0, bodyTopY - grilleH * 0.9, -s.len / 2 - 2);
+  glassBand.position.set(0, (gy0 + gy1) / 2, (gz0 + gz1) / 2);
+  g.add(glassBand);
+  // خط دور شیشه هم کارتونی‌تر است
+  if (!lite) addOutline(glassBand, 1.035);
+
+  // شیشه جلو (کج به جلو)
+  const wsZ = (gz0 - 4);
+  const ws = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.86, bandH + 8, 6), glassMat as THREE.MeshPhongMaterial);
+  ws.position.set(0, (gy0 + gy1) / 2 + 2, wsZ);
+  ws.rotation.x = 0.42;
+  g.add(ws);
+  // شیشه عقب
+  const rw = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.84, bandH + 6, 6), glassMat as THREE.MeshPhongMaterial);
+  rw.position.set(0, (gy0 + gy1) / 2 + 3, gz1 + 5);
+  rw.rotation.x = variant === 'nissan' ? -0.15 : -0.38;
+  g.add(rw);
+
+  // ---------- خط در + دستگیره (حس GTA) ----------
+  if (!lite) {
+    const seamMat = darkMat as THREE.MeshToonMaterial;
+    const seamGeo = new THREE.BoxGeometry(1.6, (gy0 - 26), bandLen * 0.42);
+    for (const zz of [gz0 + bandLen * 0.42, gz1 - bandLen * 0.05]) {
+      for (const sx of [-s.wid / 2 - 0.4, s.wid / 2 + 0.4]) {
+        const seam = new THREE.Mesh(seamGeo, seamMat);
+        seam.position.set(sx, 26 + (gy0 - 26) / 2, zz);
+        g.add(seam);
+      }
+    }
+    const handleGeo = new THREE.BoxGeometry(2.2, 3.2, 12);
+    for (const sx of [-s.wid / 2 - 1.2, s.wid / 2 + 1.2]) {
+      for (const zz of [gz0 + bandLen * 0.55, gz1 - bandLen * 0.18]) {
+        const h = new THREE.Mesh(handleGeo, chromeMat as THREE.MeshPhongMaterial);
+        h.position.set(sx, gy0 - 6, zz);
+        g.add(h);
+      }
+    }
+  }
+
+  // ---------- سپرها (جداشدنی — سیستم آسیب) ----------
+  const bumperGeo = new THREE.BoxGeometry(s.wid + 6, 14, 12);
+  const bumpers: CarModel3D['bumpers'] = { front: null, rear: null };
+  const fb = new THREE.Mesh(bumperGeo, darkMat as THREE.MeshToonMaterial);
+  fb.position.set(0, 24, profile[0][0] - 4);
+  fb.castShadow = true;
+  const rb = new THREE.Mesh(bumperGeo, darkMat as THREE.MeshToonMaterial);
+  rb.position.set(0, 24, profile[profile.length - 1][0] + 4);
+  rb.castShadow = true;
+  g.add(fb, rb);
+  bumpers.front = fb;
+  bumpers.rear = rb;
+
+  // ---------- جلوپنجره کروم ----------
+  const grille = new THREE.Mesh(
+    new THREE.BoxGeometry(s.wid * (variant === 'samand' || variant === 'police' || variant === 'nissan' ? 0.56 : 0.4), 9, 4),
+    chromeMat as THREE.MeshPhongMaterial,
+  );
+  grille.position.set(0, 44, profile[0][0] - 2.5);
   g.add(grille);
 
   // ---------- چراغ‌ها ----------
-  const lightGeo = new THREE.BoxGeometry(s.wid * 0.20, s.bodyH * 0.22, 4);
-  for (const x of [-s.wid * 0.34, s.wid * 0.34]) {
+  const lightGeo = new THREE.BoxGeometry(s.wid * 0.2, 9, 4);
+  for (const x of [-s.wid * 0.33, s.wid * 0.33]) {
     const h = new THREE.Mesh(lightGeo, headMat as THREE.MeshBasicMaterial);
-    h.position.set(x, bodyTopY - s.bodyH * 0.16, -s.len / 2 - 1);
+    h.position.set(x, 44, profile[0][0] - 3);
     const t = new THREE.Mesh(lightGeo, tailMat as THREE.MeshBasicMaterial);
-    t.position.set(x, bodyTopY - s.bodyH * 0.16, s.len / 2 + 1);
+    t.position.set(x, 46, profile[profile.length - 1][0] + 3);
     g.add(h, t);
   }
 
-  // ---------- پلاک ایرانی (جلو و عقب) ----------
-  const plateScale = s.wid * 0.34;
-  for (const zz of [-s.len / 2 - s.len * 0.03, s.len / 2 + s.len * 0.03]) {
-    const p = new THREE.Mesh(plateGeo as THREE.BoxGeometry, plateMat as THREE.MeshLambertMaterial);
-    p.scale.set(plateScale, plateScale * 0.32, 2);
-    p.position.set(0, s.wheelR * 0.75 + s.bodyH * 0.16, zz);
-    g.add(p);
-  }
+  // ---------- پلاک ایرانی ----------
+  const plateScale = s.wid * 0.3;
+  const plate = new THREE.Mesh(plateGeoShared(), plateMat as THREE.MeshLambertMaterial);
+  plate.scale.set(plateScale, plateScale * 0.32, 2);
+  plate.position.set(0, 15, profile[profile.length - 1][0] + 6);
+  g.add(plate);
 
   // ---------- آینه بغل ----------
-  const mirrorGeo = new THREE.BoxGeometry(9, 6, 7);
-  for (const x of [-s.wid / 2 - 4, s.wid / 2 + 4]) {
-    const m = new THREE.Mesh(mirrorGeo, darkMat as THREE.MeshLambertMaterial);
-    m.position.set(x, bodyTopY + 2, -s.len * s.hoodFrac + s.len * 0.06);
-    g.add(m);
-  }
-
-  // ---------- اگزوز ----------
-  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 12, 8), chromeMat as THREE.MeshLambertMaterial);
-  exhaust.rotation.x = Math.PI / 2;
-  exhaust.position.set(s.wid * 0.28, s.wheelR * 0.55, s.len / 2 + 4);
-  g.add(exhaust);
-
-  // ---------- واریانت‌های خاص ----------
-  if (variant === 'taxi') {
-    // علامت «تاکسی» روی سقف
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.34, 16, 26), taxiSignMat as THREE.MeshLambertMaterial);
-    sign.position.set(0, topY + 9, 0);
-    g.add(sign);
-    // آنتن
-    const ant = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 34, 6), darkMat as THREE.MeshLambertMaterial);
-    ant.position.set(-s.wid * 0.3, topY + 16, s.len * 0.1);
-    g.add(ant);
-  } else if (variant === 'police') {
-    // نوار سبز پلیس ایران + چراغ‌گردان
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 1.02, s.bodyH * 0.26, s.len * 0.5), accentMat);
-    stripe.position.set(0, bodyTopY - s.bodyH * 0.28, 0);
-    g.add(stripe);
-    const barY = topY + 7;
-    const red = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.2, 10, 16), new THREE.MeshBasicMaterial({ color: '#e2574c' }));
-    red.position.set(-s.wid * 0.12, barY, 0);
-    const blue = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.2, 10, 16), new THREE.MeshBasicMaterial({ color: '#3f7fd4' }));
-    blue.position.set(s.wid * 0.12, barY, 0);
-    g.add(red, blue);
-  } else if (variant === 'player') {
-    // نوار قرمز ورزشی + آنتن — پراید سفید قهرمان!
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.16, 4, s.len * 0.92), accentMat);
-    stripe.position.set(0, bodyTopY + 2, 0);
-    g.add(stripe);
-    const ant = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 36, 6), darkMat as THREE.MeshLambertMaterial);
-    ant.position.set(s.wid * 0.3, topY + 17, s.len * 0.12);
-    g.add(ant);
-  } else if (variant === 'pride' && Math.random() < 0.3) {
-    // بعضی پرایدها باربند سقف دارند (خیلی ایرانی!)
-    const rack = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.7, 5, s.len * 0.34), chromeMat as THREE.MeshLambertMaterial);
-    rack.position.set(0, topY + 4, 0);
-    g.add(rack);
-  }
-
-  // ---------- چرخ‌ها ----------
-  const wheels: THREE.Mesh[] = [];
-  const tireW = s.wid * 0.15;
-  const wr = s.wheelR;
-  for (const x of [-s.wid / 2 + tireW * 0.2, s.wid / 2 - tireW * 0.2]) {
-    for (const z of [-s.len * 0.31, s.len * 0.31]) {
-      const tire = new THREE.Mesh(wheelGeo as THREE.CylinderGeometry, tireMat as THREE.MeshLambertMaterial);
-      tire.scale.set(wr, tireW, wr);
-      tire.position.set(x, wr, z);
-      tire.castShadow = true;
-      // کلاهک چرخ — فرزندِ گروه (نه فرزند تایرِ اسکیل‌شده — باگ قبلی!)
-      const hub = new THREE.Mesh(hubGeo as THREE.CylinderGeometry, hubMat as THREE.MeshLambertMaterial);
-      hub.scale.set(wr * 0.5, tireW * 1.04, wr * 0.5);
-      hub.position.set(x + Math.sign(x) * tireW * 0.3, wr, z);
-      wheels.push(tire);
-      g.add(tire, hub);
+  if (!lite) {
+    const mirrorGeo = new THREE.BoxGeometry(10, 7, 8);
+    for (const x of [-s.wid / 2 - 5, s.wid / 2 + 5]) {
+      const m = new THREE.Mesh(mirrorGeo, darkMat as THREE.MeshToonMaterial);
+      m.position.set(x, gy0 + 4, gz0 + 6);
+      g.add(m);
     }
   }
 
-  // مقیاس نهایی بر اساس طول منطقی (W از فیزیک می‌آید؛ نسبت‌ها از spec)
+  // ---------- اگزوز ----------
+  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 12, 8), chromeMat as THREE.MeshPhongMaterial);
+  exhaust.rotation.x = Math.PI / 2;
+  exhaust.position.set(s.wid * 0.26, 15, profile[profile.length - 1][0] + 6);
+  g.add(exhaust);
+
+  // ---------- راننده داخل کابین (کاراکترها زنده شدند!) ----------
+  if (!lite && variant !== 'nissan') {
+    const driver = new THREE.Group();
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(18, 16, 12), driverShirtMat as THREE.MeshToonMaterial);
+    torso.position.y = 6;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(8.5, 10, 8), skinMat as THREE.MeshToonMaterial);
+    head.position.y = 19;
+    // موی تیره — نیم‌کره بالای سر
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(8.8, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2.2), darkMat as THREE.MeshToonMaterial);
+    hair.position.y = 20;
+    driver.add(torso, head, hair);
+    // ایران: فرمان چپ → راننده سمت چپ (-X)
+    driver.position.set(-s.wid * 0.17, gy0 + 2, (gz0 + gz1) / 2 + 4);
+    g.add(driver);
+  }
+
+  // ---------- واریانت‌های خاص ----------
+  const topY = gy1 + 6;
+  if (variant === 'taxi') {
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.34, 15, 24), taxiSignMat as THREE.MeshLambertMaterial);
+    sign.position.set(0, topY + 6, (gz0 + gz1) / 2);
+    g.add(sign);
+    // نوار شطرنجی تاکسی روی بدنه
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(s.wid + 1, 6, bandLen * 0.9), darkMat as THREE.MeshToonMaterial);
+    strip.position.set(0, 34, (gz0 + gz1) / 2);
+    g.add(strip);
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 32, 6), darkMat as THREE.MeshToonMaterial);
+    ant.position.set(-s.wid * 0.3, topY + 14, gz1 - 8);
+    g.add(ant);
+  } else if (variant === 'police') {
+    // نوار سبز پلیس ایران
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(s.wid + 1, 12, s.len * 0.55), toon('#2e8b57'));
+    stripe.position.set(0, 40, (gz0 + gz1) / 2);
+    g.add(stripe);
+    // چراغ‌گردان (فلاش در رندر)
+    const barBase = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.5, 4, 16), darkMat as THREE.MeshToonMaterial);
+    barBase.position.set(0, topY + 2, (gz0 + gz1) / 2);
+    const red = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.2, 9, 14), new THREE.MeshBasicMaterial({ color: '#ff2d2d' }));
+    red.position.set(-s.wid * 0.13, topY + 8, (gz0 + gz1) / 2);
+    const blue = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.2, 9, 14), new THREE.MeshBasicMaterial({ color: '#2d6bff' }));
+    blue.position.set(s.wid * 0.13, topY + 8, (gz0 + gz1) / 2);
+    g.add(barBase, red, blue);
+    (g as unknown as { lightBar?: CarModel3D['lightBar'] }).lightBar = { red, blue };
+  } else if (variant === 'player') {
+    // نوار قرمز ورزشی روی کاپوت/سقف/صندوق
+    const stripeMat = toon('#c62828');
+    for (const zz of [profile[0][0] + 34, (gz0 + gz1) / 2, profile[profile.length - 1][0] - 24]) {
+      const st = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.15, 2.5, 34), stripeMat);
+      st.position.set(0, zz === (gz0 + gz1) / 2 ? topY + 1 : 53, zz);
+      g.add(st);
+    }
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 34, 6), darkMat as THREE.MeshToonMaterial);
+    ant.position.set(s.wid * 0.3, topY + 15, gz1 - 10);
+    g.add(ant);
+  } else if (variant === 'pride' && Math.random() < 0.3) {
+    // باربند سقف — خیلی ایرانی!
+    const rack = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.7, 5, bandLen * 0.6), chromeMat as THREE.MeshPhongMaterial);
+    rack.position.set(0, topY + 3, (gz0 + gz1) / 2);
+    g.add(rack);
+  }
+
+  // ---------- چرخ‌ها: تایر تور + رینگ + کلاهک ----------
+  const wheels: THREE.Mesh[] = [];
+  const tireW = s.wid * 0.16;
+  const wr = s.wheelR;
+  for (const x of [-s.wid / 2 + tireW * 0.1, s.wid / 2 - tireW * 0.1]) {
+    for (const z of [-s.len * 0.31, s.len * 0.31]) {
+      const tire = new THREE.Mesh(
+        new THREE.TorusGeometry(wr - tireW / 2 + 2, tireW / 2, 8, 14),
+        tireMat as THREE.MeshToonMaterial,
+      );
+      tire.rotation.y = Math.PI / 2; // محور چرخ = X
+      tire.position.set(x, wr, z);
+      tire.castShadow = true;
+      const rim = new THREE.Mesh(
+        new THREE.CylinderGeometry(wr * 0.52, wr * 0.52, tireW * 0.75, 10),
+        rimMat as THREE.MeshPhongMaterial,
+      );
+      rim.rotation.z = Math.PI / 2;
+      rim.position.set(x + Math.sign(x) * tireW * 0.12, wr, z);
+      wheels.push(tire);
+      g.add(tire, rim);
+    }
+  }
+
+  // مقیاس نهایی بر اساس طول منطقی
   g.scale.setScalar(L / s.len);
-  return { group: g, wheels, bodyColor: body };
+  return {
+    group: g,
+    wheels,
+    bodyColor: body,
+    bodyMat,
+    bumpers,
+    lightBar: (g as unknown as { lightBar?: CarModel3D['lightBar'] }).lightBar,
+    len: s.len,
+    wid: s.wid,
+  };
 }
 
-/** گلخانه کوتاه‌شده برای کابین نیسان (بدون صندوق) */
-function buildGreenhouseInner(
-  g: THREE.Group, spec: BodySpec, bodyTopY: number,
-  cabLen: number, roofMat: THREE.MeshLambertMaterial,
-): number {
-  const cabW = spec.wid * 0.8;
-  const glass = glassMat as THREE.MeshLambertMaterial;
-  const th = 7;
-  const front = new THREE.Mesh(new THREE.BoxGeometry(cabW * 0.96, spec.cabH, th), glass);
-  front.position.set(0, bodyTopY + spec.cabH / 2 - 2, -cabLen / 2);
-  front.rotation.x = spec.frontSlope;
-  const rear = new THREE.Mesh(new THREE.BoxGeometry(cabW * 0.96, spec.cabH, th), glass);
-  rear.position.set(0, bodyTopY + spec.cabH / 2 - 2, cabLen / 2);
-  rear.rotation.x = -spec.rearSlope;
-  const sides = new THREE.Mesh(new THREE.BoxGeometry(cabW, spec.cabH * 0.82, cabLen * 0.9), glass);
-  sides.position.set(0, bodyTopY + spec.cabH * 0.5, 0);
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(cabW * 1.04, 7, cabLen * 0.92), roofMat);
-  roof.position.set(0, bodyTopY + spec.cabH, 0);
-  roof.castShadow = true;
-  g.add(front, rear, sides, roof);
-  return bodyTopY + spec.cabH;
+/** هندسه مشترک پلاک (یک‌بار ساخته می‌شود) */
+let plateGeo: THREE.BoxGeometry | null = null;
+function plateGeoShared(): THREE.BoxGeometry {
+  if (!plateGeo) plateGeo = new THREE.BoxGeometry(1, 1, 1);
+  return plateGeo;
 }
 
-/** استخراج واریانت از assetId ترافیک — همه‌چیز ایرانی شد! */
+/** جدا کردن سپر (سیستم آسیب) — true = سپر جدا شد */
+export function detachBumper(model: CarModel3D, front: boolean): boolean {
+  const b = front ? model.bumpers.front : model.bumpers.rear;
+  if (!b || !b.visible) return false;
+  b.visible = false;
+  return true;
+}
+
+/** تیره‌شدن بدنه با آسیب + کج شدن جزئی (خام‌کاری کارتونی) */
+export function applyDamageVisual(model: CarModel3D, amount: number): void {
+  const c = model.bodyMat.color;
+  c.multiplyScalar(Math.max(0.82, 1 - amount * 0.006));
+  model.group.rotation.z += (Math.random() - 0.5) * Math.min(0.03, amount * 0.0016);
+}
+
+/** استخراج واریانت از assetId ترافیک — همه‌چیز ایرانی است */
 export function variantFromAssetId(assetId: string): CarVariant {
   if (assetId.includes('taxi')) return 'taxi';
   if (assetId.includes('police')) return 'police';

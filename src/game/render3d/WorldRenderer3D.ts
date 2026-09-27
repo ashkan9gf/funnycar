@@ -1,12 +1,13 @@
 /**
- * WorldRenderer3D.ts — رندر سه‌بعدی Low-Poly بازی (فاز 3D)
+ * WorldRenderer3D.ts — رندر سه‌بعدی «تهران بزرگ» v3 (فاز BIG-IR)
  * ============================================================
  * منطق بازی دوبعدی می‌ماند؛ این کلاس فقط «نمایش» است:
- *  - مپ مختصات: دنیای دوبعدی (x, y) → صحنه (x, y=ارتفاع, z=y)
- *  - دوربین Chase پشت ماشین + لرزش از Camera دوبعدی
- *  - حباب‌های گفتار فارسی RTL روی کانواس اورلی (بالای WebGL)
- *  - رد لاستیک/ذرات/سکه با InstancedMesh (بهره‌وری)
- * همان API رندر دوبعدی: pushBubble/spawnBurst/addSkidMark
+ *  - نقشه بزرگ ۸۹۶۰px با جاده‌های دوطرفه ۵۶۰px (۷×۷)
+ *  - لندمارک‌ها: برج آزادی + برج میلاد (از همه‌جا پیداست)
+ *  - عابرهای پیاده کارتونی با انیمیشن راه رفتن + پرش ترس
+ *  - شکستنی‌ها: با برخورد مخفی می‌شوند (منطق در GameManager) + ذرات
+ *  - آسیب ماشین: تیره‌شدن بدنه + جدا شدن سپر + دود
+ *  - چراغ‌گردان پلیس فلاش می‌زند — مینی‌مپ GTA با لندمارک‌ها
  */
 
 import * as THREE from 'three';
@@ -14,13 +15,14 @@ import type { AssetManager } from '../core/AssetManager';
 import type { Camera } from '../core/Camera';
 import type { Vehicle } from '../entities/Vehicle';
 import type { TrafficCar } from '../entities/TrafficCar';
-import type { World } from '../world/World';
+import type { World, WorldProp } from '../world/World';
 import type { EventCat, EventCone } from '../managers/RandomEventManager';
 import type { Pothole } from '../managers/MissionManager';
+import type { Pedestrian } from '../managers/PedestrianManager';
 import { faNum } from '../managers/MissionManager';
-import { RENDER3D, MISSIONS as M, RANDOM_EVENTS as RE } from '../data/balance';
-import { WORLD_SIZE } from '../world/World';
-import { buildCar3D, variantFromAssetId, type CarModel3D, type CarVariant } from './CarFactory3D';
+import { RENDER3D, MISSIONS as M, RANDOM_EVENTS as RE, PEDESTRIANS as PEDS } from '../data/balance';
+import { WORLD as WR, WORLD_SIZE, roadCenter } from '../world/World';
+import { buildCar3D, variantFromAssetId, applyDamageVisual, detachBumper, type CarModel3D, type CarVariant } from './CarFactory3D';
 import {
   getRoadStraightTexture, getSidewalkTexture, getGrassTexture, getFacadeTextures,
   getCrossroadTexture, getSkyTexture,
@@ -28,6 +30,7 @@ import {
 import {
   buildRooftopCluster, buildStreetSign, buildBusStop, buildVendorCart,
   buildMotorcycle, buildTrashBags, buildBillboard, buildSpeedBump,
+  buildAzadiTower, buildMiladTower, buildCrate,
 } from './StreetProps3D';
 
 // ---------- انواع ورودی ----------
@@ -37,6 +40,7 @@ export interface Draw3DOptions {
   cat: EventCat | null;
   cones: EventCone[];
   potholes: Pothole[];
+  peds: Pedestrian[];
   target: { x: number; y: number } | null;
   /** حباب بازیکن (اگر جمله فعال دارد) */
   playerBubble: { line: string; x: number; y: number; portrait: string } | null;
@@ -85,6 +89,11 @@ export class WorldRenderer3D {
   private beaconDisc: THREE.Mesh;
   private beaconArrow: THREE.Mesh;
 
+  // عابرهای پیاده + شکستنی‌ها + زون تعمیر
+  private pedModels: Array<{ g: THREE.Group; legL: THREE.Mesh; legR: THREE.Mesh; armL: THREE.Mesh; armR: THREE.Mesh }> = [];
+  private propGroups = new Map<WorldProp, THREE.Group>();
+  private repairRings: THREE.Group[] = [];
+
   // دوربین
   private camAngle = 0;
   private lastDrawMs = 0;
@@ -126,7 +135,7 @@ export class WorldRenderer3D {
     // مه هم‌رنگ غبار افق (حس گرم تهران)
     this.scene.fog = new THREE.Fog('#d8e3d8', RENDER3D.fogNear, RENDER3D.fogFar);
 
-    this.cam3 = new THREE.PerspectiveCamera(RENDER3D.fov, 1, 10, 4200);
+    this.cam3 = new THREE.PerspectiveCamera(RENDER3D.fov, 1, 10, 5200);
     this.cam3.position.set(0, RENDER3D.camHeight, 0);
 
     // تون‌مپینگ سینمایی سبک GTA (رنگ‌ها غنی‌تر)
@@ -139,12 +148,12 @@ export class WorldRenderer3D {
     this.sun = new THREE.DirectionalLight('#ffdfb0', RENDER3D.sunIntensity);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(1024, 1024);
-    this.sun.shadow.camera.left = -780;
-    this.sun.shadow.camera.right = 780;
-    this.sun.shadow.camera.top = 780;
-    this.sun.shadow.camera.bottom = -780;
+    this.sun.shadow.camera.left = -820;
+    this.sun.shadow.camera.right = 820;
+    this.sun.shadow.camera.top = 820;
+    this.sun.shadow.camera.bottom = -820;
     this.sun.shadow.camera.near = 100;
-    this.sun.shadow.camera.far = 2600;
+    this.sun.shadow.camera.far = 2800;
     this.sun.shadow.bias = -0.0006;
     this.scene.add(this.sun, this.sun.target);
 
@@ -232,7 +241,7 @@ export class WorldRenderer3D {
 
     // زمین پایه (شن)
     const base = new THREE.Mesh(
-      new THREE.PlaneGeometry(S + 2200, S + 2200),
+      new THREE.PlaneGeometry(S + 2600, S + 2600),
       new THREE.MeshLambertMaterial({ color: '#C9B98A' }),
     );
     base.rotation.x = -Math.PI / 2;
@@ -240,14 +249,15 @@ export class WorldRenderer3D {
     base.receiveShadow = true;
     this.scene.add(base);
 
-    // جاده‌ها (۴ عمودی + ۴ افقی)
+    // ---------- جاده‌های دوطرفه پهن (۷ عمودی + ۷ افقی — 560px) ----------
     const roadTex = getRoadStraightTexture();
-    roadTex.repeat.set(1, S / 256);
+    roadTex.repeat.set(1, S / 560);
     const roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
-    const roadGeo = new THREE.PlaneGeometry(256, S);
+    const roadGeo = new THREE.PlaneGeometry(WR.roadW, S);
     roadGeo.rotateX(-Math.PI / 2);
-    for (let i = 0; i < 5; i++) {
-      const cx = i * 1024 + 128;
+    const nRoads = WR.roadCount + 1;
+    for (let i = 0; i < nRoads; i++) {
+      const cx = roadCenter(i);
       const v = new THREE.Mesh(roadGeo, roadMat);
       v.position.set(cx, 1, S / 2);
       v.receiveShadow = true;
@@ -261,36 +271,37 @@ export class WorldRenderer3D {
 
     // تقاطع‌ها (آسفالت با خط عابر پیاده — سبک خیابان ایران)
     const asMat = new THREE.MeshLambertMaterial({ map: getCrossroadTexture() });
-    const crossGeo = new THREE.PlaneGeometry(256, 256);
+    const crossGeo = new THREE.PlaneGeometry(WR.roadW, WR.roadW);
     crossGeo.rotateX(-Math.PI / 2);
-    for (let i = 0; i < 5; i++) {
-      for (let j = 0; j < 5; j++) {
+    for (let i = 0; i < nRoads; i++) {
+      for (let j = 0; j < nRoads; j++) {
         const c = new THREE.Mesh(crossGeo, asMat);
-        c.position.set(i * 1024 + 128, 1.6, j * 1024 + 128);
+        c.position.set(roadCenter(i), 1.6, roadCenter(j));
         c.receiveShadow = true;
         this.scene.add(c);
       }
     }
 
-    // بلوک‌ها: پیاده‌رو + مرکز (چمن پارک / شن ساختمان‌ها)
+    // ---------- بلوک‌ها: پیاده‌رو + مرکز (پارک / حیاط) ----------
     const swMat = new THREE.MeshLambertMaterial({ map: getSidewalkTexture() });
     const grassMat = new THREE.MeshLambertMaterial({ map: getGrassTexture() });
     const yardMat = new THREE.MeshLambertMaterial({ color: '#d4c49a' });
-    const swGeo = new THREE.PlaneGeometry(768, 768);
+    const blockS = WR.pitch - WR.roadW; // 840
+    const swGeo = new THREE.PlaneGeometry(blockS, blockS);
     swGeo.rotateX(-Math.PI / 2);
-    const innerGeo = new THREE.PlaneGeometry(640, 640);
+    const innerGeo = new THREE.PlaneGeometry(blockS - 200, blockS - 200);
     innerGeo.rotateX(-Math.PI / 2);
-    for (let i = 0; i < 3; i++) {
-      for (let j = 0; j < 3; j++) {
-        const bx = i * 1024 + 256;
-        const by = j * 1024 + 256;
+    for (let i = 0; i < WR.roadCount; i++) {
+      for (let j = 0; j < WR.roadCount; j++) {
+        const bx = i * WR.pitch + WR.roadW;
+        const by = j * WR.pitch + WR.roadW;
         const sw = new THREE.Mesh(swGeo, swMat);
-        sw.position.set(bx + 384, 0.8, by + 384);
+        sw.position.set(bx + blockS / 2, 0.8, by + blockS / 2);
         sw.receiveShadow = true;
         this.scene.add(sw);
-        const isPark = i === 1 && j === 1;
+        const isPark = (i === 2 && j === 2) || (i === 4 && j === 2);
         const inner = new THREE.Mesh(innerGeo, isPark ? grassMat : yardMat);
-        inner.position.set(bx + 384, 1.2, by + 384);
+        inner.position.set(bx + blockS / 2, 1.2, by + blockS / 2);
         inner.receiveShadow = true;
         this.scene.add(inner);
       }
@@ -305,10 +316,29 @@ export class WorldRenderer3D {
     // دوبله‌پارکی‌ها و سرعت‌گیرها (زندگی خیابانی ایران)
     this.buildParkedCars();
     for (const sb of this.world.speedBumps) {
-      const bump = buildSpeedBump(228);
+      const bump = buildSpeedBump(500);
       bump.position.set(sb.x, 0, sb.y);
       bump.rotation.y = sb.horiz ? Math.PI / 2 : 0;
       this.scene.add(bump);
+    }
+
+    // ---------- زون‌های تعمیرگاه: حلقه سبز پالس‌دار ----------
+    for (const z of this.world.repairZones) {
+      const ringG = new THREE.Group();
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(z.r * 0.9, 7, 8, 44).rotateX(Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: '#2A9D8F', transparent: true, opacity: 0.75 }),
+      );
+      ring.position.y = 8;
+      const disc = new THREE.Mesh(
+        new THREE.CircleGeometry(z.r * 0.88, 36).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: '#2A9D8F', transparent: true, opacity: 0.12, depthWrite: false }),
+      );
+      disc.position.y = 5;
+      ringG.add(ring, disc);
+      ringG.position.set(z.x, 0, z.y);
+      this.scene.add(ringG);
+      this.repairRings.push(ringG);
     }
 
     // جدول مرزی (دید بصری دیوار محدوده)
@@ -330,11 +360,11 @@ export class WorldRenderer3D {
     }
   }
 
-  /** ماشین‌های دوبله‌پارک — استاتیک، بدون انیمیشن چرخ */
+  /** ماشین‌های دوبله‌پارک — استاتیک، نسخه سبک (بدون خط دور/راننده) */
   private parkedModels: CarModel3D[] = [];
   private buildParkedCars(): void {
     for (const pc of this.world.parkedCars) {
-      const model = buildCar3D(pc.kind as CarVariant, 104, 188);
+      const model = buildCar3D(pc.kind as CarVariant, 104, 188, { lite: true });
       model.group.position.set(pc.x, 0, pc.y);
       model.group.rotation.y = -pc.angle;
       this.scene.add(model.group);
@@ -351,7 +381,7 @@ export class WorldRenderer3D {
       const shopH = RENDER3D.gasStationShopHeight;
       const shopTex = getFacadeTextures('env_building_shop_01');
       const shopMats = shopTex.map((t) => new THREE.MeshLambertMaterial({ map: t }));
-      const shop = new THREE.Mesh(new THREE.BoxGeometry(320, shopH, 300), shopMats);
+      const shop = new THREE.Mesh(new THREE.BoxGeometry(360, shopH, 320), shopMats);
       shop.position.set(cx + p.w * 0.2, shopH / 2, cz - p.h * 0.18);
       shop.castShadow = true; shop.receiveShadow = true;
       this.scene.add(shop);
@@ -398,31 +428,34 @@ export class WorldRenderer3D {
     this.scene.add(roof);
   }
 
-  private buildProp(p: { kind: string; x: number; y: number; w: number; h: number; label?: string; rot?: number }): void {
+  /** همه پراپ‌ها داخل گروه wrapper — شکستنی‌ها با hide/show کنترل می‌شوند */
+  private buildProp(p: WorldProp): void {
+    const wrap = new THREE.Group();
     const cx = p.x + p.w / 2;
     const cz = p.y + p.h / 2;
     const r = Math.min(p.w, p.h) / 2;
+
     switch (p.kind) {
       case 'tree': {
         const trunk = new THREE.Mesh(
           new THREE.CylinderGeometry(r * 0.16, r * 0.22, r * 1.1, 8),
           new THREE.MeshLambertMaterial({ color: '#8a5a33' }),
         );
-        trunk.position.set(cx, r * 0.55, cz);
+        trunk.position.y = r * 0.55;
         trunk.castShadow = true;
         const blob = new THREE.Mesh(
           new THREE.IcosahedronGeometry(r * 0.92, 0),
           new THREE.MeshLambertMaterial({ color: '#5FA84B' }),
         );
-        blob.position.set(cx, r * 1.5, cz);
+        blob.position.y = r * 1.5;
         blob.castShadow = true;
         const blob2 = new THREE.Mesh(
           new THREE.IcosahedronGeometry(r * 0.55, 0),
           new THREE.MeshLambertMaterial({ color: '#8AC926' }),
         );
-        blob2.position.set(cx + r * 0.3, r * 1.9, cz - r * 0.2);
+        blob2.position.set(r * 0.3, r * 1.9, -r * 0.2);
         blob2.castShadow = true;
-        this.scene.add(trunk, blob, blob2);
+        wrap.add(trunk, blob, blob2);
         break;
       }
       case 'trash': {
@@ -430,9 +463,10 @@ export class WorldRenderer3D {
           new THREE.CylinderGeometry(r * 0.8, r * 0.66, r * 1.5, 10),
           new THREE.MeshLambertMaterial({ color: '#4F772D' }),
         );
-        bin.position.set(cx, r * 0.75, cz);
+        bin.position.y = r * 0.75;
         bin.castShadow = true;
-        this.scene.add(bin);
+        // درِ باز سطل — تا سطل «مترسک‌وار» دیده شود
+        wrap.add(bin);
         break;
       }
       case 'pole': {
@@ -440,14 +474,14 @@ export class WorldRenderer3D {
           new THREE.CylinderGeometry(r * 0.14, r * 0.16, r * 4.2, 8),
           new THREE.MeshLambertMaterial({ color: '#8D99AE' }),
         );
-        pole.position.set(cx, r * 2.1, cz);
+        pole.position.y = r * 2.1;
         pole.castShadow = true;
         const lamp = new THREE.Mesh(
           new THREE.SphereGeometry(r * 0.3, 10, 8),
           new THREE.MeshBasicMaterial({ color: '#EF476F' }),
         );
-        lamp.position.set(cx, r * 4.3, cz);
-        this.scene.add(pole, lamp);
+        lamp.position.y = r * 4.3;
+        wrap.add(pole, lamp);
         break;
       }
       case 'cone': {
@@ -455,58 +489,68 @@ export class WorldRenderer3D {
           new THREE.ConeGeometry(r * 0.75, r * 1.7, 10),
           new THREE.MeshLambertMaterial({ color: '#F4A261' }),
         );
-        cone.position.set(cx, r * 0.85, cz);
+        cone.position.y = r * 0.85;
         cone.castShadow = true;
         const band = new THREE.Mesh(
           new THREE.CylinderGeometry(r * 0.42, r * 0.5, r * 0.28, 10),
           new THREE.MeshLambertMaterial({ color: '#FFFFFF' }),
         );
-        band.position.set(cx, r * 1.0, cz);
-        this.scene.add(cone, band);
+        band.position.y = r * 1.0;
+        wrap.add(cone, band);
         break;
       }
-      // ---------- پراپ‌های خیابان ایرانی (فاز GTA-IR) ----------
+      case 'crate': {
+        const crate = buildCrate();
+        wrap.add(crate);
+        break;
+      }
+      // ---------- پراپ‌های خیابان ایرانی ----------
       case 'busstop': {
         const stop = buildBusStop();
-        stop.position.set(cx, 0, cz);
-        // پناهگاه رو به جاده شمالی (پنل پشت سمت بلوک)
-        stop.rotation.y = Math.PI;
-        this.scene.add(stop);
+        stop.rotation.y = Math.PI; // پنل رو به جاده
+        wrap.add(stop);
         break;
       }
       case 'vendor': {
-        const cart = buildVendorCart();
-        cart.position.set(cx, 0, cz);
-        this.scene.add(cart);
+        wrap.add(buildVendorCart());
         break;
       }
       case 'billboard': {
         const [l1, l2] = (p.label ?? 'فانی‌کار|در حال ساخت!').split('|');
         const bb = buildBillboard(l1, l2);
-        bb.position.set(cx, 0, cz);
         bb.rotation.y = p.rot ?? 0;
-        this.scene.add(bb);
+        wrap.add(bb);
         break;
       }
       case 'streetSign': {
-        const sign = buildStreetSign(p.label ?? 'خیابان');
-        sign.position.set(cx, 0, cz);
-        this.scene.add(sign);
+        wrap.add(buildStreetSign(p.label ?? 'خیابان'));
         break;
       }
       case 'moto': {
         const moto = buildMotorcycle(['#c0392b', '#2e6da4', '#3a3a3a'][Math.abs(Math.round(cx + cz)) % 3]);
-        moto.position.set(cx, 0, cz);
-        this.scene.add(moto);
+        wrap.add(moto);
         break;
       }
       case 'bags': {
-        const bags = buildTrashBags();
-        bags.position.set(cx, 0, cz);
-        this.scene.add(bags);
+        wrap.add(buildTrashBags());
+        break;
+      }
+      // ---------- لندمارک‌های تهران ----------
+      case 'azadiTower': {
+        const t = buildAzadiTower();
+        wrap.add(t);
+        break;
+      }
+      case 'miladTower': {
+        const t = buildMiladTower();
+        wrap.add(t);
         break;
       }
     }
+
+    wrap.position.set(cx, 0, cz);
+    this.scene.add(wrap);
+    if (p.breakable) this.propGroups.set(p, wrap);
   }
 
   /** گربه کارتونی Low-Poly (رو به -Z) */
@@ -541,9 +585,52 @@ export class WorldRenderer3D {
     return g;
   }
 
+  // ============ عابرهای پیاده (مدل + انیمیشن) ============
+
+  private static readonly PED_SHIRTS = ['#e2574c', '#2A9D8F', '#3f7fd4', '#e8a33d', '#8AC926', '#9b59b6'];
+  private static readonly PED_PANTS = ['#3a3f4a', '#5d4a3a', '#2e4a3a'];
+  private static readonly PED_SKINS = ['#e8b98e', '#c98d5f', '#a86f45'];
+
+  private buildPedModel(idx: number): { g: THREE.Group; legL: THREE.Mesh; legR: THREE.Mesh; armL: THREE.Mesh; armR: THREE.Mesh } {
+    const g = new THREE.Group();
+    const shirt = new THREE.MeshToonMaterial({ color: WorldRenderer3D.PED_SHIRTS[idx % 6] });
+    const pants = new THREE.MeshToonMaterial({ color: WorldRenderer3D.PED_PANTS[idx % 3] });
+    const skin = new THREE.MeshToonMaterial({ color: WorldRenderer3D.PED_SKINS[idx % 3] });
+    const dark = new THREE.MeshToonMaterial({ color: '#2e2622' });
+
+    // پاها (پیوت بالا — swing با rotation.x)
+    const legGeo = new THREE.BoxGeometry(7, 26, 7);
+    legGeo.translate(0, -13, 0);
+    const legL = new THREE.Mesh(legGeo, pants);
+    legL.position.set(-5.5, 28, 0);
+    const legR = new THREE.Mesh(legGeo, pants);
+    legR.position.set(5.5, 28, 0);
+    // تن
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(20, 24, 12), shirt);
+    torso.position.y = 40;
+    torso.castShadow = true;
+    // دست‌ها
+    const armGeo = new THREE.BoxGeometry(5.5, 22, 5.5);
+    armGeo.translate(0, -11, 0);
+    const armL = new THREE.Mesh(armGeo, shirt);
+    armL.position.set(-12.5, 50, 0);
+    const armR = new THREE.Mesh(armGeo, shirt);
+    armR.position.set(12.5, 50, 0);
+    // سر + مو
+    const head = new THREE.Mesh(new THREE.SphereGeometry(8, 10, 8), skin);
+    head.position.y = 60;
+    head.castShadow = true;
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(8.3, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2.2), dark);
+    hair.position.y = 61;
+
+    g.add(legL, legR, torso, armL, armR, head, hair);
+    g.scale.setScalar(1.18);
+    return { g, legL, legR, armL, armR };
+  }
+
   // ============ API عمومی (هم‌امضای رندر دوبعدی) ============
 
-  /** حباب گفتار محیطی (ترافیک/تاکسی) */
+  /** حباب گفتار محیطی (ترافیک/تاکسی/عابر) */
   pushBubble(text: string, x: number, y: number, portraitId?: string, ttl = 2.6): void {
     if (this.bubbles.length >= 3) this.bubbles.shift();
     this.bubbles.push({ text, x, y, portraitId, ttl, maxTtl: ttl });
@@ -575,6 +662,40 @@ export class WorldRenderer3D {
     const idx = this.skidIdx;
     this.skidData[idx] = { x, z: y, rot: -angle, life: SKID_LIFE };
     this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
+  }
+
+  /**
+   * آسیب بازیکن — نقطه برخورد داینامیک (فاز BIG-IR):
+   * تیرگی بدنه + کج شدن + جدا شدن سپر با پرتاب ذرات در نقطه سپر
+   */
+  onPlayerDamaged(damage: number, front: boolean, contactX: number, contactY: number): void {
+    applyDamageVisual(this.playerModel, damage);
+    // سپر: بعد از آسیب تجمعی کافی جدا می‌شود
+    const cumulative = front ? this.playerFrontHits : this.playerRearHits;
+    this.playerFrontHits += front ? damage : 0;
+    this.playerRearHits += front ? 0 : damage;
+    if (cumulative + damage >= 34) {
+      const bumper = front ? this.playerModel.bumpers.front : this.playerModel.bumpers.rear;
+      if (bumper && detachBumper(this.playerModel, front)) {
+        this.tmpV.setFromMatrixPosition(bumper.matrixWorld);
+        this.spawnBurst(this.tmpV.x, this.tmpV.z, '#3a3a3a', 10, 220);
+      }
+    }
+    // جرقه در نقطه تماس
+    this.spawnBurst(contactX, contactY, front ? '#ffd27a' : '#c9c9c9', 6, 200);
+  }
+  private playerFrontHits = 0;
+  private playerRearHits = 0;
+
+  /** بعد از تعمیر/اسکران: بدنه تمیز می‌شود (بازگرداندن سپر + رنگ) */
+  resetPlayerDamage(): void {
+    this.playerFrontHits = 0;
+    this.playerRearHits = 0;
+    const m = this.playerModel;
+    m.bodyMat.color.set(m.bodyColor);
+    m.group.rotation.z = 0;
+    if (m.bumpers.front) m.bumpers.front.visible = true;
+    if (m.bumpers.rear) m.bumpers.rear.visible = true;
   }
 
   /** به‌روزرسانی افکت‌ها (هر فریم، مستقل از گام فیزیک) */
@@ -634,11 +755,48 @@ export class WorldRenderer3D {
       model.group.rotation.y = -c.angle;
       const wr = c.drawH * 0.135;
       for (const w of model.wheels) w.rotation.x += (c.speed / wr) * (1 / 60);
+      // چراغ‌گردان پلیس — فلاش متناوب
+      if (model.lightBar) {
+        const on = Math.sin(t * 9) > 0;
+        model.lightBar.red.visible = on;
+        model.lightBar.blue.visible = !on;
+      }
     }
     for (const [tc, model] of this.trafficModels) {
       if (!seen.has(tc)) {
         this.scene.remove(model.group);
         this.trafficModels.delete(tc);
+      }
+    }
+
+    // ---------- شکستنی‌ها: همگام با وضعیت World ----------
+    for (const [prop, grp] of this.propGroups) {
+      const wantVisible = !prop.broken;
+      if (grp.visible !== wantVisible) grp.visible = wantVisible;
+    }
+
+    // ---------- عابرهای پیاده ----------
+    for (let i = 0; i < opts.peds.length; i++) {
+      const ped = opts.peds[i];
+      if (i >= this.pedModels.length) {
+        const m = this.buildPedModel(i);
+        this.pedModels.push(m);
+        this.scene.add(m.g);
+      }
+      const pm = this.pedModels[i];
+      pm.g.position.set(ped.x, 0, ped.y);
+      pm.g.rotation.y = -ped.angle;
+      // انیمیشن راه رفتن + پرش ترس
+      const swing = Math.sin(t * 8 + ped.phase) * 0.55;
+      pm.legL.rotation.x = swing;
+      pm.legR.rotation.x = -swing;
+      pm.armL.rotation.x = -swing * 0.8;
+      pm.armR.rotation.x = swing * 0.8;
+      if (ped.hopT > 0) {
+        const k = ped.hopT / PEDS.hopSec; // 1→0
+        pm.g.position.y = Math.sin((1 - k) * Math.PI) * PEDS.hopHeight;
+      } else {
+        pm.g.position.y = 0;
       }
     }
 
@@ -711,6 +869,13 @@ export class WorldRenderer3D {
       this.beaconArrow.rotation.y = t * 2.2;
     } else {
       this.beacon.visible = false;
+    }
+
+    // ---------- حلقه‌های زون تعمیرگاه — پالس آرام ----------
+    const rPulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+    for (const rz of this.repairRings) {
+      rz.children[0].scale.setScalar(0.94 + rPulse * 0.1);
+      ((rz.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.55 + rPulse * 0.35;
     }
 
     // ---------- رد لاستیک (Instanced sync) ----------
@@ -830,21 +995,19 @@ export class WorldRenderer3D {
       if (p.ok) this.drawBubbleBox(ctx, opts.playerBubble.line, p.sx, p.sy, opts.car.drawH * 0.75, opts.playerBubble.portrait);
     }
 
-    // مینی‌مپ سبک GTA (پایین-وسط)
+    // مینی‌مپ سبک GTA (بالا-وسط)
     this.drawMinimap(ctx, opts);
   }
 
-  /** مینی‌مپ کل شهر — نقشه جاده‌ها + بازیکن + ترافیک + هدف مأموریت */
+  /** مینی‌مپ کل تهران بزرگ — بالای صفحه (تا ماشین را نپوشاند) */
   private drawMinimap(ctx: CanvasRenderingContext2D, opts: Draw3DOptions): void {
-    const size = Math.min(RENDER3D.minimapSize, this.overlayW * 0.3);
-    const pad = 12;
+    const size = Math.min(RENDER3D.minimapSize, this.overlayW * 0.28);
     const x0 = this.overlayW / 2 - size / 2;
-    const y0 = this.overlayH - size - pad;
+    const y0 = 12;
     const k = size / WORLD_SIZE;
 
     ctx.save();
     // قاب گرد نیمه‌شفاف
-    ctx.globalAlpha = 0.88;
     const r = 16;
     ctx.beginPath();
     ctx.moveTo(x0 + r, y0);
@@ -860,20 +1023,42 @@ export class WorldRenderer3D {
     ctx.strokeStyle = '#F2B705';
     ctx.lineWidth = 3;
     ctx.stroke();
-    ctx.globalAlpha = 1;
     ctx.clip(); // نقشه از قاب بیرون نزند
 
-    // جاده‌ها (۵ خط سفید — شبکه کامل ترافیک)
+    // جاده‌ها (۷ خط سفید دوطرفه — پهن‌تر از قبل)
     ctx.fillStyle = 'rgba(255,255,255,0.78)';
-    for (let i = 0; i < 5; i++) {
-      const c = (i * 1024 + 128) * k;
-      ctx.fillRect(x0 + c - 2.4, y0, 4.8, size);
-      ctx.fillRect(x0, y0 + c - 2.4, size, 4.8);
+    const nRoads = WR.roadCount + 1;
+    for (let i = 0; i < nRoads; i++) {
+      const c = roadCenter(i) * k;
+      ctx.fillRect(x0 + c - 3, y0, 6, size);
+      ctx.fillRect(x0, y0 + c - 3, size, 6);
     }
 
-    // بلوک‌ها (زمین سبز/شنی کم‌رنگ — حس نقشه GTA)
-    ctx.fillStyle = 'rgba(138,201,38,0.30)';
-    ctx.fillRect(x0 + 256 * k, y0 + 256 * k, 768 * k, 768 * k);
+    // پارک‌ها (زمین سبز)
+    ctx.fillStyle = 'rgba(138,201,38,0.35)';
+    for (const [pi, pj] of [[2, 2], [4, 2]]) {
+      const bx = (pi * WR.pitch + WR.roadW) * k;
+      const by = (pj * WR.pitch + WR.roadW) * k;
+      ctx.fillRect(x0 + bx, y0 + by, (WR.pitch - WR.roadW) * k, (WR.pitch - WR.roadW) * k);
+    }
+
+    // لندمارک‌ها (نقاط برج‌ها — امضای نقشه تهران)
+    ctx.fillStyle = '#e8e2d5';
+    for (const p of this.world.props) {
+      if (p.kind === 'azadiTower' || p.kind === 'miladTower') {
+        ctx.beginPath();
+        ctx.arc(x0 + (p.x + p.w / 2) * k, y0 + (p.y + p.h / 2) * k, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // زون‌های تعمیرگاه (سبز)
+    ctx.fillStyle = '#2A9D8F';
+    for (const z of this.world.repairZones) {
+      ctx.beginPath();
+      ctx.arc(x0 + z.x * k, y0 + z.y * k, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // هدف مأموریت (لکه زرد پالس‌دار)
     if (opts.target) {
@@ -890,7 +1075,7 @@ export class WorldRenderer3D {
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     for (const c of opts.traffic) {
       ctx.beginPath();
-      ctx.arc(x0 + c.x * k, y0 + c.y * k, 2.4, 0, Math.PI * 2);
+      ctx.arc(x0 + c.x * k, y0 + c.y * k, 2.2, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -966,7 +1151,6 @@ export class WorldRenderer3D {
 
   /**
    * حباب RTL با پرتره — نسخه صفحه‌ای (مختصات پیکسلی اورلی)
-   * هم‌ظاهر WorldRenderer.drawBubbleBox دوبعدی
    */
   private drawBubbleBox(
     ctx: CanvasRenderingContext2D,
@@ -1085,7 +1269,6 @@ export class WorldRenderer3D {
     this.r3.setSize(pixelW, pixelH, false);
     this.overlay.width = pixelW;
     this.overlay.height = pixelH;
-    // اندازه CSS اورلی = ۱۰۰٪ والد (در DOM تنظیم شده)
     // ابعاد منطقی برای پروجکشن = پیکسل CSS
     const rect = this.overlay.getBoundingClientRect();
     this.overlayW = rect.width || pixelW / dpr;

@@ -46,11 +46,11 @@ export interface MissionDef {
 }
 
 /**
- * مختصات هدف‌ها روی شبکه جاده (roadCenter(k) = k*1024 + 128):
- *  - تقاطع جاده ۲ عمودی و ۱ افقی: (2176, 1152)
- *  - جاده ۱ عمودی کنار تعمیرگاه بلوک غربی: (1152, 1664)
- *  - جاده ۲ عمودی کنار پمپ بنزین بلوک شرقی: (2176, 1664)
- *  - تقاطع جاده ۱ عمودی و ۳ افقی (جنوب): (1152, 3200)
+ * مختصات هدف‌ها روی شبکه جاده جدید (roadCenter(k) = k*1400 + 280):
+ *  - تقاطع جاده ۲ عمودی و ۱ افقی: (3080, 1680)
+ *  - زون تعمیرگاه کنار بلوک گاراژ (1,2): (3250, 3780)
+ *  - زون پمپ بنزین کنار بلوک (3,3): (5180, 4480)
+ *  - تقاطع جاده ۳ عمودی و ۰ افقی (شمال): (4480, 280)
  */
 export const MISSION_LIST: MissionDef[] = [
   {
@@ -59,8 +59,8 @@ export const MISSION_LIST: MissionDef[] = [
     intro: 'خانم همسایه سرِحرصه! نون‌داغ داره سرد می‌شه، برسونش به مقصد!',
     objective: 'برس به علامت هدف، قبل از اینکه وقت تموم شه',
     kind: 'timed_reach',
-    target: { x: 2176, y: 1152 },
-    timeLimitSec: 40,
+    target: { x: 3080, y: 1680 },
+    timeLimitSec: 75,
     rewardCoins: 40,
     rewardRep: 10,
   },
@@ -70,8 +70,8 @@ export const MISSION_LIST: MissionDef[] = [
     intro: 'ماشین دود می‌کنه مثل قلیون! فقط نذار خاموش شه...',
     objective: 'برس به تعمیرگاه — حتی یک تصادف یعنی خاموشی!',
     kind: 'fragile_reach',
-    target: { x: 1152, y: 1664 },
-    timeLimitSec: 30,
+    target: { x: 3250, y: 3780 },
+    timeLimitSec: 65,
     rewardCoins: 60,
     rewardRep: 12,
   },
@@ -81,7 +81,7 @@ export const MISSION_LIST: MissionDef[] = [
     intro: 'باک خالی، اعصاب خالی‌تر! تا پمپ بنزین فقط مواظب ماشین‌ها باش.',
     objective: 'برس به پمپ بنزین — حداکثر ۲ تصادف شدید مجازه',
     kind: 'tolerant_reach',
-    target: { x: 2176, y: 1664 },
+    target: { x: 5180, y: 4480 },
     timeLimitSec: 0,
     maxHardCrashes: 2,
     rewardCoins: 35,
@@ -93,8 +93,8 @@ export const MISSION_LIST: MissionDef[] = [
     intro: 'شهردار قول داده چاله‌ها رو پُر کنه... سال بعد! مواظب باش.',
     objective: 'برس به مقصد — حداکثر ۳ چاله به گند بکشی!',
     kind: 'pothole_run',
-    target: { x: 1152, y: 3200 },
-    timeLimitSec: 45,
+    target: { x: 4480, y: 280 },
+    timeLimitSec: 100,
     maxPotholes: 3,
     rewardCoins: 50,
     rewardRep: 10,

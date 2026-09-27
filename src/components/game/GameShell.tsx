@@ -30,6 +30,7 @@ import {
   Target,
   Users,
   Volume2,
+  Wrench,
   X,
 } from "lucide-react";
 import { createGame, type GameInstance, type GameState, type HudData, type MissionListItem, type MissionResultData } from "@/game";
@@ -115,7 +116,7 @@ export default function GameShell() {
 
   const [phase, setPhase] = useState<GameState | "boot">("boot");
   const [bootProgress, setBootProgress] = useState(0);
-  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null });
+  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false });
   const [toast, setToast] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showMissions, setShowMissions] = useState(false);
@@ -179,6 +180,8 @@ export default function GameShell() {
   const comingSoon = useCallback(() => showToast("این حالت به‌زودی می‌آید! طبق نقشه راه فاز ۴ به ۷ ساخته می‌شود."), [showToast]);
 
   const repColor = hud.reputation >= 70 ? "#8AC926" : hud.reputation >= 35 ? "#F2B705" : "#D64545";
+  const healthColor = hud.health >= 60 ? "#8AC926" : hud.health >= 30 ? "#F2B705" : "#D64545";
+  const towCostLabel = hud.coins >= 30 ? "−۳۰ سکه" : "رایگان — رفیق مکانیکی!";
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
@@ -434,6 +437,13 @@ export default function GameShell() {
                   <div className="h-full transition-all" style={{ width: `${hud.reputation}%`, backgroundColor: repColor }} />
                 </div>
               </div>
+              {/* سلامت ماشین (فاز BIG-IR) */}
+              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
+                <Wrench className="h-5 w-5 text-[#5d6d7e]" />
+                <div className="h-3 w-20 overflow-hidden rounded-full border-[3px] border-[#3a2e2a] bg-white">
+                  <div className="h-full transition-all" style={{ width: `${hud.health}%`, backgroundColor: healthColor }} />
+                </div>
+              </div>
               <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
                 <Gauge className="h-5 w-5 text-[#2A9D8F]" />
                 <span className="font-extrabold text-[#3a2e2a]">{fa(hud.speedKmh)} کیلومتر/ساعت</span>
@@ -617,6 +627,45 @@ export default function GameShell() {
                 onPointerDown={(e) => {
                   e.preventDefault();
                   setMissionResult(null);
+                  gameRef.current?.backToMenu();
+                }}
+              >
+                <Home className="h-5 w-5" />
+                منوی اصلی
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ اورلی خاموشی موتور (فاز BIG-IR) ============ */}
+      {phase === "playing" && hud.engineDead && !missionResult && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#3a2e2a]/55 backdrop-blur-[2px]">
+          <div className="fc-panel fc-pop w-full max-w-sm bg-[#FFF9EC] p-6 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#D64545]">
+              <Wrench className="h-9 w-9 text-white" />
+            </div>
+            <h2 className="mt-3 text-2xl font-extrabold text-[#3a2e2a]">ماشین خاموش شد!</h2>
+            <p className="mt-1 text-sm font-bold text-[#3a2e2a]/70">
+              موتور از بس ضربه خورده استعفا داد. بریم تعمیرگاه؟
+            </p>
+            <div className="mt-4 space-y-2">
+              <button
+                type="button"
+                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2A9D8F] py-3 text-lg font-extrabold text-white"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  gameRef.current?.towToRepair();
+                }}
+              >
+                <Wrench className="h-5 w-5" />
+                اسکران به تعمیرگاه ({towCostLabel})
+              </button>
+              <button
+                type="button"
+                className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
+                onPointerDown={(e) => {
+                  e.preventDefault();
                   gameRef.current?.backToMenu();
                 }}
               >

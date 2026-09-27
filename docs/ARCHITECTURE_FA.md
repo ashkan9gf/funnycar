@@ -42,22 +42,23 @@
 | Camera | `src/game/core/Camera.ts` | دوربین دنبال‌کننده نرم + لرزش (Screen Shake) | 1 |
 | SaveManager | `src/game/core/SaveManager.ts` | ذخیره نسخه‌دار + بازیابی از خرابی | 1 |
 | VehicleController | `src/game/entities/Vehicle.ts` | فیزیک ماشین: گاز، ترمز، فرمان، برخورد | 1 |
-| World | `src/game/world/World.ts` | نقشه شهر: جاده، ساختمان، prop، نقطه‌های تعامل | 1 |
+| World | `src/game/world/World.ts` | نقشه «تهران بزرگ» (8960px، ۷×۷ جاده دوطرفه، برج آزادی/میلاد، شکستنی‌ها، زون تعمیر) | 1/BIG-IR |
 | WorldRenderer | `src/game/world/WorldRenderer.ts` | رسم دنیا با دوربین (فقط رسم، بدون منطق) | 1 |
 | AudioManager | `src/game/managers/AudioManager.ts` | کانال‌های Music/SFX/Voice/UI با WebAudio | 1 |
 | VoiceManager | `src/game/managers/VoiceManager.ts` | Pool + Random + Cooldown + Priority برای جملات طنز | 1 |
 | DialogueManager | `src/game/managers/DialogueManager.ts` | نمایش حباب دیالوگ (متن فعلاً، صدای ضبطی در آینده) | 1 |
 | MissionManager | `src/game/managers/MissionManager.ts` | تعریف/اجرای مأموریت‌ها (Data-Driven) | 4 |
 | TrafficManager | `src/game/managers/TrafficManager.ts` | ماشین‌های ترافیک | 3 |
-| WorldRenderer3D | `src/game/render3d/WorldRenderer3D.ts` | رندر سه‌بعدی Low-Poly (Three.js) + دوربین Chase + اورلی RTL | 3D |
-| CarFactory3D | `src/game/render3d/CarFactory3D.ts` | خودروهای ایرانی: پراید/۴۰۵/سمند/نیسان/تیبا/تاکسی/پلیس با پلاک و آینه (فاز GTA-IR) | 3D |
+| WorldRenderer3D | `src/game/render3d/WorldRenderer3D.ts` | رندر سه‌بعدی Low-Poly (Three.js) + دوربین Chase + اورلی RTL + عابرها + شکستنی‌ها + مینی‌مپ GTA | 3D |
+| CarFactory3D | `src/game/render3d/CarFactory3D.ts` | خودروهای ایرانی با بدنه اکسترود گرد + تون‌شییدینگ + خط دور کارتونی + راننده داخل + سپر جداشدنی | 3D |
 | textures3d | `src/game/render3d/textures3d.ts` | بافت‌های رویه‌ای Canvas (آسفالت ترک‌خورده/زیبرا/تابلو فارسی/پلاک/آسمان) | 3D |
-| StreetProps3D | `src/game/render3d/StreetProps3D.ts` | پراپ‌های خیابان ایران: ماهواره/منبع آب/ایستگاه/دست‌فروش/موتور/سرعت‌گیر/بیلبورد | 3D |
+| StreetProps3D | `src/game/render3d/StreetProps3D.ts` | پراپ‌های خیابان ایران + برج آزادی + برج میلاد + جعبه شکستنی | 3D |
 | NPCManager | `src/game/managers/NPCManager.ts` | عابرها و رفتارهای ساده | 5 |
 | PoliceManager | `src/game/managers/PoliceManager.ts` | تشخیص تخلف، تعقیب، جریمه | 5-6 |
 | FuelManager | `src/game/managers/FuelManager.ts` | مصرف و سوخت‌گیری | 6 |
 | EconomyManager | `src/game/managers/EconomyManager.ts` | سکه، خرید، آپگرید | 7 |
 | RandomEventManager | `src/game/managers/RandomEventManager.ts` | رویدادهای تصادفی طنز | 6 |
+| PedestrianManager | `src/game/managers/PedestrianManager.ts` | عابرهای پیاده روی حلقه پیاده‌رو + ترس از ماشین (فاز BIG-IR) | BIG-IR |
 | UIManager (پوسته) | `src/components/game/*` | اتصال وضعیت موتور به رابط React | 1 |
 
 **قانون ارتباط بین ماژول‌ها:** ماژول‌ها به‌صورت «تزریق وابستگی ساده» همدیگر را می‌شناسند (GameManager همه را می‌سازد و به همدیگر وصل می‌کند). هیچ ماژولی `new` از ماژول دیگر داخل خودش نمی‌زند تا تست‌پذیری حفظ شود.

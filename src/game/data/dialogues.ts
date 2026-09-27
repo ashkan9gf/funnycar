@@ -278,4 +278,41 @@ export const DIALOGUES: Record<string, DialogueEvent> = {
     cooldownMs: 6000,
     chance: 0.8,
   },
+
+  // ---------- عابر ترسید (فاز BIG-IR) ----------
+  pedestrian_scare: {
+    lines: [
+      'اِ! رو پیاده‌رو؟!',
+      'آقا ماشین تو خیابونه، نه اینجا!',
+      'ای بابا! دلم ریخت!',
+      'جدول حق داره شکایت کنه!',
+    ],
+    speaker: 'passenger',
+    priority: 1,
+    cooldownMs: 7000,
+  },
+
+  // ---------- ماشین خاموش شد (آسیب کامل — فاز BIG-IR) ----------
+  breakdown: {
+    lines: [
+      'خاموش شد... من که گفته بودم!',
+      'موتور استعفا داد، رسماً!',
+      'داداش دیگه نمی‌کشه، ببر تعمیرگاه!',
+    ],
+    speaker: 'driver',
+    priority: 5,
+    cooldownMs: 8000,
+  },
+
+  // ---------- ترمیم در تعمیرگاه (فاز BIG-IR) ----------
+  repair_done: {
+    lines: [
+      'به‌به! مثل روز اولش شد!',
+      'مکانیک حرفه‌ایه، دستش طلا!',
+      'تازه نفس کشیدیم!',
+    ],
+    speaker: 'mechanic',
+    priority: 3,
+    cooldownMs: 10000,
+  },
 };
