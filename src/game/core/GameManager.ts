@@ -18,9 +18,11 @@ import { PedestrianManager } from '../managers/PedestrianManager';
 import { MissionManager, type MissionHud } from '../managers/MissionManager';
 import { Vehicle } from '../entities/Vehicle';
 import { World, type WorldProp } from '../world/World';
+import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
-import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS } from '../data/balance';
+import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
+import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
 
@@ -32,6 +34,8 @@ interface EffectsRenderer {
   pushBubble(text: string, x: number, y: number, portraitId?: string, ttl?: number): void;
   spawnBurst(x: number, y: number, color: string, count?: number, power?: number): void;
   addSkidMark(x: number, y: number, angle: number): void;
+  /** لاشه تصادف (اختیاری — فقط رندر سه‌بعدی) */
+  spawnDebris?(x: number, y: number, color: string, count?: number, power?: number, size?: number): void;
 }
 
 export interface HudData {
@@ -97,6 +101,11 @@ export class GameManager {
   private randomEvents: RandomEventManager;
   private peds: PedestrianManager;
   private mission: MissionManager;
+  /** چراغ‌های راهنما (فاز OVERHAUL) */
+  private lights = new TrafficLights();
+  /** آخرین ورودی — برای رندر (ترمز/فرمان) */
+  private lastInput = { gas: false, brake: false, steer: 0 };
+  private redRunnerCooldown = 0;
 
   private state: GameState = 'boot';
   private raf = 0;
@@ -138,7 +147,7 @@ export class GameManager {
       const overlay = document.createElement('canvas');
       overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;';
       canvas.parentElement?.appendChild(overlay);
-      this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera);
+      this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera, this.lights);
       this.fx = this.renderer3d;
     } else {
       this.is3D = false;
@@ -159,6 +168,7 @@ export class GameManager {
         const s = this.world.playerSpawn();
         return { x: s.x, y: s.y, r: 420 };
       })(),
+      this.lights,
     );
     this.randomEvents = new RandomEventManager(this.world, {
       onEvent: (kind, x, y) => this.onRandomEvent(kind, x, y),
@@ -449,7 +459,10 @@ export class GameManager {
     for (const p of this.world.props) {
       if (p.broken) {
         p.brokenTimer = (p.brokenTimer ?? 0) - dt;
-        if (p.brokenTimer <= 0) p.broken = false;
+        if (p.brokenTimer <= 0) {
+          p.broken = false;
+          this.renderer3d?.markBreakablesDirty();
+        }
       }
     }
 
@@ -470,8 +483,11 @@ export class GameManager {
       p.broken = true;
       p.brokenTimer = BREAKABLE.respawnSec;
       this.breakCooldown = BREAKABLE.breakCooldownSec;
+      this.renderer3d?.markBreakablesDirty();
       const color = GameManager.BREAK_COLORS[p.kind] ?? '#9b9b9b';
       this.fx.spawnBurst(p.x + p.w / 2, p.y + p.h / 2, color, 12, 230);
+      // فاز OVERHAUL: تکه‌های پرتابی مانع شکسته
+      this.fx.spawnDebris?.(p.x + p.w / 2, p.y + p.h / 2, color, 8, 280, 8);
       this.audio.bump();
       this.camera.addShake(3.2);
       v.speed *= BREAKABLE.speedLoss;
@@ -610,9 +626,14 @@ export class GameManager {
 
   private step(dt: number): void {
     let input = this.input.collect();
+    this.lastInput = { gas: input.gas, brake: input.brake, steer: input.steer };
 
     // بوق از کیبورد (H)
     if (input.hornPressed) this.pressHorn();
+
+    // ---------- چراغ‌های راهنما (فاز OVERHAUL) ----------
+    this.lights.update(dt);
+    this.checkRedLightRunner(dt);
 
     // ---------- موتور خاموش: گاز کار نمی‌کند (فاز BIG-IR) ----------
     if (this.vehicle.dead) {
@@ -633,6 +654,12 @@ export class GameManager {
       this.camera.addShake(hard ? CAM.maxShake : CAM.maxShake * 0.45);
       // نقطه برخورد داینامیک: ذرات + جرقه در نقطه تماس + خرابی بدنه (فاز BIG-IR)
       this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
+      // فاز OVERHAUL: لاشه + شیشه در تصادف سخت
+      if (hard) {
+        this.fx.spawnDebris?.(result.impactX, result.impactY, '#4a4a48', 10, 300, 10);
+        this.fx.spawnDebris?.(result.impactX, result.impactY, '#bfe3ea', 5, 340, 5);
+        this.fx.spawnDebris?.(result.impactX, result.impactY, '#3a2e2a', 4, 240, 7);
+      }
       this.renderer3d?.onPlayerDamaged(result.damage, result.front, result.impactX, result.impactY);
       this.save.mutate((d) => {
         d.reputation = Math.max(REPUTATION.min, d.reputation - (hard ? REPUTATION.hardCrashPenalty : REPUTATION.softCrashPenalty));
@@ -776,6 +803,42 @@ export class GameManager {
     this.camera.update(dt, this.vehicle.x, this.vehicle.y, this.vehicle.vx, this.vehicle.vy);
   }
 
+  // ============ چراغ قرمز بازیکن (فاز OVERHAUL) ============
+
+  /** اگر بازیکن با سرعت از تقاطع با چراغ قرمز رد شود — دیالوگ طنز (بدون جریمه) */
+  private checkRedLightRunner(dt: number): void {
+    this.redRunnerCooldown = Math.max(0, this.redRunnerCooldown - dt);
+    if (this.redRunnerCooldown > 0) return;
+    const v = this.vehicle;
+    if (Math.abs(v.speed) < TRAFFIC_LIGHTS.redRunnerSpeed) return;
+    // نزدیک‌ترین جاده عمودی/افقی
+    const n = WR.roadCount + 1;
+    let bi = 0;
+    let di = Infinity;
+    for (let i = 0; i < n; i++) {
+      const d = Math.abs(v.x - roadCenter(i));
+      if (d < di) { di = d; bi = i; }
+    }
+    let bj = 0;
+    let dj = Infinity;
+    for (let j = 0; j < n; j++) {
+      const d = Math.abs(v.y - roadCenter(j));
+      if (d < dj) { dj = d; bj = j; }
+    }
+    // باید داخل محدوده تقاطع باشد (هر دو فاصله کمتر از نصف عرض جاده)
+    if (di > WR.roadW / 2 || dj > WR.roadW / 2) return;
+    // محور حرکت از زاویه: ۰=شمال؛ سینوس غالب = شرق/غرب
+    const movingH = Math.abs(Math.sin(v.angle)) > Math.abs(Math.cos(v.angle));
+    const state = movingH
+      ? this.lights.stateEW(bi, bj)
+      : this.lights.stateNS(bi, bj);
+    if (state === 'red') {
+      this.redRunnerCooldown = TRAFFIC_LIGHTS.redRunnerCooldown;
+      this.voice.trigger('red_light', performance.now());
+      this.audio.horn(Math.floor(Math.random() * 3)); // بوق اعتراض ترافیک!
+    }
+  }
+
   // ============ رسم ============
   private draw(): void {
     // ---------- مسیر سه‌بعدی (فاز 3D) ----------
@@ -844,6 +907,12 @@ export class GameManager {
             portrait: SPEAKER_PORTRAIT[speech.speaker] ?? 'char_driver_01_idle',
           }
         : null,
+      // ---------- فاز GRAPHICS_OVERHAUL ----------
+      braking: this.lastInput.brake,
+      accelerating: this.lastInput.gas && !this.vehicle.dead,
+      steer: this.lastInput.steer,
+      debug: this.showFps,
+      fps: this.fpsValue,
     });
   }
 

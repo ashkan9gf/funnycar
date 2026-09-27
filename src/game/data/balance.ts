@@ -181,6 +181,37 @@ export const REPUTATION = {
   trafficCrashPenalty: 4,
 } as const;
 
+/** چراغ راهنمای تقاطع‌ها (فاز GRAPHICS_OVERHAUL) */
+export const TRAFFIC_LIGHTS = {
+  /** مدت سبز هر محور (ثانیه) */
+  greenSec: 7,
+  yellowSec: 1.8,
+  /** همه‌قرمز بین دو سبز (ثانیه) */
+  allRedSec: 0.7,
+  /** آفست موج سبز بین تقاطع‌ها (ثانیه) */
+  offsetStepSec: 1.7,
+  /** فاصله خط توقف از لبه تقاطع (px) */
+  stopGap: 60,
+  /** زرد: اگر فاصله بیشتر از این باشد توقف، وگرنه عبور (px) */
+  yellowCommitDist: 150,
+  /** سرعت کمینه برای شمارش «رد شدن با پرت‌قانون» بازیکن (px/s) */
+  redRunnerSpeed: 110,
+  /** سردشدن دیالوگ چراغ قرمز (ثانیه) */
+  redRunnerCooldown: 12,
+} as const;
+
+/** لاشه/تکه‌های پرتابی تصادف (فاز GRAPHICS_OVERHAUL) */
+export const DEBRIS = {
+  /** سقف تکه‌های همزمان */
+  maxCount: 90,
+  /** عمر لاشه روی زمین (ثانیه) */
+  lifeSec: 2.6,
+  /** ضریب جهش */
+  bounce: 0.38,
+  /** اصطکاک روی زمین (ضرب در هر ثانیه) */
+  groundFriction: 0.12,
+} as const;
+
 /** دوربین */
 export const CAMERA = {
   /** نرمی دنبال کردن (0=خشک، 1=خیلی شل) */

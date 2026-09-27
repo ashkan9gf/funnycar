@@ -162,3 +162,39 @@ Stage Summary:
 - بازی حالا «GTA کوچک تهران» است: نقشه ۷ برابر، جاده دوطرفه ۴ لاین، ترافیک رفت‌وبرگشتی، عابر پیاده زنده، ماشین‌های کارتونی گرد و شبیه GTA با خط دور، آسیب/دود/سپر جداشونده، شکستنی‌ها، تعمیرگاه و اسکران
 - فایل‌ها: World/TrafficManager/TrafficCar/Vehicle/CarFactory3D/textures3d/StreetProps3D/WorldRenderer3D (بازنویسی یا ارتقای بزرگ) + PedestrianManager (جدید) + GameManager/dialogues/missions/balance/GameShell/index
 - پیشنهاد فاز بعدی: چراغ راهنما در تقاطع‌ها، پارک دوبل (Mode 3)، فروشگاه آپگرید، یا بهینه‌سازی merge استاتیک‌ها برای موبایل ضعیف
+
+---
+Task ID: 7
+Agent: Super Z (main agent)
+Task: فاز GRAPHICS_OVERHAUL طبق سند آپلودی کاربر (GRAPHICS_OVERHAUL_3D_MASTER_PROMPT.md) — Audit → Bug Fix → Renderer → GLB Pipeline → Vehicles → City → Effects → Performance → گزارش‌ها
+
+Work Log:
+- سند مادر دانلود و استخراج شد (uploadkon.ir → /upload/GRAPHICS_OVERHAUL_3D_MASTER_PROMPT.md، ۱۶۳۶ خط) و ۹ فاز آن به‌ترتیب اجرا شد
+- PHASE 0 (Baseline): tsc/lint/build پاک؛ اندازه‌گیری واقعی: 1432 Draw Call در منو / 1439 در گیم‌پلی / 3737 شیء صحنه / 78k tri — مشکل اصلی پرفورمنس شناسایی شد
+- PHASE 1 (Bug Fix): Audit کامل (A1..A8) — فقط یک ناحیه پرریسک در ادامه یافت شد؛ BUG_FIX_REPORT.md نوشته شد
+- PHASE 2 (Renderer): outputColorSpace صریح SRGB، fovBase برای FOV سرعتی (+۹°)، حفظ PCF 1024 و مه طلایی
+- PHASE 3 (Asset Pipeline): GLB Writer مستقل (tools/glb/glbwriter.mjs — GLB 2.0 با COLOR_0 و node translation) + GlbModels.ts (GLTFLoader.parse + cache + fallback کامل) — بدون Blender (نصب نیست؛ Generator واقعی با bun+three جایگزین شد و شفاف گزارش شد)
+- PHASE 4 (Vehicles): vehicleGeometry.ts v4 (نیم‌رخ ۱۴ نقطه + bevel + چرخ مرکز‌محور + داخل کابین بازیکن + علامت تاکسی/چراغ‌گردان/باربند) → ۱۵ GLB (۸ واریانت LOD0 + ۷ LOD1)
+- PHASE 5 (City): cityGeometry.ts → ۱۲ GLB ساختمان (۴ نوع × ۳ واریانس) با پنجره هندسی/بالکن/پشت‌بام ایرانی baked؛ تعویض async با حفظ collider؛ + سیستم کامل چراغ راهنما (TrafficLights.ts + توقف AI پشت قرمز + موج سبز + دیالوگ red_light + بوق اعتراض)
+- PHASE 6 (Effects): لاشه‌های پرتابی چرخان با جهش/اصطکاک (spawnDebris + DEBRIS)، چراغ ترمز emissive بازیکن و ترافیک، فرمان بصری چرخ جلو، رول/پیک بدنه (damageTiltZ جدا از roll)
+- PHASE 7 (Performance): merge استاتیک‌ها (جاده ۱۴→۱، تقاطع ۴۹→۱، بلوک‌ها ۷۲→۳)، Instanced دوبله‌ها (۹۰ ماشین → ۶ InstancedMesh با instanceColor)، Instanced پراپ‌ها (۷ نوع)، چراغ‌ها (۴۹ تیر = ۱ dc + ۳ dc لامپ)، LOD ۱۵۰۰px ترافیک، Debug Panel (کلید F: dc/tris/geoms/objects/particles/cam)
+- PHASE 8 (Android): Capacitor موجود نیست — شفاف «تأییدنشده» + گام‌ها در PERFORMANCE_REPORT
+
+باگ‌های رفع‌شده در این فاز (BUG_FIX_REPORT.md):
+  ۱) کرش بوت: mix ایندکس‌دار/غیرایندکس در mergeGeometries → نرمال‌سازی toNonIndexed
+  ۲) لامپ چراغ داخل جعبه مخفی → پنل دوردیفه با لامپ برجسته
+  ۳) شرط معکوس روشن‌شدن لامپ (2-k → k)
+  ۴) اندیس نمونه لامپ (idx*2 → idx*4)
+  ۵) تداخل تیلت آسیب با رول (damageTiltZ جدا)
+
+تست E2E (agent-browser، scripts/e2e_ovh_01..14.png):
+  بوت/منو/رانندگی/فرمان/ترمز (عددی ff1a08@2.4 ↔ 5a0f08@0.7)/ترافیک متوقف پشت قرمز (atLight=true)/برخورد (۱۰۰→۷۷ + frontDamage=22)/لاشه (۲۰ زنده)/شکستنی (broken=true)/Pause/Resume/Menu/Save(سکه ۸ ماندگار, version=1)/موبایل ۳۹۰×۸۴۴/block کردن pride.glb → fallback بدون خطا/Long Session ۶۰ ثانیه (heap 29.3→30.2MB پایدار، dc 276-368)
+  چراغ‌ها عددی: ۵۵ قرمز + ۱۰ زرد + ۳۳ سبز = ۹۸ = ۴۹×۲ ✓
+  دیالوگ چراغ قرمز «قهوه‌مون سرد می‌شه، عجله کن!» در عمل ثبت شد
+
+Stage Summary:
+- Draw Call: 1432→۲۸۹ (منو) و 1439→۲۷۶-۳۶۸ (گیم‌پلی) = ~۷۵-۸۰٪ کاهش | شیء صحنه: 3737→۹۶۵
+- ۲۳ فایل GLB واقعی (۱۵ خودرو + ۱۲ ساختمان… دقیق: ۱۵ خودرو شامل LOD1 + ۱۲ ساختمان) در public/assets/models/ با GLTFLoader استاندارد + fallback کامل
+- سیستم‌های جدید: چراغ راهنما (منطق+AI+رندر)، لاشه، ترمز/فرمان/رول، LOD، Debug Panel — همه Data-Driven در balance.ts
+- ۵ گزارش سند مادر در docs/: BUG_FIX_REPORT / GRAPHICS_OVERHAUL_REPORT / PERFORMANCE_REPORT / ASSET_INVENTORY / TEST_REPORT
+- پیشنهاد فاز بعدی: بوت Capacitor (PHASE 8 واقعی) یا Mode 3 پارک دوبل در شهر GLB

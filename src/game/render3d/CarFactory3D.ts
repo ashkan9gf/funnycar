@@ -33,6 +33,17 @@ export interface CarModel3D {
   /** شیشه‌ها — برای خوردگی بصری */
   len: number;
   wid: number;
+  // ---------- فاز GRAPHICS_OVERHAUL ----------
+  /** چرخ‌های قابل فرمان (pivot جلو) — فقط GLB */
+  steerable?: THREE.Group[];
+  /** متریال چراغ عقب (کلون هر نمونه) — ترمز روشن */
+  tailMat?: THREE.MeshStandardMaterial | null;
+  /** کجی انباشته آسیب (بدون دستکاری مستقیم rotation.z) */
+  damageTiltZ?: number;
+  /** رول دینامیک بدنه (پیچ به دور خود) */
+  rollZ?: number;
+  /** پیک بدنه (گاز/ترمز) */
+  pitchX?: number;
 }
 
 // ---------- متریال مشترک ----------
@@ -382,6 +393,12 @@ export function buildCar3D(
 
   // مقیاس نهایی بر اساس طول منطقی
   g.scale.setScalar(L / s.len);
+  // متریال چراغ عقب کلون هر نمونه (ترمز روشن — فاز OVERHAUL)
+  const tailClone = (tailMat as THREE.MeshBasicMaterial).clone() as unknown as THREE.MeshStandardMaterial;
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && m.material === tailMat) m.material = tailClone;
+  });
   return {
     group: g,
     wheels,
@@ -391,6 +408,11 @@ export function buildCar3D(
     lightBar: (g as unknown as { lightBar?: CarModel3D['lightBar'] }).lightBar,
     len: s.len,
     wid: s.wid,
+    steerable: [],
+    tailMat: tailClone,
+    damageTiltZ: 0,
+    rollZ: 0,
+    pitchX: 0,
   };
 }
 
@@ -413,7 +435,8 @@ export function detachBumper(model: CarModel3D, front: boolean): boolean {
 export function applyDamageVisual(model: CarModel3D, amount: number): void {
   const c = model.bodyMat.color;
   c.multiplyScalar(Math.max(0.82, 1 - amount * 0.006));
-  model.group.rotation.z += (Math.random() - 0.5) * Math.min(0.03, amount * 0.0016);
+  // کجی انباشته — در draw3D با رول ترکیب و اعمال می‌شود (فاز OVERHAUL)
+  model.damageTiltZ = (model.damageTiltZ ?? 0) + (Math.random() - 0.5) * Math.min(0.03, amount * 0.0016);
 }
 
 /** استخراج واریانت از assetId ترافیک — همه‌چیز ایرانی است */

@@ -315,4 +315,18 @@ export const DIALOGUES: Record<string, DialogueEvent> = {
     priority: 3,
     cooldownMs: 10000,
   },
+
+  // ---------- رد شدن با چراغ قرمز (فاز GRAPHICS_OVERHAUL) ----------
+  red_light: {
+    lines: [
+      'چراغ بود داداش، چراغ!',
+      'دوربین چیزی اینجا نیست، برو برو!',
+      'زرد بود... تقریباً!',
+      'قهوه‌مون سرد می‌شه، عجله کن!',
+    ],
+    speaker: 'passenger',
+    priority: 1,
+    cooldownMs: 12000,
+    chance: 0.75,
+  },
 };

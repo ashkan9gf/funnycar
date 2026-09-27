@@ -40,6 +40,8 @@ export class TrafficCar {
   blockedSec = 0;
   /** در همینepisode گیر، بوق زده؟ */
   honkedThisBlock = false;
+  /** پشت چراغ قرمز ایستاده؟ (فاز GRAPHICS_OVERHAUL — بوق اعصاب ندارد) */
+  atLight = false;
 
   // ---------- وضعیت روی شبکه جاده ----------
   /** N/S: شماره جاده عمودی | E/W: شماره جاده افقی */

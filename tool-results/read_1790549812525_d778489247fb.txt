@@ -1,0 +1,1636 @@
+     1→# GRAPHICS_OVERHAUL_3D_MASTER_PROMPT.md
+     2→
+     3→# مأموریت اصلی
+     4→
+     5→تو مسئول انجام یک **Graphics Overhaul واقعی و Production-Ready** برای پروژه بازی ماشین فعلی هستی.
+     6→
+     7→هدف فقط «زیباتر کردن چند رنگ یا اضافه کردن چند BoxGeometry» نیست.
+     8→
+     9→باید پروژه فعلی را بررسی کنی، باگ‌های موجود را پیدا و رفع کنی، سپس سیستم گرافیکی 3D را به سطح بسیار بالاتری برسانی؛ به‌خصوص:
+    10→
+    11→- مدل‌های سه‌بعدی واقعی و باکیفیت
+    12→- خودروهای ایرانی یا ایرانی‌الهام، بدون وابستگی به لوگو و برندهای دارای محدودیت
+    13→- خیابان و محیط شهری با جزئیات واقعی
+    14→- متریال PBR
+    15→- نورپردازی حرفه‌ای
+    16→- سایه
+    17→- LOD
+    18→- بهینه‌سازی WebGL و Android
+    19→- دوربین بهتر
+    20→- افکت‌های تصادف و حرکت
+    21→- محیط شهری زنده‌تر
+    22→- UI فارسی سالم و بدون Regression
+    23→- حفظ تمام Gameplay فعلی
+    24→- رفع باگ‌های موجود
+    25→- تست واقعی بعد از تغییرات
+    26→
+    27→---
+    28→
+    29→# قانون بسیار مهم
+    30→
+    31→## این پروژه را از صفر بازنویسی نکن.
+    32→
+    33→کد فعلی، Gameplay، منطق بازی، Save System، Input، Traffic، Collision، Mission/Event Logic، Audio Hooks و UI فعلی باید تا جای ممکن حفظ شوند.
+    34→
+    35→هدف:
+    36→
+    37→> **Fix + Refactor where necessary + Graphics Overhaul**
+    38→
+    39→نه:
+    40→
+    41→> Rewrite the whole game.
+    42→
+    43→هر تغییری که باعث شکستن قابلیت موجود شود غیرقابل قبول است.
+    44→
+    45→---
+    46→
+    47→# قانون شماره 1: اول Audit، بعد تغییر
+    48→
+    49→قبل از اینکه حتی یک سیستم گرافیکی را بازنویسی کنی:
+    50→
+    51→1. کل پروژه را Scan کن.
+    52→2. ساختار فایل‌ها را بررسی کن.
+    53→3. Entry Pointها را پیدا کن.
+    54→4. Game Loop را بررسی کن.
+    55→5. Renderer را بررسی کن.
+    56→6. Scene/World را بررسی کن.
+    57→7. Player Vehicle را بررسی کن.
+    58→8. Traffic را بررسی کن.
+    59→9. Collision را بررسی کن.
+    60→10. Camera را بررسی کن.
+    61→11. Input را بررسی کن.
+    62→12. UI را بررسی کن.
+    63→13. Audio را بررسی کن.
+    64→14. Save/Load را بررسی کن.
+    65→15. Mission/Event را بررسی کن.
+    66→16. Asset Loading را بررسی کن.
+    67→17. Android/Capacitor integration را بررسی کن.
+    68→18. تمام TODO/FIXME/placeholderها را پیدا کن.
+    69→19. خطاهای TypeScript/JavaScript را پیدا کن.
+    70→20. Runtime Errorها را پیدا کن.
+    71→21. Memory Leakهای احتمالی را پیدا کن.
+    72→22. مواردی که باعث FPS Drop می‌شوند را پیدا کن.
+    73→
+    74→ابتدا یک گزارش داخلی از وضعیت فعلی بساز.
+    75→
+    76→---
+    77→
+    78→# قانون شماره 2: هیچ Regression مجاز نیست
+    79→
+    80→پس از هر تغییر، موارد زیر باید همچنان کار کنند:
+    81→
+    82→- Start Game
+    83→- Restart
+    84→- Pause
+    85→- Resume
+    86→- Steering
+    87→- Acceleration
+    88→- Brake
+    89→- Reverse
+    90→- Camera
+    91→- Collision
+    92→- Traffic
+    93→- Random Events
+    94→- Mission/Event system
+    95→- Fuel/vehicle state در صورت وجود
+    96→- Score/coins/economy در صورت وجود
+    97→- Save
+    98→- Load
+    99→- Audio
+   100→- Voice hooks
+   101→- UI
+   102→- Menus
+   103→- Game Over
+   104→- Return to Menu
+   105→- Mobile touch controls در صورت وجود
+   106→- Keyboard controls
+   107→- Android/Capacitor flow در صورت وجود
+   108→
+   109→اگر قابلیت جدیدی باعث خراب شدن یکی از این موارد شد، تغییر را تا رفع Regression ادامه بده.
+   110→
+   111→---
+   112→
+   113→# بخش A — Bug Fix Audit
+   114→
+   115→قبل از Graphics Overhaul باید Bug Fix Pass کامل انجام شود.
+   116→
+   117→## A1 — Compile Errors
+   118→
+   119→بررسی:
+   120→
+   121→- TypeScript errors
+   122→- JavaScript errors
+   123→- invalid imports
+   124→- circular dependencies
+   125→- undefined variables
+   126→- undefined functions
+   127→- invalid types
+   128→- unreachable code
+   129→- incorrect async handling
+   130→- missing modules
+   131→- broken paths
+   132→
+   133→اجرای:
+   134→
+   135→```bash
+   136→npm install
+   137→npm run build
+   138→```
+   139→
+   140→و هر command واقعی دیگری که در package.json وجود دارد.
+   141→
+   142→اگر test/lint/typecheck وجود دارد:
+   143→
+   144→```bash
+   145→npm run test
+   146→npm run lint
+   147→npm run typecheck
+   148→```
+   149→
+   150→فقط در صورتی اجرا کن که این scripts در پروژه وجود داشته باشند.
+   151→
+   152→---
+   153→
+   154→# A2 — Runtime Errors
+   155→
+   156→در Browser/Chromium:
+   157→
+   158→- Console errors
+   159→- unhandled promise rejection
+   160→- failed asset loading
+   161→- WebGL errors
+   162→- shader errors
+   163→- texture errors
+   164→- audio errors
+   165→- scene initialization errors
+   166→- game loop errors
+   167→
+   168→باید بررسی شوند.
+   169→
+   170→---
+   171→
+   172→# A3 — Game State Bugs
+   173→
+   174→بررسی کن که:
+   175→
+   176→- Start چندبار قابل اجرا نباشد.
+   177→- Pause باعث چند Game Loop نشود.
+   178→- Restart منابع قبلی را آزاد کند.
+   179→- Scene دوباره ساخته شود بدون اینکه objectهای قبلی باقی بمانند.
+   180→- Traffic دوباره duplicate نشود.
+   181→- Event listenerها چندبار ثبت نشوند.
+   182→- Audio listenerها duplicate نشوند.
+   183→- timers/intervals بعد از restart باقی نمانند.
+   184→- animation frameهای قبلی باقی نمانند.
+   185→
+   186→---
+   187→
+   188→# A4 — Collision Bugs
+   189→
+   190→بررسی:
+   191→
+   192→- Player vs Traffic
+   193→- Player vs Buildings
+   194→- Player vs Props
+   195→- Player vs Road boundaries
+   196→- Player vs mission objects
+   197→- Collision هنگام سرعت بالا
+   198→- Collision بعد از restart
+   199→- Collision بعد از pause/resume
+   200→
+   201→از tunneling تا جای ممکن جلوگیری کن.
+   202→
+   203→---
+   204→
+   205→# A5 — Traffic Bugs
+   206→
+   207→بررسی:
+   208→
+   209→- spawn خارج از map
+   210→- spawn داخل player
+   211→- spawn داخل building
+   212→- duplicate traffic
+   213→- traffic بدون movement
+   214→- traffic stuck
+   215→- traffic خارج از world بدون cleanup
+   216→- traffic collision
+   217→- traffic بعد از restart
+   218→- traffic memory leak
+   219→
+   220→---
+   221→
+   222→# A6 — Camera Bugs
+   223→
+   224→بررسی:
+   225→
+   226→- camera jitter
+   227→- camera clipping
+   228→- camera داخل ساختمان
+   229→- camera داخل ماشین
+   230→- camera هنگام collision
+   231→- camera هنگام reverse
+   232→- camera بعد از restart
+   233→- camera هنگام تغییر vehicle
+   234→- camera هنگام pause
+   235→
+   236→Camera باید smooth باشد ولی input را با تأخیر آزاردهنده دنبال نکند.
+   237→
+   238→---
+   239→
+   240→# A7 — Asset Loading Bugs
+   241→
+   242→هر Asset باید:
+   243→
+   244→- path معتبر داشته باشد
+   245→- loading state داشته باشد
+   246→- failure handling داشته باشد
+   247→- fallback داشته باشد
+   248→- duplicate loading نداشته باشد
+   249→- cache مناسب داشته باشد
+   250→
+   251→اگر GLB/GLTF وجود دارد:
+   252→
+   253→- load
+   254→- parse
+   255→- material
+   256→- texture
+   257→- animation
+   258→- error handling
+   259→
+   260→را بررسی کن.
+   261→
+   262→---
+   263→
+   264→# A8 — Save/Load Bugs
+   265→
+   266→Graphics Overhaul نباید Save Data را خراب کند.
+   267→
+   268→قبل و بعد از تغییرات تست کن:
+   269→
+   270→- new save
+   271→- existing save
+   272→- load
+   273→- migration
+   274→- corrupted save
+   275→- missing save
+   276→- reset
+   277→- version upgrade
+   278→
+   279→اطلاعات قبلی کاربر نباید بدون دلیل حذف شود.
+   280→
+   281→---
+   282→
+   283→# بخش B — Graphics Architecture Overhaul
+   284→
+   285→## وضعیت فعلی
+   286→
+   287→پروژه ممکن است از primitiveهای Three.js مثل:
+   288→
+   289→- BoxGeometry
+   290→- CylinderGeometry
+   291→- ExtrudeGeometry
+   292→- PlaneGeometry
+   293→
+   294→استفاده کند.
+   295→
+   296→این primitiveها برای Prototype قابل قبول هستند.
+   297→
+   298→اما:
+   299→
+   300→> **Primitive Geometry نباید Asset نهایی خودرو و محیط باشد.**
+   301→
+   302→---
+   303→
+   304→# قانون کلیدی: NO PRIMITIVE FINAL ASSETS
+   305→
+   306→برای Assetهای اصلی:
+   307→
+   308→- Player Car
+   309→- Taxi
+   310→- Police Car
+   311→- Traffic Cars
+   312→- Pickup
+   313→- NPC Vehicles
+   314→- Main Buildings
+   315→- Gas Station
+   316→- Shops
+   317→- Important Props
+   318→
+   319→تا حد امکان از:
+   320→
+   321→```text
+   322→GLB / GLTF
+   323→```
+   324→
+   325→استفاده کن.
+   326→
+   327→Primitiveها فقط برای:
+   328→
+   329→- prototype
+   330→- collision proxy
+   331→- debug
+   332→- very small background props
+   333→- procedural objects ساده
+   334→
+   335→مجاز هستند.
+   336→
+   337→---
+   338→
+   339→# بخش C — 3D Asset Pipeline
+   340→
+   341→Pipeline هدف:
+   342→
+   343→```text
+   344→3D Asset
+   345→   ↓
+   346→Blender / Procedural Blender Generator / External Asset Source
+   347→   ↓
+   348→UV
+   349→   ↓
+   350→PBR Materials
+   351→   ↓
+   352→LOD
+   353→   ↓
+   354→GLB
+   355→   ↓
+   356→Three.js GLTFLoader
+   357→   ↓
+   358→AssetManager
+   359→   ↓
+   360→Scene
+   361→   ↓
+   362→Mobile Optimization
+   363→```
+   364→
+   365→---
+   366→
+   367→# بخش D — خودروهای ایرانی
+   368→
+   369→برای خودروها از طراحی‌های:
+   370→
+   371→- ایرانی
+   372→- ایرانی‌الهام
+   373→- شهری
+   374→- تاکسی
+   375→- پلیس
+   376→- وانت
+   377→- خودرو اقتصادی
+   378→- خودرو قدیمی
+   379→- خودرو خانوادگی
+   380→
+   381→استفاده کن.
+   382→
+   383→نمونه دسته‌ها:
+   384→
+   385→### 1. Classic Iranian Sedan
+   386→
+   387→یک سدان قدیمی ایرانی‌الهام با:
+   388→
+   389→- بدنه واقعی
+   390→- چراغ جلو
+   391→- چراغ عقب
+   392→- جلوپنجره
+   393→- سپر
+   394→- آینه
+   395→- دستگیره
+   396→- شیشه
+   397→- لاستیک
+   398→- رینگ
+   399→- پلاک
+   400→- داشبورد در صورت نیاز
+   401→
+   402→### 2. Modern Economy Sedan
+   403→
+   404→سدان اقتصادی ایرانی‌الهام.
+   405→
+   406→### 3. Hatchback
+   407→
+   408→هاچ‌بک شهری.
+   409→
+   410→### 4. Pickup
+   411→
+   412→وانت شهری ایرانی‌الهام.
+   413→
+   414→### 5. Taxi
+   415→
+   416→نسخه تاکسی.
+   417→
+   418→### 6. Police
+   419→
+   420→نسخه پلیس.
+   421→
+   422→### 7. Funny Vehicles
+   423→
+   424→خودروهای طنز:
+   425→
+   426→- ماشین مکانیکی
+   427→- ماشین عروسی
+   428→- ماشین خیلی قدیمی
+   429→- ماشین باربری عجیب
+   430→- ماشین پر از وسایل
+   431→- ماشین رنگارنگ NPC
+   432→
+   433→---
+   434→
+   435→# نکته حقوقی/برندی
+   436→
+   437→از لوگوها، علائم تجاری و طراحی دقیق برندهای واقعی فقط در صورتی استفاده کن که مجوز/حق استفاده وجود داشته باشد.
+   438→
+   439→در حالت پیش‌فرض:
+   440→
+   441→> طراحی‌ها باید **fictional / Iranian-inspired** باشند.
+   442→
+   443→یعنی حس خودروهای آشنا و ایرانی را منتقل کنند اما وابسته به کپی مستقیم برند نباشند.
+   444→
+   445→---
+   446→
+   447→# بخش E — کیفیت مدل خودرو
+   448→
+   449→هر Vehicle مهم باید حداقل این موارد را داشته باشد:
+   450→
+   451→- realistic proportions
+   452→- clean topology
+   453→- proper normals
+   454→- UV mapping
+   455→- PBR materials
+   456→- glass material
+   457→- rubber material
+   458→- metal material
+   459→- paint material
+   460→- headlights
+   461→- taillights
+   462→- wheels
+   463→- rims
+   464→- mirrors
+   465→- bumpers
+   466→- doors
+   467→- windows
+   468→
+   469→در صورت امکان:
+   470→
+   471→- steering wheel
+   472→- dashboard
+   473→- seats
+   474→- interior
+   475→
+   476→اما Interior فقط وقتی اضافه شود که Camera واقعاً آن را ببیند.
+   477→
+   478→---
+   479→
+   480→# بخش F — LOD
+   481→
+   482→برای Assetهای مهم:
+   483→
+   484→```text
+   485→LOD0 = High Quality
+   486→LOD1 = Medium
+   487→LOD2 = Low
+   488→LOD3 = Very Low / Billboard where appropriate
+   489→```
+   490→
+   491→مثلاً خودرو:
+   492→
+   493→### LOD0
+   494→
+   495→نزدیک دوربین:
+   496→
+   497→- 30k–80k triangles حدودی، بسته به اهمیت Asset
+   498→
+   499→### LOD1
+   500→
+   501→- 10k–30k
+   502→
+   503→### LOD2
+   504→
+   505→- 3k–10k
+   506→
+   507→### LOD3
+   508→
+   509→- بسیار سبک
+   510→
+   511→این اعداد Target هستند، نه قانون مطلق.
+   512→
+   513→مهم‌تر از تعداد Triangle:
+   514→
+   515→- visual quality
+   516→- draw calls
+   517→- material count
+   518→- texture memory
+   519→- mobile FPS
+   520→
+   521→است.
+   522→
+   523→---
+   524→
+   525→# بخش G — PBR
+   526→
+   527→Materialهای اصلی باید تا جای ممکن دارای:
+   528→
+   529→```text
+   530→Base Color
+   531→Normal
+   532→Roughness
+   533→Metalness
+   534→AO
+   535→```
+   536→
+   537→باشند.
+   538→
+   539→برای خودرو:
+   540→
+   541→- paint
+   542→- metal
+   543→- glass
+   544→- rubber
+   545→
+   546→Material جداگانه داشته باشند.
+   547→
+   548→از Materialهای بی‌دلیل زیاد استفاده نکن.
+   549→
+   550→---
+   551→
+   552→# بخش H — Texture Strategy
+   553→
+   554→Textureها باید:
+   555→
+   556→- optimized
+   557→- compressed where supported
+   558→- power-of-two where useful
+   559→- mipmapped
+   560→- appropriately sized
+   561→
+   562→باشند.
+   563→
+   564→برای Mobile:
+   565→
+   566→تا حد امکان از Textureهای غیرضروری 4K برای objectهای کوچک استفاده نکن.
+   567→
+   568→هدف:
+   569→
+   570→```text
+   571→512
+   572→1024
+   573→2048
+   574→```
+   575→
+   576→بر اساس فاصله و اهمیت Asset.
+   577→
+   578→---
+   579→
+   580→# بخش I — خیابان و شهر ایرانی
+   581→
+   582→محیط باید از حالت:
+   583→
+   584→> چند Box کنار Road
+   585→
+   586→خارج شود.
+   587→
+   588→باید اضافه شود:
+   589→
+   590→## Road
+   591→
+   592→- asphalt texture
+   593→- road patches
+   594→- cracks
+   595→- faded markings
+   596→- lane markings
+   597→- crosswalk
+   598→- manholes
+   599→- drainage
+   600→- curbs
+   601→- sidewalks
+   602→- gutters
+   603→- potholes
+   604→
+   605→---
+   606→
+   607→# Buildings
+   608→
+   609→انواع:
+   610→
+   611→- apartment
+   612→- old houses
+   613→- modern shops
+   614→- bakery
+   615→- supermarket
+   616→- restaurant
+   617→- repair shop
+   618→- mechanic
+   619→- bank
+   620→- pharmacy-style generic storefront
+   621→- parking
+   622→- gas station
+   623→- warehouse
+   624→- office
+   625→
+   626→Buildingها باید variation داشته باشند:
+   627→
+   628→- height
+   629→- facade
+   630→- windows
+   631→- balconies
+   632→- colors/materials
+   633→- signs
+   634→- roof details
+   635→
+   636→---
+   637→
+   638→# Street Props
+   639→
+   640→اضافه کن:
+   641→
+   642→- utility poles
+   643→- cables
+   644→- traffic lights
+   645→- street signs
+   646→- Persian signs
+   647→- billboards
+   648→- trash cans
+   649→- benches
+   650→- trees
+   651→- bushes
+   652→- planters
+   653→- barriers
+   654→- cones
+   655→- parked cars
+   656→- bus stop
+   657→- street lamps
+   658→- fences
+   659→- walls
+   660→- gates
+   661→- storefront props
+   662→
+   663→---
+   664→
+   665→# بخش J — Persian / Iranian Atmosphere
+   666→
+   667→محیط باید حس یک شهر ایرانی را منتقل کند.
+   668→
+   669→استفاده از:
+   670→
+   671→- تابلوهای فارسی
+   672→- تابلوهای خیابان
+   673→- تبلیغات خیالی فارسی
+   674→- مغازه‌های ایرانی‌الهام
+   675→- تاکسی
+   676→- وانت
+   677→- موتورسیکلت در صورت وجود
+   678→- کیوسک
+   679→- نانوایی/فروشگاه/تعمیرگاه
+   680→- دیوارنوشته‌های طنز و غیرسیاسی
+   681→
+   682→مجاز است.
+   683→
+   684→از متن‌های واقعی حساس یا تبلیغات برندهای واقعی بدون مجوز استفاده نکن.
+   685→
+   686→---
+   687→
+   688→# بخش K — Lighting Overhaul
+   689→
+   690→نورپردازی باید از حالت flat خارج شود.
+   691→
+   692→حداقل بررسی:
+   693→
+   694→- Directional Light
+   695→- Ambient/Environment Light
+   696→- Hemisphere/Environment lighting
+   697→- Shadows
+   698→- Fog
+   699→- Tone Mapping
+   700→- Color Space
+   701→- Exposure
+   702→- Ambient Occlusion در صورت مقرون‌به‌صرفه بودن
+   703→
+   704→برای Mobile از افکت‌های سنگین بدون Benchmark استفاده نکن.
+   705→
+   706→---
+   707→
+   708→# بخش L — Shadows
+   709→
+   710→Shadow باید:
+   711→
+   712→- Player
+   713→- Traffic
+   714→- Buildings
+   715→- Important Props
+   716→
+   717→را تا حد مناسب پوشش دهد.
+   718→
+   719→اما:
+   720→
+   721→> Shadow quality باید با FPS متعادل شود.
+   722→
+   723→Shadow Map resolution را بی‌دلیل بالا نبر.
+   724→
+   725→---
+   726→
+   727→# بخش M — Camera Overhaul
+   728→
+   729→Camera باید حس یک بازی واقعی ماشین بدهد.
+   730→
+   731→ویژگی‌ها:
+   732→
+   733→- smooth follow
+   734→- subtle lag
+   735→- look-ahead
+   736→- speed-based distance
+   737→- speed-based FOV
+   738→- collision avoidance
+   739→- terrain awareness
+   740→- camera shake هنگام crash
+   741→- camera shake بسیار محدود هنگام acceleration
+   742→- stable horizon
+   743→- reverse camera behavior
+   744→
+   745→Camera نباید:
+   746→
+   747→- jitter داشته باشد
+   748→- داخل building برود
+   749→- داخل vehicle برود
+   750→- هنگام crash کنترل را از player بگیرد
+   751→- بعد از restart خراب شود
+   752→
+   753→---
+   754→
+   755→# بخش N — Vehicle Presentation
+   756→
+   757→ماشین Player باید:
+   758→
+   759→- suspension movement
+   760→- wheel rotation
+   761→- steering wheel angle
+   762→- body movement
+   763→- brake light
+   764→- headlight
+   765→- turn indicator در صورت وجود
+   766→- crash reaction
+   767→
+   768→داشته باشد.
+   769→
+   770→حرکت باید طبیعی باشد.
+   771→
+   772→---
+   773→
+   774→# بخش O — Crash Visuals
+   775→
+   776→هنگام تصادف:
+   777→
+   778→- camera shake
+   779→- impact effect
+   780→- small particles
+   781→- tire skid
+   782→- sound trigger
+   783→- body reaction
+   784→
+   785→اما:
+   786→
+   787→> افکت‌ها نباید باعث افت شدید FPS شوند.
+   788→
+   789→---
+   790→
+   791→# بخش P — Particle System
+   792→
+   793→Particleها برای:
+   794→
+   795→- smoke
+   796→- dust
+   797→- crash
+   798→- skid
+   799→- sparks
+   800→- exhaust
+   801→- rain در صورت وجود
+   802→
+   803→استفاده شوند.
+   804→
+   805→از ایجاد هزاران Mesh مستقل برای particleها خودداری کن.
+   806→
+   807→در صورت نیاز از:
+   808→
+   809→- InstancedMesh
+   810→- Sprite
+   811→- GPU-friendly particle approach
+   812→
+   813→استفاده کن.
+   814→
+   815→---
+   816→
+   817→# بخش Q — Renderer Optimization
+   818→
+   819→حتماً بررسی کن:
+   820→
+   821→- frustum culling
+   822→- object pooling
+   823→- instancing
+   824→- batching
+   825→- LOD
+   826→- texture reuse
+   827→- material reuse
+   828→- geometry reuse
+   829→- draw call count
+   830→- shadow cost
+   831→- overdraw
+   832→- memory usage
+   833→
+   834→---
+   835→
+   836→# بخش R — AssetManager
+   837→
+   838→یک AssetManager استاندارد بساز یا سیستم فعلی را اصلاح کن.
+   839→
+   840→باید بتواند:
+   841→
+   842→```ts
+   843→loadGLTF()
+   844→loadTexture()
+   845→getAsset()
+   846→preload()
+   847→release()
+   848→has()
+   849→```
+   850→
+   851→یا معادل مناسب پروژه را ارائه کند.
+   852→
+   853→قابلیت‌ها:
+   854→
+   855→- caching
+   856→- duplicate-load prevention
+   857→- loading progress
+   858→- error fallback
+   859→- asset versioning در صورت نیاز
+   860→
+   861→---
+   862→
+   863→# بخش S — GLB Loading
+   864→
+   865→برای Three.js از روش استاندارد استفاده کن:
+   866→
+   867→```ts
+   868→GLTFLoader
+   869→```
+   870→
+   871→و در صورت نیاز:
+   872→
+   873→- DRACO
+   874→- Meshopt
+   875→- KTX2
+   876→
+   877→را بررسی کن.
+   878→
+   879→اما فقط وقتی اضافه کن که واقعاً به پروژه کمک کند.
+   880→
+   881→---
+   882→
+   883→# بخش T — Blender Integration
+   884→
+   885→اگر GLM توانایی تولید فایل مدل مستقیم ندارد:
+   886→
+   887→به جای Fake کردن مدل حرفه‌ای با Three.js primitive:
+   888→
+   889→> Blender Python Generator بساز.
+   890→
+   891→مثلاً:
+   892→
+   893→```text
+   894→tools/blender/
+   895→    generate_cars.py
+   896→    generate_city.py
+   897→    generate_props.py
+   898→    export_glb.py
+   899→```
+   900→
+   901→این Scriptها بتوانند Assetهای پایه تولید کنند.
+   902→
+   903→اما خروجی نهایی باید:
+   904→
+   905→```text
+   906→.glb
+   907→```
+   908→
+   909→باشد.
+   910→
+   911→---
+   912→
+   913→# بخش U — Graphics Benchmark Scene
+   914→
+   915→قبل از تغییر کل بازی، یک Scene تست بساز:
+   916→
+   917→```text
+   918→GRAPHICS_BENCHMARK
+   919→```
+   920→
+   921→شامل:
+   922→
+   923→- Player Car
+   924→- Taxi
+   925→- Police Car
+   926→- Traffic Car
+   927→- Road
+   928→- Sidewalk
+   929→- Apartment
+   930→- Shop
+   931→- Gas Station
+   932→- Trees
+   933→- Street Lights
+   934→- Persian Signs
+   935→- NPC/Traffic
+   936→- Props
+   937→
+   938→این Scene باید معیار اصلی کیفیت گرافیکی باشد.
+   939→
+   940→---
+   941→
+   942→# بخش V — Quality Target
+   943→
+   944→گرافیک نهایی نباید شبیه:
+   945→
+   946→```text
+   947→BoxGeometry city
+   948→```
+   949→
+   950→باشد.
+   951→
+   952→هدف:
+   953→
+   954→```text
+   955→Stylized High-Quality 3D
+   956→+
+   957→Iranian Urban Atmosphere
+   958→+
+   959→Mobile-Friendly
+   960→+
+   961→Clean PBR
+   962→+
+   963→Good Lighting
+   964→+
+   965→Detailed Vehicles
+   966→```
+   967→
+   968→است.
+   969→
+   970→سبک می‌تواند Stylized باشد، اما نباید Primitive و خام به نظر برسد.
+   971→
+   972→---
+   973→
+   974→# بخش W — UI Preservation
+   975→
+   976→UI فعلی نباید بدون دلیل تغییر کند.
+   977→
+   978→بررسی:
+   979→
+   980→- Persian RTL
+   981→- فونت
+   982→- button click
+   983→- menu
+   984→- pause
+   985→- restart
+   986→- settings
+   987→- audio
+   988→- graphics settings
+   989→- touch controls
+   990→
+   991→هر تغییر گرافیکی نباید UI را خراب کند.
+   992→
+   993→---
+   994→
+   995→# بخش X — Audio / Voice Preservation
+   996→
+   997→سیستم Audio و Voice فعلی باید حفظ شود.
+   998→
+   999→Graphics Overhaul نباید:
+  1000→
+  1001→- Audio Manager را خراب کند.
+  1002→- Voice hooks را حذف کند.
+  1003→- event triggers را حذف کند.
+  1004→- crash sound را خراب کند.
+  1005→- engine sound را خراب کند.
+  1006→
+  1007→اگر Audio Trigger به objectهای قدیمی وابسته است، آن را به architecture جدید منتقل کن.
+  1008→
+  1009→---
+  1010→
+  1011→# بخش Y — Debug Mode
+  1012→
+  1013→یک Debug Mode قابل خاموش/روشن شدن داشته باش.
+  1014→
+  1015→در Debug Mode امکان نمایش:
+  1016→
+  1017→- FPS
+  1018→- Draw Calls
+  1019→- Triangles
+  1020→- Texture Memory در صورت امکان
+  1021→- Object Count
+  1022→- Active Vehicles
+  1023→- Active Particles
+  1024→- Camera position
+  1025→- Player state
+  1026→- Game state
+  1027→- Asset loading state
+  1028→
+  1029→وجود داشته باشد.
+  1030→
+  1031→این بخش نباید در Production UI اصلی مزاحم باشد.
+  1032→
+  1033→---
+  1034→
+  1035→# بخش Z — Mobile / Android Performance
+  1036→
+  1037→این پروژه قرار است در نهایت روی Android اجرا شود.
+  1038→
+  1039→پس Desktop FPS به تنهایی معیار قبولی نیست.
+  1040→
+  1041→بررسی:
+  1042→
+  1043→- low-end Android
+  1044→- mid-range Android
+  1045→- high-end Android
+  1046→
+  1047→هدف تقریبی:
+  1048→
+  1049→```text
+  1050→30 FPS minimum acceptable
+  1051→45+ FPS preferred
+  1052→60 FPS target on capable devices
+  1053→```
+  1054→
+  1055→اگر سخت‌افزار اجازه دهد.
+  1056→
+  1057→---
+  1058→
+  1059→# بخش AA — Performance Budget
+  1060→
+  1061→برای Scene اصلی Target تعریف کن:
+  1062→
+  1063→```text
+  1064→Stable frame time
+  1065→Controlled draw calls
+  1066→Controlled texture memory
+  1067→Controlled triangle count
+  1068→No continuous allocation in render loop
+  1069→No unnecessary garbage collection
+  1070→No runaway particle count
+  1071→No duplicate assets
+  1072→```
+  1073→
+  1074→در Render Loop تا حد امکان از:
+  1075→
+  1076→```ts
+  1077→new ...
+  1078→```
+  1079→
+  1080→برای objectهای موقتی سنگین خودداری کن.
+  1081→
+  1082→---
+  1083→
+  1084→# بخش AB — Memory Leak Audit
+  1085→
+  1086→مخصوصاً بررسی:
+  1087→
+  1088→```text
+  1089→addEventListener
+  1090→removeEventListener
+  1091→
+  1092→setInterval
+  1093→clearInterval
+  1094→
+  1095→setTimeout
+  1096→clearTimeout
+  1097→
+  1098→requestAnimationFrame
+  1099→cancelAnimationFrame
+  1100→
+  1101→scene.add
+  1102→scene.remove
+  1103→
+  1104→geometry.dispose
+  1105→material.dispose
+  1106→texture.dispose
+  1107→renderer.dispose
+  1108→```
+  1109→
+  1110→Restart و Scene transition باید memory را کنترل کنند.
+  1111→
+  1112→---
+  1113→
+  1114→# بخش AC — Error Recovery
+  1115→
+  1116→اگر Asset اصلی Load نشد:
+  1117→
+  1118→Game نباید Crash کند.
+  1119→
+  1120→باید:
+  1121→
+  1122→1. خطا log شود.
+  1123→2. fallback نمایش داده شود.
+  1124→3. Game قابل ادامه باشد.
+  1125→4. UI در صورت نیاز پیام مناسب نشان دهد.
+  1126→
+  1127→---
+  1128→
+  1129→# بخش AD — Fake Completion ممنوع
+  1130→
+  1131→این موارد قابل قبول نیست:
+  1132→
+  1133→- گفتن «مدل 3D حرفه‌ای ساخته شد» در حالی که هنوز BoxGeometry است.
+  1134→- قرار دادن placeholder با نام final.
+  1135→- ساختن texture جعلی و اعلام PBR.
+  1136→- قرار دادن فایل خالی GLB.
+  1137→- ساختن مدل ساده و اعلام High Quality.
+  1138→- حذف قابلیت‌های قبلی برای ساده‌تر شدن پروژه.
+  1139→- مخفی کردن Runtime Error.
+  1140→- disable کردن testها برای سبز شدن build.
+  1141→
+  1142→---
+  1143→
+  1144→# بخش AE — قبل از هر Asset جدید
+  1145→
+  1146→برای هر Asset مهم مشخص کن:
+  1147→
+  1148→```text
+  1149→Asset Name
+  1150→Purpose
+  1151→Source
+  1152→Format
+  1153→Triangle Count
+  1154→Texture Size
+  1155→Material Count
+  1156→LOD Count
+  1157→Collision Strategy
+  1158→Animation
+  1159→Mobile Cost
+  1160→```
+  1161→
+  1162→---
+  1163→
+  1164→# بخش AF — File Structure
+  1165→
+  1166→در صورت هماهنگ بودن با معماری فعلی:
+  1167→
+  1168→```text
+  1169→src/
+  1170→  game/
+  1171→    render3d/
+  1172→    assets/
+  1173→    vehicles/
+  1174→    world/
+  1175→    camera/
+  1176→    effects/
+  1177→    performance/
+  1178→
+  1179→public/
+  1180→  assets/
+  1181→    models/
+  1182→      vehicles/
+  1183→      buildings/
+  1184→      props/
+  1185→      environment/
+  1186→    textures/
+  1187→      vehicles/
+  1188→      buildings/
+  1189→      environment/
+  1190→    audio/
+  1191→    voices/
+  1192→
+  1193→tools/
+  1194→  blender/
+  1195→```
+  1196→
+  1197→ساختار فعلی پروژه را بدون نیاز تغییر نده.
+  1198→
+  1199→---
+  1200→
+  1201→# بخش AG — تست End-to-End
+  1202→
+  1203→بعد از تغییرات این سناریوها را اجرا کن:
+  1204→
+  1205→## Test 01
+  1206→Launch
+  1207→
+  1208→## Test 02
+  1209→Main Menu
+  1210→
+  1211→## Test 03
+  1212→Start Game
+  1213→
+  1214→## Test 04
+  1215→Drive
+  1216→
+  1217→## Test 05
+  1218→Steering
+  1219→
+  1220→## Test 06
+  1221→Brake
+  1222→
+  1223→## Test 07
+  1224→Reverse
+  1225→
+  1226→## Test 08
+  1227→Traffic
+  1228→
+  1229→## Test 09
+  1230→Collision
+  1231→
+  1232→## Test 10
+  1233→Crash
+  1234→
+  1235→## Test 11
+  1236→Pause
+  1237→
+  1238→## Test 12
+  1239→Resume
+  1240→
+  1241→## Test 13
+  1242→Restart
+  1243→
+  1244→## Test 14
+  1245→Save
+  1246→
+  1247→## Test 15
+  1248→Load
+  1249→
+  1250→## Test 16
+  1251→Mission/Event
+  1252→
+  1253→## Test 17
+  1254→Audio
+  1255→
+  1256→## Test 18
+  1257→Voice Hook
+  1258→
+  1259→## Test 19
+  1260→Settings
+  1261→
+  1262→## Test 20
+  1263→Mobile Controls
+  1264→
+  1265→## Test 21
+  1266→Asset Loading Failure
+  1267→
+  1268→## Test 22
+  1269→Long Session
+  1270→
+  1271→حداقل یک تست Long Session انجام بده تا:
+  1272→
+  1273→- memory leak
+  1274→- FPS degradation
+  1275→- object accumulation
+  1276→
+  1277→مشخص شود.
+  1278→
+  1279→---
+  1280→
+  1281→# بخش AH — Visual QA
+  1282→
+  1283→حداقل این نماها را بررسی کن:
+  1284→
+  1285→### Shot 1
+  1286→Main Menu
+  1287→
+  1288→### Shot 2
+  1289→Player close-up
+  1290→
+  1291→### Shot 3
+  1292→Normal driving
+  1293→
+  1294→### Shot 4
+  1295→Traffic
+  1296→
+  1297→### Shot 5
+  1298→City street
+  1299→
+  1300→### Shot 6
+  1301→Gas station
+  1302→
+  1303→### Shot 7
+  1304→Shop area
+  1305→
+  1306→### Shot 8
+  1307→Night/evening اگر وجود دارد
+  1308→
+  1309→### Shot 9
+  1310→Crash
+  1311→
+  1312→### Shot 10
+  1313→Graphics Benchmark
+  1314→
+  1315→در هر Shot بررسی کن:
+  1316→
+  1317→- lighting
+  1318→- shadows
+  1319→- texture quality
+  1320→- geometry
+  1321→- aliasing
+  1322→- clipping
+  1323→- pop-in
+  1324→- LOD transition
+  1325→- camera
+  1326→- UI
+  1327→- visual consistency
+  1328→
+  1329→---
+  1330→
+  1331→# بخش AI / GLM Execution Rules
+  1332→
+  1333→اگر به Asset واقعی نیاز داری و امکان تولید مستقیم مدل وجود ندارد:
+  1334→
+  1335→1. Blender generator بساز.
+  1336→2. خروجی GLB تولید کن.
+  1337→3. GLB را به پروژه متصل کن.
+  1338→4. Loader را تست کن.
+  1339→5. fallback قرار بده.
+  1340→6. screenshot بگیر.
+  1341→7. performance را بررسی کن.
+  1342→
+  1343→هرگز به جای Asset واقعی، چند primitive را صرفاً rename نکن.
+  1344→
+  1345→---
+  1346→
+  1347→# مرحله‌بندی اجباری
+  1348→
+  1349→## PHASE 0 — Baseline
+  1350→
+  1351→ثبت کن:
+  1352→
+  1353→- build status
+  1354→- current FPS
+  1355→- current draw calls
+  1356→- current triangle count
+  1357→- current asset count
+  1358→- current runtime errors
+  1359→- current visual screenshots
+  1360→
+  1361→---
+  1362→
+  1363→## PHASE 1 — Bug Fix Pass
+  1364→
+  1365→تمام باگ‌های واضح و Regressionهای فعلی را رفع کن.
+  1366→
+  1367→خروجی:
+  1368→
+  1369→```text
+  1370→BUG_FIX_REPORT.md
+  1371→```
+  1372→
+  1373→شامل:
+  1374→
+  1375→```text
+  1376→Bug
+  1377→Location
+  1378→Cause
+  1379→Fix
+  1380→Test
+  1381→Status
+  1382→```
+  1383→
+  1384→---
+  1385→
+  1386→## PHASE 2 — Renderer Foundation
+  1387→
+  1388→اصلاح:
+  1389→
+  1390→- color management
+  1391→- renderer configuration
+  1392→- lighting
+  1393→- shadows
+  1394→- tone mapping
+  1395→- fog
+  1396→- camera
+  1397→- resize handling
+  1398→- device pixel ratio
+  1399→
+  1400→---
+  1401→
+  1402→## PHASE 3 — Asset Pipeline
+  1403→
+  1404→پیاده‌سازی:
+  1405→
+  1406→- GLTFLoader
+  1407→- AssetManager
+  1408→- GLB loading
+  1409→- caching
+  1410→- error fallback
+  1411→- optional compression support
+  1412→
+  1413→---
+  1414→
+  1415→## PHASE 4 — Vehicle Overhaul
+  1416→
+  1417→اول فقط این‌ها:
+  1418→
+  1419→1. Player Car
+  1420→2. Taxi
+  1421→3. Police
+  1422→4. Traffic Car
+  1423→5. Pickup
+  1424→
+  1425→بعد از تأیید کیفیت، سایر Vehicleها.
+  1426→
+  1427→---
+  1428→
+  1429→## PHASE 5 — City Overhaul
+  1430→
+  1431→اول:
+  1432→
+  1433→- Road
+  1434→- Sidewalk
+  1435→- Apartment
+  1436→- Shop
+  1437→- Gas Station
+  1438→- Street Props
+  1439→
+  1440→بعد گسترش Map.
+  1441→
+  1442→---
+  1443→
+  1444→## PHASE 6 — Effects
+  1445→
+  1446→- crash
+  1447→- smoke
+  1448→- dust
+  1449→- skid
+  1450→- lights
+  1451→- particles
+  1452→
+  1453→---
+  1454→
+  1455→## PHASE 7 — Performance
+  1456→
+  1457→- LOD
+  1458→- Instancing
+  1459→- pooling
+  1460→- culling
+  1461→- texture optimization
+  1462→- memory optimization
+  1463→
+  1464→---
+  1465→
+  1466→## PHASE 8 — Android Validation
+  1467→
+  1468→Build Android را بررسی کن.
+  1469→
+  1470→اگر Capacitor یا Android wrapper وجود دارد:
+  1471→
+  1472→- build
+  1473→- launch
+  1474→- touch
+  1475→- orientation
+  1476→- audio
+  1477→- performance
+  1478→- asset loading
+  1479→
+  1480→بررسی شود.
+  1481→
+  1482→---
+  1483→
+  1484→# Quality Gate
+  1485→
+  1486→کار را «تمام‌شده» اعلام نکن مگر اینکه:
+  1487→
+  1488→## Code
+  1489→
+  1490→- build موفق
+  1491→- no critical runtime error
+  1492→- no broken imports
+  1493→- no obvious memory leak
+  1494→
+  1495→## Gameplay
+  1496→
+  1497→- core gameplay سالم
+  1498→- input سالم
+  1499→- collision سالم
+  1500→- traffic سالم
+  1501→- save/load سالم
+  1502→- pause/restart سالم
+  1503→
+  1504→## Graphics
+  1505→
+  1506→- اصلی‌ترین خودروها primitive نباشند
+  1507→- GLB/GLTF pipeline سالم باشد
+  1508→- PBR برای Assetهای اصلی وجود داشته باشد
+  1509→- LOD وجود داشته باشد
+  1510→- lighting مناسب باشد
+  1511→- shadow مناسب باشد
+  1512→- city detail افزایش محسوس داشته باشد
+  1513→- camera حرفه‌ای‌تر شده باشد
+  1514→
+  1515→## Performance
+  1516→
+  1517→- FPS پایدار
+  1518→- draw call کنترل‌شده
+  1519→- texture memory کنترل‌شده
+  1520→- no runaway allocations
+  1521→
+  1522→## Mobile
+  1523→
+  1524→- Android build سالم
+  1525→- touch سالم
+  1526→- asset loading سالم
+  1527→- performance قابل قبول
+  1528→
+  1529→---
+  1530→
+  1531→# Acceptance Criteria
+  1532→
+  1533→در پایان باید بتوانی این جمله را با شواهد ثابت کنی:
+  1534→
+  1535→> «پروژه فقط ظاهرش تغییر نکرده؛ باگ‌های موجود رفع شده‌اند، Graphics Pipeline به GLB/GLTF و PBR/LOD ارتقا یافته، محیط و خودروها واقعاً 3D و باکیفیت‌تر شده‌اند و Gameplay قبلی بدون Regression باقی مانده است.»
+  1536→
+  1537→---
+  1538→
+  1539→# Final Deliverables
+  1540→
+  1541→در پایان این فایل‌ها/گزارش‌ها را ارائه کن:
+  1542→
+  1543→```text
+  1544→BUG_FIX_REPORT.md
+  1545→GRAPHICS_OVERHAUL_REPORT.md
+  1546→PERFORMANCE_REPORT.md
+  1547→ASSET_INVENTORY.md
+  1548→TEST_REPORT.md
+  1549→```
+  1550→
+  1551→در گزارش نهایی برای هر مورد بنویس:
+  1552→
+  1553→```text
+  1554→Status:
+  1555→Changed:
+  1556→Why:
+  1557→Files:
+  1558→Tests:
+  1559→Result:
+  1560→```
+  1561→
+  1562→---
+  1563→
+  1564→# Final Rule
+  1565→
+  1566→اگر بین:
+  1567→
+  1568→```text
+  1569→Visual Quality
+  1570→```
+  1571→
+  1572→و
+  1573→
+  1574→```text
+  1575→Gameplay Stability
+  1576→```
+  1577→
+  1578→تعارض ایجاد شد:
+  1579→
+  1580→اول Gameplay را سالم نگه دار و سپس Graphics را اصلاح کن.
+  1581→
+  1582→اگر بین:
+  1583→
+  1584→```text
+  1585→Graphics Quality
+  1586→```
+  1587→
+  1588→و
+  1589→
+  1590→```text
+  1591→Mobile Performance
+  1592→```
+  1593→
+  1594→تعارض ایجاد شد:
+  1595→
+  1596→Asset و Renderer را Optimize کن؛
+  1597→قابلیت اصلی بازی را حذف نکن.
+  1598→
+  1599→اگر یک Asset واقعاً با کیفیت کافی قابل تولید نیست:
+  1600→
+  1601→> آن را به عنوان Final Asset اعلام نکن.
+  1602→
+  1603→شفاف گزارش بده و مسیر تولید واقعی آن را مشخص کن.
+  1604→
+  1605→---
+  1606→
+  1607→# دستور نهایی به GLM
+  1608→
+  1609→از همین پروژه فعلی شروع کن.
+  1610→
+  1611→**اول Audit و Bug Fix.**
+  1612→
+  1613→**دوم Renderer و Asset Pipeline.**
+  1614→
+  1615→**سوم Vehicle Quality.**
+  1616→
+  1617→**چهارم City Quality.**
+  1618→
+  1619→**پنجم Effects.**
+  1620→
+  1621→**ششم Performance.**
+  1622→
+  1623→**هفتم Android Validation.**
+  1624→
+  1625→هر مرحله باید بعد از تست موفق وارد مرحله بعد شود.
+  1626→
+  1627→هیچ قابلیت فعلی را بدون دلیل حذف نکن.
+  1628→
+  1629→هیچ Placeholder را Final اعلام نکن.
+  1630→
+  1631→هیچ Primitive را به عنوان مدل سه‌بعدی حرفه‌ای نهایی قبول نکن.
+  1632→
+  1633→هدف نهایی:
+  1634→
+  1635→> یک بازی ماشین 3D فارسی، طنز، ایرانی‌الهام، چشم‌نواز، روان، قابل اجرا روی Android و دارای معماری قابل توسعه؛ نه یک Prototype با چند Box سه‌بعدی.
+  1636→

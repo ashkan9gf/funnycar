@@ -12,9 +12,10 @@
  * (هرگز از دنیا بیرون نمی‌زند — گره لبه گزینه نامعتبر را حذف می‌کند)
  */
 
-import { TRAFFIC } from '../data/balance';
+import { TRAFFIC, TRAFFIC_LIGHTS } from '../data/balance';
 import { WORLD, WORLD_SIZE, roadCenter } from '../world/World';
 import { TrafficCar, TrafficDir, DIR_INFO } from '../entities/TrafficCar';
+import type { TrafficLights } from '../world/TrafficLights';
 
 /** بیشترین شماره جاده (جاده‌ها = roadCount+1 تا لبه‌های دنیا هم جاده باشند) */
 const ROAD_MAX = WORLD.roadCount; // 6 → ۷ جاده (0..6)
@@ -59,6 +60,8 @@ export class TrafficManager {
     private readonly callbacks: TrafficCallbacks = {},
     /** نقطه‌ای که نباید ماشین‌ها نزدیک آن اسپاون شوند (اسپاون بازیکن) */
     private readonly avoidSpawn: { x: number; y: number; r: number } = { x: 0, y: 0, r: 0 },
+    /** چراغ‌های تقاطع — اختیاری (null = بدون چراغ) */
+    private readonly lights: TrafficLights | null = null,
   ) {
     this.spawnAll();
   }
@@ -189,6 +192,37 @@ export class TrafficManager {
     car.pendingDir = null;
   }
 
+  /**
+   * محدودیت چراغ قرمز: اگر تقاطع جلویی قرمز/زردِ‌دور باشد، سرعت مطلوب را کاهش می‌دهد
+   * بازگشت: desired اصلاح‌شده + آیا پشت چراغ ایستاده است (برای بی‌صدا ماندن بوق اعصاب)
+   */
+  private lightConstraint(car: TrafficCar, desired: number): { desired: number; atLight: boolean } {
+    if (!this.lights) return { desired, atLight: false };
+    const v = DIR_INFO[car.dir];
+    const axis: 'v' | 'h' = v.x === 0 ? 'v' : 'h';
+    const along = v.x !== 0 ? car.x : car.y;
+    const s = v.x !== 0 ? v.x : v.y;
+    const center = roadCenter(car.nodeIndex);
+    const half = WORLD.roadW / 2;
+    // خط توقف: قبل از لبه تقاطع (سِمنا با جهت حرکت)
+    const stopLine = s < 0 ? center + half + TRAFFIC_LIGHTS.stopGap : center - half - TRAFFIC_LIGHTS.stopGap;
+    // فاصله تا خط توقف (اگر هنوز رد نشده)
+    const dist = s < 0 ? along - stopLine : stopLine - along;
+    if (dist <= 0) return { desired, atLight: false }; // داخل/بعد از تقاطع — برو
+
+    const state = axis === 'v'
+      ? this.lights.stateNS(car.roadIndex, car.nodeIndex)
+      : this.lights.stateEW(car.nodeIndex, car.roadIndex);
+    if (state === 'green') return { desired, atLight: false };
+    if (state === 'yellow' && dist < TRAFFIC_LIGHTS.yellowCommitDist) return { desired, atLight: false };
+
+    // توقف نرم پشت خط
+    const gap = Math.max(0, dist - 18);
+    if (gap < TRAFFIC.safeGap * 0.5) return { desired: 0, atLight: true };
+    return { desired: Math.min(desired, Math.max(0, (gap - TRAFFIC.safeGap * 0.4) * 2.2)), atLight: true };
+  }
+
+
   // ============ به‌روزرسانی ============
 
   update(dt: number, player: PlayerLike): void {
@@ -214,12 +248,14 @@ export class TrafficManager {
         if (s < 0 ? along <= car.pendingTrigger : along >= car.pendingTrigger) this.executeTurn(car);
       }
 
-      // دید جلو: بازیکن و بقیه ماشین‌ها
-      const desired = this.desiredSpeed(car, player);
+      // دید جلو: بازیکن و بقیه ماشین‌ها + چراغ راهنما
+      const l = this.lightConstraint(car, this.desiredSpeed(car, player));
+      const desired = l.desired;
+      car.atLight = l.atLight;
       car.update(dt, desired);
 
-      // بوق اعصاب وقتی گیر است
-      if (desired === 0 && car.speed < 25) {
+      // بوق اعصاب وقتی گیر است — پشت چراغ صبر می‌کند (ایرانی‌ها پشت مانع بوق می‌زنند!)
+      if (desired === 0 && car.speed < 25 && !car.atLight) {
         car.blockedSec += dt;
         if (car.blockedSec > TRAFFIC.honkAfterBlockedSec && !car.honkedThisBlock) {
           car.honkedThisBlock = true;
