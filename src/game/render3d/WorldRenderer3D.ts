@@ -221,9 +221,9 @@ export class WorldRenderer3D {
     // ---------- چراغ‌های راهنما ----------
     this.buildTrafficLights();
 
-    // ماشین بازیکن (ابعاد منطقی پیش‌فرض؛ نسبت 4:7 مثل Asset)
+    // ماشین بازیکن (ابعاد منطقی پیش‌فرض؛ نسبت 4:7 مثل Asset) — رنگ گاراژ (فاز ۶)
     const pw = 112;
-    this.playerModel = buildCar3D('player', pw, Math.round(pw * 1.75));
+    this.playerModel = buildCar3D('player', pw, Math.round(pw * 1.75), { paint: this.playerPaint });
     this.scene.add(this.playerModel.group);
 
     // سکه‌ها
@@ -1123,6 +1123,27 @@ export class WorldRenderer3D {
     const idx = this.skidIdx;
     this.skidData[idx] = { x, z: y, rot: -angle, life: SKID_LIFE };
     this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
+  }
+
+  /** رنگ انتخابی گاراژ (فاز ۶) — قبل از ساخت مدل ست می‌شود */
+  private playerPaint = '#f4f4f0';
+
+  /**
+   * فاز ۶ گاراژ — تغییر رنگ بدنه بازیکن (در منو یا حین بازی)
+   * روی هر دو مسیر procedural و GLB کار می‌کند (GLB رنگ را از مدل قدیم می‌گیرد)
+   */
+  setPlayerPaint(hex: string): void {
+    if (typeof hex !== 'string' || !hex.startsWith('#')) return;
+    this.playerPaint = hex;
+    const m = this.playerModel;
+    if (!m) return;
+    m.bodyColor = hex;
+    m.bodyMat.color.set(hex);
+  }
+
+  /** رنگ فعلی گاراژ (برای رندررهای که بعداً ساخته می‌شوند) */
+  get currentPaint(): string {
+    return this.playerPaint;
   }
 
   /**

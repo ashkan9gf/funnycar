@@ -211,16 +211,18 @@ export function buildCar3D(
   variant: CarVariant,
   _W: number,
   L: number,
-  opts: { lite?: boolean } = {},
+  opts: { lite?: boolean; paint?: string } = {},
 ): CarModel3D {
   ensureShared();
   const spec = SPECS[variant] ?? SPECS.pride;
   const profile = PROFILES[variant] ?? PROFILES.pride;
   const lite = opts.lite === true;
 
-  // رنگ بدنه
+  // رنگ بدنه (فاز ۶ گاراژ: رنگ انتخابی بازیکن فقط برای ماشین بازیکن)
   let body = '#f4f4f0';
-  if (variant === 'pride' || variant === 'tiba' || variant === 'peugeot405' || variant === 'samand') {
+  if (variant === 'player') {
+    body = typeof opts.paint === 'string' && opts.paint.startsWith('#') ? opts.paint : '#f4f4f0';
+  } else if (variant === 'pride' || variant === 'tiba' || variant === 'peugeot405' || variant === 'samand') {
     body = pickColor(COLORS[variant]);
   } else if (variant === 'taxi') body = '#f2c230';
   else if (variant === 'police') body = '#f7f7f2';

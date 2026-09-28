@@ -12,20 +12,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   Car,
+  Check,
   ChevronLeft,
   ChevronRight,
+  CircleDot,
   Coffee,
   Coins,
   Gauge,
   Home,
   Loader2,
+  Lock,
   Map,
   Megaphone,
   Mic,
   Music,
+  Octagon,
   PartyPopper,
   Pause,
   Play,
+  Shield,
   Square,
   Target,
   Users,
@@ -33,8 +38,18 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import type { MissionCategory } from "@/game";
-import { createGame, type GameInstance, type GameState, type HudData, type MissionListItem, type MissionResultData } from "@/game";
+import type { MissionCategory, UpgradeId } from "@/game";
+import {
+  createGame,
+  GARAGE_FOOTER,
+  PAINT_FLAVOR,
+  type GameInstance,
+  type GarageView,
+  type GameState,
+  type HudData,
+  type MissionListItem,
+  type MissionResultData,
+} from "@/game";
 import { HoldButton, TapButton } from "./touch-controls";
 
 /** تبدیل اعداد به فارسی */
@@ -115,6 +130,14 @@ const CATEGORY_FA: Record<MissionCategory, { title: string; hint: string }> = {
   challenge: { title: "چالش‌ها", hint: "چالش سخت‌تر، جایزه بزرگ‌تر — آبروی راننده توی اینه!" },
 };
 
+/** آیکون هر آپگرید گاراژ (فاز ۶) */
+const UPGRADE_ICON: Record<UpgradeId, React.ReactNode> = {
+  engine: <Gauge className="h-6 w-6" />,
+  brake: <Octagon className="h-6 w-6" />,
+  tire: <CircleDot className="h-6 w-6" />,
+  armor: <Shield className="h-6 w-6" />,
+};
+
 export default function GameShell() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<GameInstance | null>(null);
@@ -134,12 +157,33 @@ export default function GameShell() {
   const [missionFilter, setMissionFilter] = useState<MissionCategory | null>(null);
   const [missions, setMissions] = useState<MissionListItem[]>([]);
   const [missionResult, setMissionResult] = useState<MissionResultData | null>(null);
+  /** فاز ۶: گاراژ عمو نقی */
+  const [showGarage, setShowGarage] = useState(false);
+  const [garage, setGarage] = useState<GarageView | null>(null);
+
+  /** باز کردن گاراژ + تازه‌سازی داده */
+  const openGarage = useCallback(() => {
+    const g = gameRef.current?.listGarage();
+    if (g) setGarage(g);
+    setShowGarage(true);
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 1800);
   }, []);
+
+  /** خرید آپگرید/رنگ + تازه‌سازی گاراژ و toast طنز */
+  const purchase = useCallback(
+    (fn: () => { ok: boolean; msg: string }) => {
+      const r = fn();
+      showToast(r.msg);
+      const g = gameRef.current?.listGarage();
+      if (g) setGarage(g);
+    },
+    [showToast],
+  );
 
   // ---------- راه‌اندازی موتور ----------
   useEffect(() => {
@@ -277,6 +321,20 @@ export default function GameShell() {
               ))}
             </div>
 
+            {/* گاراژ عمو نقی (فاز ۶) */}
+            <button
+              type="button"
+              className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#F2B705] py-3 text-lg font-extrabold text-[#3a2e2a]"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                openGarage();
+              }}
+            >
+              <Wrench className="h-5 w-5" />
+              گاراژ عمو نقی
+              <span className="rounded-full bg-[#3a2e2a] px-2 py-0.5 text-[10px] font-extrabold text-[#F2B705]">جدید</span>
+            </button>
+
             {/* تنظیمات */}
             {showSettings ? (
               <div className="fc-panel fc-pop w-full max-w-xs bg-[#FFF9EC] p-4">
@@ -313,7 +371,7 @@ export default function GameShell() {
             <p className="mt-auto text-center text-[11px] font-bold leading-5 text-white/70">
               دسکتاپ: جهت‌نما / WASD رانندگی — H بوق — P توقف — F شمارنده FPS
               <br />
-              نسخه فاز ۱ • موتور اختصاصی HTML5
+              فاز ۶ • گاراژ و آپگرید • موتور اختصاصی + Three.js
             </p>
           </div>
         </div>
@@ -372,6 +430,140 @@ export default function GameShell() {
             <p className="mt-1 text-center text-[11px] font-bold text-white/75">
               {CATEGORY_FA[missionFilter ?? "story"].hint}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* ============ گاراژ عمو نقی (فاز ۶) ============ */}
+      {phase === "menu" && showGarage && garage && (
+        <div className="absolute inset-0 z-40 flex flex-col overflow-y-auto bg-[#3a2e2a]/70 px-4 py-6 backdrop-blur-[2px]">
+          <div className="fc-pop mx-auto flex w-full max-w-md flex-col gap-3 pb-4">
+            {/* هدر */}
+            <div className="flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-2xl font-extrabold text-white drop-shadow-[0_2px_0_rgba(58,46,42,0.9)]">
+                <Wrench className="h-7 w-7 text-[#F2B705]" />
+                گاراژ عمو نقی
+              </h2>
+              <div className="flex items-center gap-2">
+                <span className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC] px-3 py-1.5">
+                  <Coins className="h-5 w-5 text-[#B8801A]" />
+                  <span className="font-extrabold text-[#3a2e2a]">{fa(garage.coins)}</span>
+                </span>
+                <TapButton
+                  ariaLabel="بستن گاراژ"
+                  className="h-11 w-11 bg-[#FFF9EC] text-[#3a2e2a]"
+                  onTap={() => setShowGarage(false)}
+                >
+                  <X className="h-6 w-6" />
+                </TapButton>
+              </div>
+            </div>
+
+            {/* آپگریدها */}
+            <p className="text-xs font-bold text-white/80">با سکه‌های مأموریت‌ها ماشینت را توپ کن:</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {garage.upgrades.map((u) => {
+                const maxed = u.nextPrice === null;
+                const affordable = u.nextPrice !== null && garage.coins >= u.nextPrice;
+                return (
+                  <div key={u.id} className="fc-panel bg-[#FFF9EC] p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FFF3D6] text-[#3a2e2a]">
+                        {UPGRADE_ICON[u.id]}
+                      </span>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-base font-extrabold text-[#3a2e2a]">{u.title}</span>
+                          {/* پله‌های سطح */}
+                          <span className="flex gap-1">
+                            {Array.from({ length: u.maxLevel }).map((_, i) => (
+                              <span
+                                key={i}
+                                className={`h-2 w-2 rounded-full ${i < u.level ? "bg-[#8AC926]" : "bg-[#3a2e2a]/15"}`}
+                              />
+                            ))}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-bold leading-4 text-[#3a2e2a]/70">
+                          {u.level > 0 ? u.effect : "حالت کارخانه"}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={maxed}
+                      className={`fc-btn mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-extrabold ${
+                        maxed
+                          ? "bg-[#3a2e2a]/10 text-[#3a2e2a]/50"
+                          : affordable
+                            ? "bg-[#8AC926] text-[#3a2e2a]"
+                            : "bg-[#FFF3D6] text-[#3a2e2a]/60"
+                      }`}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        if (maxed) return;
+                        purchase(() => gameRef.current!.buyUpgrade(u.id));
+                      }}
+                    >
+                      {maxed ? (
+                        "حداکثر ✓"
+                      ) : (
+                        <>
+                          <Coins className="h-4 w-4" />
+                          {fa(u.nextPrice ?? 0)} سکه — سطح {fa(u.level + 1)}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* رنگ‌ها */}
+            <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-white/80">
+              <Car className="h-4 w-4" /> رنگ ماشین — همین لحظه تو صحنه عوض می‌شود:
+            </p>
+            <div className="grid grid-cols-4 gap-2">
+              {garage.paints.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  title={`${p.name}${p.owned ? "" : ` — ${fa(p.price)} سکه`}`}
+                  className={`fc-btn flex flex-col items-center gap-1 rounded-2xl p-2 ${
+                    p.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
+                  }`}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    if (p.owned) {
+                      if (!p.selected) purchase(() => gameRef.current!.selectPaint(p.id));
+                    } else {
+                      purchase(() => gameRef.current!.buyPaint(p.id));
+                    }
+                  }}
+                >
+                  <span
+                    className="relative flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-[#3a2e2a]"
+                    style={{ backgroundColor: p.hex }}
+                  >
+                    {p.selected && <Check className="h-5 w-5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]" />}
+                    {!p.owned && !p.selected && <Lock className="h-4 w-4 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.9)]" />}
+                  </span>
+                  <span className={`text-[9px] font-extrabold leading-3 ${p.selected ? "text-[#3a2e2a]" : "text-[#3a2e2a]/80"}`}>
+                    {p.owned ? p.name : `${fa(p.price)} سکه`}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {/* جمله طنز رنگ انتخاب‌شده/آخرین */}
+            {(() => {
+              const sel = garage.paints.find((p) => p.selected);
+              const flavor = sel ? PAINT_FLAVOR[sel.id] : null;
+              return flavor ? (
+                <p className="text-center text-[11px] font-bold text-white/85">«{flavor}»</p>
+              ) : null;
+            })()}
+
+            <p className="mt-1 text-center text-[11px] font-bold text-white/75">{GARAGE_FOOTER}</p>
           </div>
         </div>
       )}

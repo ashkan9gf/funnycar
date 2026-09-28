@@ -5,8 +5,9 @@
  * به کلاس‌های داخلی موتور دست نمی‌زند (مرز لایه‌ها — ARCHITECTURE بخش ۱)
  */
 
-import { GameManager, type GameCallbacks, type GameState, type HudData, type MissionResultData } from './core/GameManager';
+import { GameManager, type GameCallbacks, type GameState, type HudData, type MissionResultData, type GarageView, type PurchaseResult } from './core/GameManager';
 import type { MissionCategory } from './data/missions';
+import type { UpgradeId } from './data/garage';
 
 export interface MissionListItem {
   id: string;
@@ -39,6 +40,11 @@ export interface GameInstance {
   abandonMission: () => void;
   /** فاز BIG-IR: اسکران به تعمیرگاه بعد از خاموشی */
   towToRepair: () => void;
+  /** فاز ۶: گاراژ عمو نقی — آپگرید و رنگ */
+  listGarage: () => GarageView;
+  buyUpgrade: (id: UpgradeId) => PurchaseResult;
+  buyPaint: (id: string) => PurchaseResult;
+  selectPaint: (id: string) => PurchaseResult;
   dispose: () => void;
 }
 
@@ -66,9 +72,15 @@ export async function createGame(
     startMission: (id) => gm.startMission(id),
     abandonMission: () => gm.abandonMission(),
     towToRepair: () => gm.towToRepair(),
+    listGarage: () => gm.listGarage(),
+    buyUpgrade: (id) => gm.buyUpgrade(id),
+    buyPaint: (id) => gm.buyPaint(id),
+    selectPaint: (id) => gm.selectPaint(id),
     dispose: () => gm.dispose(),
   };
 }
 
-export type { GameState, HudData, MissionResultData };
+export type { GameState, HudData, MissionResultData, GarageView, PurchaseResult };
 export type { MissionCategory } from './data/missions';
+export type { UpgradeId } from './data/garage';
+export { GARAGE_FOOTER, PAINT_FLAVOR } from './data/garage';

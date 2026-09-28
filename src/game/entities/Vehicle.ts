@@ -9,6 +9,7 @@
  */
 
 import { VEHICLE_PHYSICS as VP, COLLISION, DRIFT, DAMAGE } from '../data/balance';
+import { NEUTRAL_TUNING, type VehicleTuning } from '../data/garage';
 
 export interface Collider {
   x: number; y: number; w: number; h: number;
@@ -60,6 +61,9 @@ export class Vehicle {
   frontDamage = 0;
   rearDamage = 0;
 
+  /** فاز ۶ گاراژ — ضرایب آپگرید (پیش‌فرض: کارخانه) */
+  tune: VehicleTuning = { ...NEUTRAL_TUNING };
+
   /** جعبه برخورد کوچک‌تر از رسم (راندمان و حس بهتر) */
   get hitW(): number { return this.drawW * 0.82; }
   get hitH(): number { return this.drawH * 0.9; }
@@ -92,10 +96,10 @@ export class Vehicle {
     return this.health <= 0;
   }
 
-  /** سرعت بیشینه مؤثر با توجه به خرابی (تا -35%) */
+  /** سرعت بیشینه مؤثر با توجه به خرابی (تا -35%) و آپگرید موتور (فاز ۶) */
   get maxSpeed(): number {
     const k = 1 - DAMAGE.maxSpeedPenalty * (1 - this.health / DAMAGE.maxHealth);
-    return VP.maxSpeed * k;
+    return VP.maxSpeed * this.tune.maxSpeedMul * k;
   }
 
   get vx(): number { return Math.sin(this.angle) * this.speed; }
@@ -121,10 +125,10 @@ export class Vehicle {
     const cap = this.maxSpeed;
     const prevSpeed = this.speed;
     if (input.gas) {
-      this.speed += VP.accel * dt;
+      this.speed += VP.accel * this.tune.accelMul * dt;
     } else if (input.brake) {
       if (this.speed > 8) {
-        this.speed -= VP.brake * dt;
+        this.speed -= VP.brake * this.tune.brakeMul * dt;
         if (prevSpeed > 250 && this.speed <= 250) res.brakedHard = true;
       } else {
         // توقف کامل + ادامه ترمز = دنده عقب ملایم
@@ -138,10 +142,10 @@ export class Vehicle {
 
     this.speed = Math.max(-VP.maxReverse, Math.min(cap, this.speed));
 
-    // ---------- فرمان (اثر متناسب با سرعت) ----------
+    // ---------- فرمان (اثر متناسب با سرعت + آپگرید لاستیک فاز ۶) ----------
     const speedRatio = Math.abs(this.speed) / VP.maxSpeed;
     if (speedRatio > VP.minSteerSpeedRatio) {
-      const steerEff = VP.steerStrength * Math.min(1, speedRatio * 1.6);
+      const steerEff = VP.steerStrength * this.tune.steerMul * Math.min(1, speedRatio * 1.6);
       // عقب رفتن فرمان معکوس می‌شود (مثل ماشین واقعی)
       this.angle += input.steer * steerEff * dt * Math.sign(this.speed || 1);
       // محدود کردن زاویه به -π..π برای تمیزی
@@ -155,8 +159,8 @@ export class Vehicle {
       // بیرون پیچ = خلاف جهت فرمان (فیزیک: جرم به مسیر قبلی ادامه می‌دهد)
       this.latVel -= input.steer * DRIFT.slipGain * speedRatioAbs * Math.abs(this.speed) * dt;
     }
-    // میرایی چسبندگی
-    const grip = Math.exp(-DRIFT.gripDecay * dt);
+    // میرایی چسبندگی (لاستیک آپگریدشده = چسبندگی بیشتر — فاز ۶)
+    const grip = Math.exp(-DRIFT.gripDecay * this.tune.gripMul * dt);
     this.latVel *= grip;
     this.latVel = Math.max(-DRIFT.maxLateral, Math.min(DRIFT.maxLateral, this.latVel));
     res.skidding = Math.abs(this.latVel) > DRIFT.skidThreshold;
@@ -230,9 +234,9 @@ export class Vehicle {
     return res;
   }
 
-  /** آسیب این برخورد = base + impact×scale با سقف (فاز BIG-IR) */
+  /** آسیب این برخورد = base + impact×scale با سقف (فاز BIG-IR) × بدنه آپگرید (فاز ۶) */
   private dmgFor(impact: number): number {
-    const raw = DAMAGE.worldHitBase + impact * DAMAGE.worldHitScale;
+    const raw = (DAMAGE.worldHitBase + impact * DAMAGE.worldHitScale) * this.tune.armorMul;
     return Math.min(DAMAGE.worldHitMax, raw);
   }
 

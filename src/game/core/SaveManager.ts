@@ -8,6 +8,7 @@
  */
 
 import { SAVE } from '../data/balance';
+import { DEFAULT_PAINT_ID, PAINT_IDS, UPGRADES, MAX_UPGRADE_LEVEL, type UpgradeId } from '../data/garage';
 
 export interface GameSettings {
   music: number;  // 0..1
@@ -25,6 +26,12 @@ export interface SaveData {
   completedMissions: string[];
   settings: GameSettings;
   progress: { tutorialDone: boolean; firstRunDone: boolean };
+  /** فاز ۶ — سطح هر آپگرید گاراژ (۰ = کارخانه) */
+  upgrades: Record<UpgradeId, number>;
+  /** فاز ۶ — رنگ‌های خریده‌شده (رنگ پیش‌فرض همیشه هست) */
+  ownedPaints: string[];
+  /** فاز ۶ — رنگ انتخابی فعلی */
+  paint: string;
 }
 
 function defaultSave(): SaveData {
@@ -37,7 +44,17 @@ function defaultSave(): SaveData {
     completedMissions: [],
     settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true },
     progress: { tutorialDone: false, firstRunDone: false },
+    upgrades: defaultUpgrades(),
+    ownedPaints: [DEFAULT_PAINT_ID],
+    paint: DEFAULT_PAINT_ID,
   };
+}
+
+/** سطوح صفر آپگریدها — از داده گاراژ ساخته می‌شود */
+function defaultUpgrades(): Record<UpgradeId, number> {
+  const out = {} as Record<UpgradeId, number>;
+  for (const u of UPGRADES) out[u.id] = 0;
+  return out;
 }
 
 /** ارتقای نسخه‌های قدیمی — نسخه فعلی 1 است؛ الگو برای آینده */
@@ -59,7 +76,31 @@ function migrate(raw: unknown): SaveData {
     completedMissions: Array.isArray(data.completedMissions) ? data.completedMissions : [],
     settings: { ...base.settings, ...(typeof data.settings === 'object' && data.settings !== null ? data.settings : {}) },
     progress: { ...base.progress, ...(typeof data.progress === 'object' && data.progress !== null ? data.progress : {}) },
+    upgrades: migrateUpgrades(data.upgrades),
+    ownedPaints: migratePaints(data.ownedPaints),
+    paint: typeof data.paint === 'string' && PAINT_IDS.includes(data.paint) ? data.paint : DEFAULT_PAINT_ID,
   };
+}
+
+/** اعتبارسنجی سطوح آپگرید در سیو قدیمی/خراب */
+function migrateUpgrades(raw: unknown): Record<UpgradeId, number> {
+  const out = defaultUpgrades();
+  if (typeof raw !== 'object' || raw === null) return out;
+  const obj = raw as Record<string, unknown>;
+  for (const u of UPGRADES) {
+    const v = obj[u.id];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      out[u.id] = Math.max(0, Math.min(MAX_UPGRADE_LEVEL, Math.floor(v)));
+    }
+  }
+  return out;
+}
+
+/** اعتبارسنجی رنگ‌ها — رنگ پیش‌فرض همیشه هست تا گاراژ خراب نشود */
+function migratePaints(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string' && PAINT_IDS.includes(p)) : [];
+  if (!list.includes(DEFAULT_PAINT_ID)) list.push(DEFAULT_PAINT_ID);
+  return list;
 }
 
 function safeParse(text: string): unknown {

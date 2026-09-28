@@ -23,6 +23,7 @@ import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
+import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
 import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
@@ -72,6 +73,35 @@ export interface GameCallbacks {
   onStateChange?: (s: GameState) => void;
   onHud?: (h: HudData) => void;
   onMissionEnd?: (r: MissionResultData) => void;
+}
+
+/** نمای کامل گاراژ برای پوسته React (فاز ۶) */
+export interface GarageView {
+  coins: number;
+  upgrades: Array<{
+    id: UpgradeId;
+    title: string;
+    effect: string;
+    level: number;
+    maxLevel: number;
+    /** null = حداکثر رسیده */
+    nextPrice: number | null;
+  }>;
+  paints: Array<{
+    id: string;
+    name: string;
+    hex: string;
+    price: number;
+    owned: boolean;
+    selected: boolean;
+  }>;
+}
+
+/** نتیجه خرید گاراژ برای toast پوسته */
+export interface PurchaseResult {
+  ok: boolean;
+  coins: number;
+  msg: string;
 }
 
 const FIXED_DT = 1 / 120;
@@ -233,8 +263,93 @@ export class GameManager {
     const spawn = this.world.playerSpawn();
     this.vehicle.reset(spawn.x, spawn.y, spawn.angle);
     this.camera.snapTo(spawn.x, spawn.y);
+    // فاز ۶ گاراژ: اعمال آپگریدهای سیو + رنگ انتخابی روی مدل سه‌بعدی
+    this.applyGarageToVehicle();
+    const savedPaint = paintById(this.save.get().paint);
+    if (savedPaint && this.renderer3d) this.renderer3d.setPlayerPaint(savedPaint.hex);
     this.setState('menu');
     this.loop(performance.now());
+  }
+
+  // ============ گاراژ عمو نقی (فاز ۶) ============
+
+  /** اعمال ضرایب آپگرید سیو روی خودروی بازیکن */
+  private applyGarageToVehicle(): void {
+    const up = this.save.get().upgrades;
+    this.vehicle.tune = up ? upgradeTuning(up) : { ...NEUTRAL_TUNING };
+  }
+
+  /** فهرست کامل گاراژ برای پوسته React (آپگریدها + رنگ‌ها + سکه) */
+  listGarage(): GarageView {
+    const d = this.save.get();
+    return {
+      coins: d.coins,
+      upgrades: UPGRADES.map((u) => {
+        const level = d.upgrades[u.id] ?? 0;
+        return {
+          id: u.id,
+          title: u.title,
+          effect: u.effectFmt(u.perLevelPct * level),
+          level,
+          maxLevel: u.maxLevel,
+          nextPrice: nextUpgradePrice(u.id, level),
+        };
+      }),
+      paints: PAINTS.map((p) => ({
+        id: p.id,
+        name: p.name,
+        hex: p.hex,
+        price: p.price,
+        owned: d.ownedPaints.includes(p.id),
+        selected: d.paint === p.id,
+      })),
+    };
+  }
+
+  /** خرید یک سطح آپگرید — خروجی برای toast پوسته */
+  buyUpgrade(id: UpgradeId): { ok: boolean; coins: number; msg: string } {
+    const u = upgradeById(id);
+    const d = this.save.get();
+    const level = d.upgrades[id] ?? 0;
+    if (level >= u.maxLevel) return { ok: false, coins: d.coins, msg: 'این بخش دیگه حداکثره!' };
+    const price = nextUpgradePrice(id, level) ?? 0;
+    if (d.coins < price) return { ok: false, coins: d.coins, msg: 'پول کمه! برو مسافرکشی...' };
+    this.save.mutate((s) => {
+      s.coins -= price;
+      s.upgrades[id] = level + 1;
+    });
+    this.applyGarageToVehicle();
+    // اگر ماشین وسط بازی خراب بود، آپگرید موتور سرعتش را فوری درست می‌کند (سقف جدید در گام بعد اعمال می‌شود)
+    const flavor = u.flavor[Math.min(u.flavor.length - 1, level)];
+    this.audio.coin();
+    return { ok: true, coins: this.save.get().coins, msg: flavor };
+  }
+
+  /** خرید رنگ (اگر خریده نشده) + انتخاب آن — رنگ مدل سه‌بعدی همان لحظه عوض می‌شود */
+  buyPaint(id: string): { ok: boolean; coins: number; msg: string } {
+    const p = paintById(id);
+    const d = this.save.get();
+    if (!p) return { ok: false, coins: d.coins, msg: 'این رنگ تو کارنامه ما نیست!' };
+    if (d.ownedPaints.includes(id)) return this.selectPaint(id);
+    if (d.coins < p.price) return { ok: false, coins: d.coins, msg: 'برای این رنگ سکه کم داری!' };
+    this.save.mutate((s) => {
+      s.coins -= p.price;
+      s.ownedPaints.push(id);
+      s.paint = id;
+    });
+    this.renderer3d?.setPlayerPaint(p.hex);
+    this.audio.coin();
+    return { ok: true, coins: this.save.get().coins, msg: `رنگ «${p.name}» زده شد!` };
+  }
+
+  /** انتخاب رنگ خریده‌شده */
+  selectPaint(id: string): { ok: boolean; coins: number; msg: string } {
+    const p = paintById(id);
+    const d = this.save.get();
+    if (!p || !d.ownedPaints.includes(id)) return { ok: false, coins: d.coins, msg: 'اول باید بخریش!' };
+    this.save.mutate((s) => { s.paint = id; });
+    this.renderer3d?.setPlayerPaint(p.hex);
+    return { ok: true, coins: this.save.get().coins, msg: `رنگ «${p.name}» انتخاب شد` };
   }
 
   // ============ وضعیت‌ها ============
@@ -460,7 +575,7 @@ export class GameManager {
         this.camera.addShake(CAM.maxShake * 0.5);
         this.fx.spawnBurst(v.x, v.y, '#B9B9B9', 10);
         // آسیب برخورد با خودرو (مانع متحرک بزرگ) — جلو/عقب با جهت
-        const dmg = Math.min(DAMAGE.trafficHitMax, DAMAGE.trafficHitBase + impact * DAMAGE.trafficHitScale);
+        const dmg = Math.min(DAMAGE.trafficHitMax, (DAMAGE.trafficHitBase + impact * DAMAGE.trafficHitScale) * this.vehicle.tune.armorMul);
         const fwd = Math.sin(v.angle) * (c.x - v.x) - Math.cos(v.angle) * (c.y - v.y);
         const front = fwd > 0;
         v.applyDamage(dmg, front);

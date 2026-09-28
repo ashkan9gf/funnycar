@@ -276,7 +276,8 @@ export const IDLE_EVENTS = {
 export const SAVE = {
   key: 'funnycarir_save',
   backupKey: 'funnycarir_save_backup',
-  version: 1,
+  /** نسخه ۲: فاز ۶ — فیلدهای upgrades/ownedPaints/paint گاراژ اضافه شد */
+  version: 2,
 } as const;
 
 /** رندر دوبعدی (fallback و مرجع ابعاد منطقی) */
