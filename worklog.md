@@ -272,3 +272,22 @@ Stage Summary:
 - دو سیستم جدید کامل: ① فروشگاه بوق — امضای صوتی راننده با ۸ صدای سینتی متفاوت و واکنش زنده خیابان ② زنجیره داستانی ۵ مرحله‌ای با قفل پیش‌رونده و تبریک عمو نقی
 - حلقه اقتصادی حالا: مأموریت/زنجیره → سکه → گاراژ (آپگرید/رنگ/بوق) → رانندگی شخصی‌سازی‌شده
 - پیشنهاد فاز بعد: بوت Capacitor برای اندروید (PHASE 8 واقعی) یا فروشگاه صداهای محیطی/رادیو یا بهینه‌سازی موبایل ضعیف
+
+---
+Task ID: 11
+Agent: Super Z (main agent)
+Task: درخواست کاربر «راهنمای ایجاد یا جایگذاری تصاویر سه بعدی ماشین ها + صدا هارو بهم بده» — تولید راهنمای فارسی Word با RTL کامل
+
+Work Log:
+- اکتشاف کد: GlbModels.ts (لود GLB + متریال ران‌تایم)، AudioManager.ts (۴ کانال + اولویت فایل واقعی/سینتی)، AssetManager (decodeAudioData)، tools/glb/generate_vehicles.ts، scripts/gen_audio_sfx.py، assets.manifest.ts؛ استخراج قواعد واقعی: مقیاس ۱ متر ≈ ۴۸ واحد بازی (پراید = ۱۷۲)، جلو = -Z (axleFz منفی)، نام‌گذاری mesh (body/glass/wheel_fl..rr/lights_front/_rear/plate/lightbar_*)، حجم ۱۵ فایل GLB (۹۷ تا ۱۹۵ کیلوبایت)
+- skill docx کامل خوانده شد (create route + design-system پالت DM-1 و دستور R1 + common-rules + toc)؛ نصب docx@9.8.0
+- scripts/guide_content_fa.mjs — محتوای ۸ فصل با ۹ جدول واقعی (مسیرها، ۸ خودرو با حجم، مشخصات الزامی GLB، نام‌گذاری mesh، رفع اشکال مدل، فایل‌های صوتی فعلی، مشخصات صدا، رفع اشکال صدا، چک‌لیست) + سه راه مدل (دانلود/Blender/ابزار داخلی) + سه راه صدا (ضبط/دانلود/gen_audio_sfx.py) + ffmpeg + الگوی ۴ گامی افزودن صدای جدید + اتصال voice به dialogues
+- scripts/generate_asset_guide_docx.mjs — جلد R1 آینه‌شده RTL با calcTitleLayout/calcCoverSpacing (پالت DM-1)، جدول‌های bidiVisual با ردیف‌بندی zebra، bidirectional/rightToLeft سراسری، ساختار سه‌بخشی: جلد بدون شماره / فهرست با شماره رومی / بدنه با شماره عربی از ۱
+- پس‌پردازش: add_toc_placeholders (۱۹ عنوان، exit 0) + scripts/postprocess_guide_docx.py (پچ فوتر PAGE \* ROMAN و \* arabic بر اساس نگاشت sectPr→rels + حذف pgNumType خالی)
+- postcheck.py: ۸/۹ سبز، ۰ خطا، ۰ هشدار (فقط یادداشت اطلاعاتی فونت Consolas — استاندارد ویندوز/آفیس)
+- تست بصری: LibreOffice→PDF→PNG صفحات ۱-۶: جلد تک‌صفحه با متن راست‌چین و نوار تاکیدی سمت راست، فهرست با placeholder و شماره I، جدول‌ها RTL با ستون اول سمت راست، نوت‌باکس و گام‌ها و کد‌باکس‌ها درست؛ ۱۱ صفحه نهایی
+- خروجی: download/FunnyCarIR-3D-Models-and-Sounds-Guide-FA.docx (۳۰KB) + نسخه PDF برای مطالعه سریع
+
+Stage Summary:
+- راهنمای ۱۱ صفحه‌ای فارسی RTL دقیقاً منطبق بر قواعد واقعی کد پروژه تولید شد: قانون «جایگزینی هم‌نام بدون تغییر کد»، قاعده مقیاس ۴۸ واحد بر متر، نام‌گذاری اجباری قطعات GLB و الگوی ۴ گامی افزودن صدای تازه
+- پیشنهاد فاز بعد: وصل کردن فایل واقعی به بوق‌های گاراژ (hornById در AudioManager) یا افزودن خودروی جدید مثل کوییک به ترافیک
