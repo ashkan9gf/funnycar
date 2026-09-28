@@ -15,7 +15,8 @@ import { VoiceManager } from '../managers/VoiceManager';
 import { TrafficManager } from '../managers/TrafficManager';
 import { RandomEventManager } from '../managers/RandomEventManager';
 import { PedestrianManager } from '../managers/PedestrianManager';
-import { MissionManager, type MissionHud } from '../managers/MissionManager';
+import { MissionManager, faNum, type MissionHud, type GuardCar } from '../managers/MissionManager';
+import type { MissionCategory } from '../data/missions';
 import { Vehicle } from '../entities/Vehicle';
 import { World, type WorldProp } from '../world/World';
 import { TrafficLights } from '../world/TrafficLights';
@@ -129,6 +130,8 @@ export class GameManager {
   private smokeTimer = 0;
   private hudThrottle = 0;
   private disposed = false;
+  /** فاز ۵: لچ برخورد شدید همین گام — برای واکنش مسافر تاکسی */
+  private hardCrashLatch = false;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -177,11 +180,23 @@ export class GameManager {
     this.peds = new PedestrianManager({
       onScare: (x, y) => this.onPedScare(x, y),
     });
-    // مأموریت‌ها (فاز 4)
+    // مأموریت‌ها (فاز 4 + فاز ۵)
     this.mission = new MissionManager(this.world, {
       onPothole: (x, y) => this.onPotholeHit(x, y),
       onSucceed: (def, stats) => this.finishMission(true, def.id, def.rewardCoins, def.rewardRep, null, stats),
       onFail: (def, reason) => this.finishMission(false, def.id, 0, 0, reason, null),
+      // فاز ۵: مسافر سوار شد — حباب مسافر + جمله
+      onTaxiPickup: (x, y) => {
+        this.fx.pushBubble(this.pickLine('taxi_pickup'), x, y, 'char_pass_m_01_idle', 2.8);
+        this.voice.trigger('taxi_pickup', performance.now());
+        this.fx.spawnBurst(x, y, '#8AC926', 10, 120);
+      },
+      // فاز ۵: چک‌پوینت رد شد
+      onCheckpoint: (x, y, i) => {
+        this.audio.coin();
+        this.fx.spawnBurst(x, y, '#F2B705', 12, 140);
+        this.fx.pushBubble(`چک‌پوینت ${faNum(i)}!`, x, y, 'char_driver_01_idle', 1.6);
+      },
     });
 
     // فاز 7: اتصال فایل‌های صوتی واقعی + hook جمله صوتی برای VoiceManager
@@ -295,11 +310,21 @@ export class GameManager {
     this.showFps = !this.showFps;
   }
 
-  // ============ مأموریت‌ها (فاز 4) ============
+  // ============ مأموریت‌ها (فاز 4 + فاز ۵) ============
 
-  /** لیست مأموریت‌ها برای منو (با وضعیت انجام‌شدگی از ذخیره) */
-  listMissions(): Array<{ id: string; title: string; intro: string; objective: string; rewardCoins: number; rewardRep: number; timeLimitSec: number; done: boolean }> {
-    return this.mission.list(this.save.get().completedMissions);
+  /** لیست مأموریت‌ها برای منو (با فیلتر دسته — فاز ۵: park/taxi/challenge) */
+  listMissions(category?: MissionCategory): Array<{ id: string; title: string; intro: string; objective: string; category: MissionCategory; rewardCoins: number; rewardRep: number; timeLimitSec: number; done: boolean }> {
+    return this.mission.list(this.save.get().completedMissions, category).map((m) => ({
+      id: m.id,
+      title: m.title,
+      intro: m.intro,
+      objective: m.objective,
+      category: m.category ?? 'story',
+      rewardCoins: m.rewardCoins,
+      rewardRep: m.rewardRep,
+      timeLimitSec: m.timeLimitSec,
+      done: m.done,
+    }));
   }
 
   /** شروع مأموریت: ورود به گیم‌پلی + ریست موقعیت و ماشین برای شروع منصفانه */
@@ -335,7 +360,7 @@ export class GameManager {
     baseCoins: number,
     baseRep: number,
     reason: string | null,
-    _stats: unknown,
+    stats: unknown,
   ): void {
     if (this.state !== 'playing') return;
     const def = this.mission.getDef();
@@ -347,6 +372,11 @@ export class GameManager {
       // بونوس آبروی بالا (سند بخش ۷: ×1.25 وقتی آبرو ≥ ۸۰)
       const repNow = this.save.get().reputation;
       coins = Math.round(baseCoins * (repNow >= MISSIONS.bonusRepThreshold ? MISSIONS.bonusFactor : 1));
+      // فاز ۵: انعام تاکسی (اگر سریع برسی)
+      const statsBonus = stats && typeof stats === 'object' && 'bonusCoins' in stats
+        ? (stats as { bonusCoins?: number }).bonusCoins ?? 0
+        : 0;
+      coins += statsBonus;
       rep = baseRep;
       this.save.mutate((d) => {
         d.coins += coins;
@@ -357,6 +387,12 @@ export class GameManager {
 
     this.audio.coin();
     if (success) this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 16, 150);
+    // فاز ۵: حباب پایانی مخصوص هر حالت
+    if (success && def?.kind === 'taxi_fare') {
+      this.fx.pushBubble(this.pickLine('taxi_dropoff'), def.target.x, def.target.y, 'char_pass_m_01_idle', 2.8);
+    } else if (success && def?.kind === 'parallel_park') {
+      this.fx.pushBubble(this.pickLine('parking_good'), this.vehicle.x, this.vehicle.y, 'char_driver_01_idle', 2.4);
+    }
     this.voice.trigger(success ? 'mission_success' : 'mission_fail', performance.now());
 
     const line = this.pickLine(success ? 'mission_success' : 'mission_fail');
@@ -417,7 +453,9 @@ export class GameManager {
       if (this.crashCooldown <= 0 && impact > COLLISION.softCrashSpeed) {
         this.crashCooldown = 0.8;
         // برخورد با ترافیک هم برای مأموریت شمرده می‌شود (فاز 4)
-        this.mission.onCrash(impact > COLLISION.hardCrashSpeed ? 'hard' : 'soft');
+        const hard = impact > COLLISION.hardCrashSpeed;
+        this.mission.onCrash(hard ? 'hard' : 'soft');
+        if (hard) this.hardCrashLatch = true;
         this.audio.crash(false);
         this.camera.addShake(CAM.maxShake * 0.5);
         this.fx.spawnBurst(v.x, v.y, '#B9B9B9', 10);
@@ -718,7 +756,7 @@ export class GameManager {
       }
     }
 
-    // ---------- ترافیک (فاز 2) ----------
+      // ---------- ترافیک (فاز 2) ----------
     this.traffic.update(dt, this.vehicle);
     this.resolveTrafficCollisions(dt);
 
@@ -758,7 +796,7 @@ export class GameManager {
     // ---------- رویدادهای تصادفی (فاز 2) ----------
     this.randomEvents.update(dt, this.vehicle);
 
-    // ---------- مأموریت (فاز 4) ----------
+    // ---------- مأموریت (فاز 4 + فاز ۵) ----------
     this.mission.update(dt, this.vehicle);
     // دود ماشین دودکن (m02) — پف دود تا برسد تعمیرگاه
     if (this.mission.getState() === 'active' && this.mission.getDef()?.id === 'm02_smoking_car') {
@@ -771,6 +809,15 @@ export class GameManager {
         this.fx.spawnBurst(sx, sy, 'rgba(120,120,125,0.75)', 1, 40);
       }
     }
+    // فاز ۵: مسافر عصبانی — تصادف شدید در مأموریت تاکسی
+    if (
+      this.mission.getState() === 'active' &&
+      this.mission.getDef()?.kind === 'taxi_fare' &&
+      this.hardCrashLatch
+    ) {
+      this.hardCrashLatch = false;
+      this.voice.trigger('passenger_scared', nowMs);
+    }
 
     // ---------- سکه ----------
     const got = this.world.collectCoins(this.vehicle.x, this.vehicle.y, 60);
@@ -779,6 +826,8 @@ export class GameManager {
       this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 10, 120);
       this.save.mutate((d) => { d.coins += got; });
       this.voice.trigger('coin_pickup', nowMs);
+      // فاز ۵: گزارش سکه به مأموریت (چالش شکار سکه)
+      this.mission.onCoinCollected(got);
     }
 
     // ---------- موتور ----------
@@ -841,9 +890,13 @@ export class GameManager {
 
   // ============ رسم ============
   private draw(): void {
+    // هدف فعلی مأموریت (فاز ۵: پویا — تاکسی/چک‌پوینت/سکه)
+    const activeMission = this.mission.getState() === 'active';
+    const mTarget = activeMission ? this.mission.currentTarget(this.vehicle) : null;
+
     // ---------- مسیر سه‌بعدی (فاز 3D) ----------
     if (this.renderer3d) {
-      this.draw3DFrame();
+      this.draw3DFrame(mTarget);
       return;
     }
     // ---------- مسیر دوبعدی (fallback) ----------
@@ -869,7 +922,7 @@ export class GameManager {
       this.randomEvents.cat,
       this.randomEvents.cones,
       this.mission.getPotholes(),
-      this.mission.getState() === 'active' ? this.mission.getDef()?.target ?? null : null,
+      mTarget,
     );
     // حباب گفتار با مختصات دنیاست — باید با همان ترنسلیت دوربین رسم شود
     // (renderer.draw ترنسلیت را داخل save/restore خودش دارد و بعد از restore حذف می‌شود)
@@ -880,16 +933,13 @@ export class GameManager {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     // فلش جهت‌نمای هدف وقتی بیرون کادر است (فضای صفحه — فاز 4)
-    if (this.mission.getState() === 'active') {
-      const def = this.mission.getDef();
-      if (def) this.renderer.drawOffscreenArrow(ctx, def.target, this.vehicle, cw, ch, this.scale);
+    if (mTarget) {
+      this.renderer.drawOffscreenArrow(ctx, mTarget, this.vehicle, cw, ch, this.scale);
     }
   }
 
   /** یک فریم کامل سه‌بعدی: صحنه + اورلی (حباب‌ها و فلش هدف) */
-  private draw3DFrame(): void {
-    const active = this.mission.getState() === 'active';
-    const def = active ? this.mission.getDef() : null;
+  private draw3DFrame(mTarget: { x: number; y: number } | null): void {
     const speech = this.voice.current;
     this.renderer3d!.draw3D({
       car: this.vehicle,
@@ -898,7 +948,9 @@ export class GameManager {
       cones: this.randomEvents.cones,
       potholes: this.mission.getPotholes(),
       peds: this.peds.peds,
-      target: def?.target ?? null,
+      target: mTarget,
+      // فاز ۵: ماشین‌های نگهبان جای پارک
+      guardCars: this.mission.getGuardCars() as GuardCar[],
       playerBubble: speech
         ? {
             line: speech.line,

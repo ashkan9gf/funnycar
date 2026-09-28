@@ -18,6 +18,35 @@ export type CarVariant =
   | 'player' | 'pride' | 'peugeot405' | 'samand'
   | 'nissan' | 'tiba' | 'taxi' | 'police';
 
+// ---------- v5: مشخصات تنوع مدل‌ها (هماهنگ با vehicleGeometry.ts — منبع GLB) ----------
+/** عرض کابین نسبت به بدنه — کابین باریک‌تر = سیلوئت واقعی */
+const CABIN_W: Record<CarVariant, number> = {
+  player: 0.86, pride: 0.84, peugeot405: 0.80, taxi: 0.80,
+  samand: 0.88, police: 0.88, nissan: 0.78, tiba: 0.76,
+};
+/** شکل چراغ جلو/عقب مخصوص هر مدل */
+const LIGHT_SPEC: Record<CarVariant, { fW: number; fH: number; rW: number; rH: number }> = {
+  player:     { fW: 0.18, fH: 9,  rW: 0.18, rH: 9 },
+  pride:      { fW: 0.15, fH: 8,  rW: 0.15, rH: 8 },
+  peugeot405: { fW: 0.24, fH: 7,  rW: 0.22, rH: 7 },
+  taxi:       { fW: 0.24, fH: 7,  rW: 0.22, rH: 7 },
+  samand:     { fW: 0.20, fH: 12, rW: 0.20, rH: 11 },
+  police:     { fW: 0.20, fH: 12, rW: 0.20, rH: 11 },
+  nissan:     { fW: 0.20, fH: 10, rW: 0.20, rH: 10 },
+  tiba:       { fW: 0.17, fH: 9,  rW: 0.17, rH: 9 },
+};
+/** جلوپنجره مخصوص هر مدل (پراید/تیبا پلاستیکی تیره) */
+const GRILLE_SPEC: Record<CarVariant, { w: number; h: number; chrome: boolean }> = {
+  player:     { w: 0.40, h: 9,  chrome: true },
+  pride:      { w: 0.42, h: 8,  chrome: false },
+  peugeot405: { w: 0.30, h: 7,  chrome: true },
+  taxi:       { w: 0.30, h: 7,  chrome: true },
+  samand:     { w: 0.56, h: 10, chrome: true },
+  police:     { w: 0.56, h: 10, chrome: true },
+  nissan:     { w: 0.52, h: 11, chrome: true },
+  tiba:       { w: 0.34, h: 7,  chrome: false },
+};
+
 export interface CarModel3D {
   group: THREE.Group;
   /** چرخ‌ها برای انیمیشن چرخش (rotation.x با سرعت) */
@@ -104,47 +133,47 @@ function pickColor(list: string[]): string {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-// ---------- نیم‌رخ هر خودرو (z: جلو منفی → عقب مثبت، y: ارتفاع) ----------
+// ---------- نیم‌رخ هر خودرو v5 — سیلوئت متمایز (z: جلو منفی → عقب مثبت، y: ارتفاع) ----------
 type Profile = Array<[number, number]>;
 
 const PROFILES: Record<CarVariant, Profile> = {
-  // پراید: جعبه‌ای، شیشه عقب پرشیب کم
+  // پراید: جعبه‌ای کوچک با سقف تخت
   player: [[-86, 12], [-87, 38], [-84, 50], [-26, 53], [-19, 88], [28, 88], [37, 55], [76, 53], [82, 36], [86, 13]],
-  pride:  [[-86, 12], [-87, 38], [-84, 50], [-26, 53], [-19, 88], [28, 88], [37, 55], [76, 53], [82, 36], [86, 13]],
-  // پژو ۴۰۵: کاپوت بلند، صندوق بالا
-  peugeot405: [[-98, 12], [-99, 36], [-96, 48], [-28, 52], [-20, 87], [26, 87], [35, 60], [90, 58], [96, 36], [98, 13]],
-  taxi:       [[-98, 12], [-99, 36], [-96, 48], [-28, 52], [-20, 87], [26, 87], [35, 60], [90, 58], [96, 36], [98, 13]],
-  // سمند: پهن و بلند
-  samand: [[-103, 13], [-104, 38], [-101, 52], [-32, 55], [-24, 93], [30, 93], [40, 62], [95, 60], [101, 38], [103, 14]],
-  police: [[-103, 13], [-104, 38], [-101, 52], [-32, 55], [-24, 93], [30, 93], [40, 62], [95, 60], [101, 38], [103, 14]],
-  // نیسان: وانت — کابین جلو، دیواره بلند عقب
-  nissan: [[-100, 12], [-101, 36], [-98, 52], [-46, 55], [-38, 97], [0, 97], [9, 62], [13, 64], [95, 64], [98, 34], [100, 12]],
-  // تیبا: هاچ‌بک با عقب مایل
-  tiba: [[-84, 12], [-85, 36], [-82, 48], [-24, 51], [-16, 86], [22, 85], [46, 58], [72, 50], [80, 34], [84, 12]],
+  pride:  [[-86, 12], [-88, 32], [-87, 46], [-84, 52], [-30, 54], [-24, 72], [-20, 86], [26, 87], [36, 56], [74, 54], [82, 44], [85, 26], [86, 13]],
+  // پژو ۴۰۵: کشیده و کوتاه — کاپوت خیلی بلند
+  peugeot405: [[-100, 12], [-102, 26], [-101, 38], [-97, 44], [-34, 46], [-26, 60], [-20, 79], [26, 80], [38, 58], [50, 52], [88, 51], [96, 42], [100, 24], [100, 13]],
+  taxi:       [[-100, 12], [-102, 26], [-101, 38], [-97, 44], [-34, 46], [-26, 60], [-20, 79], [26, 80], [38, 58], [50, 52], [88, 51], [96, 42], [100, 24], [100, 13]],
+  // سمند: بلند و پهن — بلندترین سقف
+  samand: [[-104, 14], [-106, 34], [-105, 48], [-101, 55], [-36, 58], [-28, 76], [-23, 97], [28, 98], [40, 70], [50, 63], [90, 62], [100, 50], [104, 30], [104, 15]],
+  police: [[-104, 14], [-106, 34], [-105, 48], [-101, 55], [-36, 58], [-28, 76], [-23, 97], [28, 98], [40, 70], [50, 63], [90, 62], [100, 50], [104, 30], [104, 15]],
+  // نیسان: وانت — دیواره خیلی بلند بار
+  nissan: [[-102, 12], [-104, 30], [-103, 46], [-99, 54], [-50, 57], [-42, 74], [-36, 100], [2, 101], [10, 66], [16, 63], [92, 64], [99, 42], [102, 20], [102, 12]],
+  // تیبا: کوتاه‌ترین — هاچ‌بک گرد
+  tiba: [[-79, 13], [-82, 30], [-80, 44], [-74, 50], [-24, 52], [-15, 68], [-8, 84], [18, 84], [34, 60], [48, 52], [62, 47], [72, 38], [77, 24], [79, 14]],
 };
 
-/** ناحیه شیشه هر خودرو: [ز جلو، ز عقب، ارتفاع پایین شیشه، ارتفاع بالا] */
+/** ناحیه شیشه هر خودرو v5: [ز جلو، ز عقب، ارتفاع پایین شیشه، ارتفاع بالا] */
 const GLASS_BAND: Record<CarVariant, [number, number, number, number]> = {
   player: [-18, 36, 54, 82],
-  pride: [-18, 36, 54, 82],
-  peugeot405: [-19, 34, 53, 81],
-  taxi: [-19, 34, 53, 81],
-  samand: [-23, 38, 56, 86],
-  police: [-23, 38, 56, 86],
-  nissan: [-37, 8, 56, 90],
-  tiba: [-15, 30, 52, 79],
+  pride: [-19, 36, 53, 80],
+  peugeot405: [-24, 34, 47, 74],
+  taxi: [-24, 34, 47, 74],
+  samand: [-26, 40, 59, 91],
+  police: [-26, 40, 59, 91],
+  nissan: [-38, 6, 58, 92],
+  tiba: [-10, 28, 53, 79],
 };
 
-/** مشخصات بدنه هر خودرو (واحد: پیکسل منطقی) */
+/** مشخصات بدنه هر خودرو v5 (واحد: پیکسل منطقی) */
 const SPECS: Record<CarVariant, { len: number; wid: number; wheelR: number; hoodFrac: number }> = {
   player:     { len: 172, wid: 100, wheelR: 21, hoodFrac: 0.32 },
-  pride:      { len: 172, wid: 100, wheelR: 21, hoodFrac: 0.32 },
-  peugeot405: { len: 196, wid: 106, wheelR: 23, hoodFrac: 0.36 },
-  taxi:       { len: 196, wid: 106, wheelR: 23, hoodFrac: 0.36 },
-  samand:     { len: 206, wid: 112, wheelR: 24, hoodFrac: 0.34 },
-  police:     { len: 206, wid: 112, wheelR: 24, hoodFrac: 0.34 },
-  nissan:     { len: 200, wid: 112, wheelR: 26, hoodFrac: 0.28 },
-  tiba:       { len: 168, wid: 100, wheelR: 22, hoodFrac: 0.32 },
+  pride:      { len: 172, wid: 100, wheelR: 20, hoodFrac: 0.32 },
+  peugeot405: { len: 200, wid: 104, wheelR: 22, hoodFrac: 0.36 },
+  taxi:       { len: 200, wid: 104, wheelR: 22, hoodFrac: 0.36 },
+  samand:     { len: 208, wid: 112, wheelR: 24, hoodFrac: 0.34 },
+  police:     { len: 208, wid: 112, wheelR: 24, hoodFrac: 0.34 },
+  nissan:     { len: 204, wid: 112, wheelR: 26, hoodFrac: 0.28 },
+  tiba:       { len: 158, wid: 98,  wheelR: 21, hoodFrac: 0.32 },
 };
 
 /** ساخت بدنه اکسترودشده از نیم‌رخ — عرض در محور X، جلو سمت -Z */
@@ -206,12 +235,13 @@ export function buildCar3D(
   g.add(bodyMesh);
   if (!lite) addOutline(bodyMesh, 1.04);
 
-  // ---------- باند شیشه کنار + شیشه جلو/عقب ----------
+  // ---------- باند شیشه کنار (v5: کابین باریک‌تر از بدنه) + شیشه جلو/عقب ----------
   const [gz0, gz1, gy0, gy1] = GLASS_BAND[variant] ?? GLASS_BAND.pride;
+  const cab = CABIN_W[variant] ?? 0.84;
   const bandH = gy1 - gy0;
   const bandLen = gz1 - gz0;
   const glassBand = new THREE.Mesh(
-    new THREE.BoxGeometry(s.wid + 1.5, bandH, bandLen),
+    new THREE.BoxGeometry(s.wid * cab, bandH, bandLen),
     glassMat as THREE.MeshPhongMaterial,
   );
   glassBand.position.set(0, (gy0 + gy1) / 2, (gz0 + gz1) / 2);
@@ -221,12 +251,12 @@ export function buildCar3D(
 
   // شیشه جلو (کج به جلو)
   const wsZ = (gz0 - 4);
-  const ws = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.86, bandH + 8, 6), glassMat as THREE.MeshPhongMaterial);
+  const ws = new THREE.Mesh(new THREE.BoxGeometry(s.wid * cab * 0.95, bandH + 8, 6), glassMat as THREE.MeshPhongMaterial);
   ws.position.set(0, (gy0 + gy1) / 2 + 2, wsZ);
   ws.rotation.x = 0.42;
   g.add(ws);
   // شیشه عقب
-  const rw = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.84, bandH + 6, 6), glassMat as THREE.MeshPhongMaterial);
+  const rw = new THREE.Mesh(new THREE.BoxGeometry(s.wid * cab * 0.92, bandH + 6, 6), glassMat as THREE.MeshPhongMaterial);
   rw.position.set(0, (gy0 + gy1) / 2 + 3, gz1 + 5);
   rw.rotation.x = variant === 'nissan' ? -0.15 : -0.38;
   g.add(rw);
@@ -265,20 +295,32 @@ export function buildCar3D(
   bumpers.front = fb;
   bumpers.rear = rb;
 
-  // ---------- جلوپنجره کروم ----------
-  const grille = new THREE.Mesh(
-    new THREE.BoxGeometry(s.wid * (variant === 'samand' || variant === 'police' || variant === 'nissan' ? 0.56 : 0.4), 9, 4),
-    chromeMat as THREE.MeshPhongMaterial,
+  // ---------- جلوپنجره (v5: مخصوص هر مدل — پراید/تیبا پلاستیکی تیره) ----------
+  const grille = GRILLE_SPEC[variant] ?? GRILLE_SPEC.pride;
+  const grilleMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(s.wid * grille.w, grille.h, 4),
+    grille.chrome ? chromeMat as THREE.MeshPhongMaterial : darkMat as THREE.MeshToonMaterial,
   );
-  grille.position.set(0, 44, profile[0][0] - 2.5);
-  g.add(grille);
+  grilleMesh.position.set(0, 44, profile[0][0] - 2.5);
+  g.add(grilleMesh);
+  if (variant === 'samand' || variant === 'police') {
+    // نوار کروم کنار بدنه سمند — امضای مدل
+    const stripLen = profile[profile.length - 1][0] - profile[0][0] - 36;
+    for (const sx of [-s.wid / 2 - 0.6, s.wid / 2 + 0.6]) {
+      const sideStrip = new THREE.Mesh(new THREE.BoxGeometry(1.8, 4, stripLen), chromeMat as THREE.MeshPhongMaterial);
+      sideStrip.position.set(sx, 34, (profile[0][0] + profile[profile.length - 1][0]) / 2);
+      g.add(sideStrip);
+    }
+  }
 
-  // ---------- چراغ‌ها ----------
-  const lightGeo = new THREE.BoxGeometry(s.wid * 0.2, 9, 4);
+  // ---------- چراغ‌ها (v5: شکل مخصوص هر مدل) ----------
+  const ls = LIGHT_SPEC[variant] ?? LIGHT_SPEC.pride;
+  const lightFGeo = new THREE.BoxGeometry(s.wid * ls.fW, ls.fH, 4);
+  const lightRGeo = new THREE.BoxGeometry(s.wid * ls.rW, ls.rH, 4);
   for (const x of [-s.wid * 0.33, s.wid * 0.33]) {
-    const h = new THREE.Mesh(lightGeo, headMat as THREE.MeshBasicMaterial);
+    const h = new THREE.Mesh(lightFGeo, headMat as THREE.MeshBasicMaterial);
     h.position.set(x, 44, profile[0][0] - 3);
-    const t = new THREE.Mesh(lightGeo, tailMat as THREE.MeshBasicMaterial);
+    const t = new THREE.Mesh(lightRGeo, tailMat as THREE.MeshBasicMaterial);
     t.position.set(x, 46, profile[profile.length - 1][0] + 3);
     g.add(h, t);
   }
@@ -360,9 +402,14 @@ export function buildCar3D(
     const ant = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 34, 6), darkMat as THREE.MeshToonMaterial);
     ant.position.set(s.wid * 0.3, topY + 15, gz1 - 10);
     g.add(ant);
+  } else if (variant === 'peugeot405') {
+    // اسپویلر لب صندوق — امضای ۴۰۵
+    const spoiler = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.78, 4, 10), darkMat as THREE.MeshToonMaterial);
+    spoiler.position.set(0, profile[profile.length - 1][1] + 1, profile[profile.length - 1][0] - 2);
+    g.add(spoiler);
   } else if (variant === 'pride' && Math.random() < 0.3) {
     // باربند سقف — خیلی ایرانی!
-    const rack = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.7, 5, bandLen * 0.6), chromeMat as THREE.MeshPhongMaterial);
+    const rack = new THREE.Mesh(new THREE.BoxGeometry(s.wid * cab * 0.8, 5, bandLen * 0.6), chromeMat as THREE.MeshPhongMaterial);
     rack.position.set(0, topY + 3, (gz0 + gz1) / 2);
     g.add(rack);
   }

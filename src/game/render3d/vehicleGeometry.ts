@@ -26,46 +26,85 @@ export interface VehicleSpec {
   axleR: number;
 }
 
+/**
+ * v5 — تنوع واقعی بین مدل‌ها:
+ *  پراید کوچک و جعبه‌ای | پژو۴۰۵ کشیده و کوتاه | سمند بلند و پهن
+ *  تیبا خیلی کوتاه (هاچ‌بک) | نیسان وانت بلند
+ */
 export const VEHICLE_SPECS: Record<VehicleVariant, VehicleSpec> = {
   player:     { len: 172, wid: 100, wheelR: 21, axleF: 0.335, axleR: 0.31 },
-  pride:      { len: 172, wid: 100, wheelR: 21, axleF: 0.335, axleR: 0.31 },
-  peugeot405: { len: 196, wid: 106, wheelR: 23, axleF: 0.33,  axleR: 0.30 },
-  taxi:       { len: 196, wid: 106, wheelR: 23, axleF: 0.33,  axleR: 0.30 },
-  samand:     { len: 206, wid: 112, wheelR: 24, axleF: 0.33,  axleR: 0.30 },
-  police:     { len: 206, wid: 112, wheelR: 24, axleF: 0.33,  axleR: 0.30 },
-  nissan:     { len: 200, wid: 112, wheelR: 26, axleF: 0.30,  axleR: 0.32 },
-  tiba:       { len: 168, wid: 100, wheelR: 22, axleF: 0.32,  axleR: 0.31 },
+  pride:      { len: 172, wid: 100, wheelR: 20, axleF: 0.335, axleR: 0.31 },
+  peugeot405: { len: 200, wid: 104, wheelR: 22, axleF: 0.325, axleR: 0.305 },
+  taxi:       { len: 200, wid: 104, wheelR: 22, axleF: 0.325, axleR: 0.305 },
+  samand:     { len: 208, wid: 112, wheelR: 24, axleF: 0.33,  axleR: 0.30 },
+  police:     { len: 208, wid: 112, wheelR: 24, axleF: 0.33,  axleR: 0.30 },
+  nissan:     { len: 204, wid: 112, wheelR: 26, axleF: 0.295, axleR: 0.325 },
+  tiba:       { len: 158, wid: 98,  wheelR: 21, axleF: 0.32,  axleR: 0.315 },
 };
 
-// ---------- نیم‌رخ v4 (نرم‌تر از v3 — نقاط بیشتر برای انحنای کاپوت/سقف) ----------
+/**
+ * v5 — نسبت عرض «کابین» به عرض بدنه: کابین باریک‌تر از بدنه = سیلوئت واقعی
+ * (قبلاً شیشه به عرض کامل بدنه بود → همه ماشین‌ها شبیه اتوبوس!
+ *  تیبا/نیسان باریک‌تر، سمند پهن‌تر)
+ */
+export const CABIN_W: Record<VehicleVariant, number> = {
+  player: 0.86, pride: 0.84, peugeot405: 0.80, taxi: 0.80,
+  samand: 0.88, police: 0.88, nissan: 0.78, tiba: 0.76,
+};
+
+/** v5 — شکل چراغ جلو/عقب مخصوص هر مدل: [نسبت عرض، ارتفاع] */
+export const LIGHT_SPEC: Record<VehicleVariant, { fW: number; fH: number; rW: number; rH: number }> = {
+  player:     { fW: 0.18, fH: 9,  rW: 0.18, rH: 9 },
+  pride:      { fW: 0.15, fH: 8,  rW: 0.15, rH: 8 },   // مربع کوچک پراید
+  peugeot405: { fW: 0.24, fH: 7,  rW: 0.22, rH: 7 },   // کشیده و کم‌ارتفاع
+  taxi:       { fW: 0.24, fH: 7,  rW: 0.22, rH: 7 },
+  samand:     { fW: 0.20, fH: 12, rW: 0.20, rH: 11 },  // درشت
+  police:     { fW: 0.20, fH: 12, rW: 0.20, rH: 11 },
+  nissan:     { fW: 0.20, fH: 10, rW: 0.20, rH: 10 },
+  tiba:       { fW: 0.17, fH: 9,  rW: 0.17, rH: 9 },   // بادامی
+};
+
+/** v5 — جلوپنجره مخصوص هر مدل: [نسبت عرض، ارتفاع، کروم؟] — پراید پلاستیکی مشکی! */
+export const GRILLE_SPEC: Record<VehicleVariant, { w: number; h: number; chrome: boolean }> = {
+  player:     { w: 0.40, h: 9,  chrome: true },
+  pride:      { w: 0.42, h: 8,  chrome: false },
+  peugeot405: { w: 0.30, h: 7,  chrome: true },
+  taxi:       { w: 0.30, h: 7,  chrome: true },
+  samand:     { w: 0.56, h: 10, chrome: true },
+  police:     { w: 0.56, h: 10, chrome: true },
+  nissan:     { w: 0.52, h: 11, chrome: true },
+  tiba:       { w: 0.34, h: 7,  chrome: false },
+};
+
+// ---------- نیم‌رخ v5 — هر مدل با سیلوئت متمایز ----------
 type Profile = Array<[number, number]>;
 
 export const PROFILES: Record<VehicleVariant, Profile> = {
-  // پراید: جعبه‌ای با شیشه عقب پرشیب کم
+  // پراید: جعبه‌ای کوچک با سقف تخت
   player: [[-86, 12], [-88, 30], [-87, 44], [-83, 51], [-30, 53], [-22, 70], [-17, 88], [24, 89], [34, 62], [42, 55], [72, 54], [80, 44], [84, 26], [86, 13]],
-  pride:  [[-86, 12], [-88, 30], [-87, 44], [-83, 51], [-30, 53], [-22, 70], [-17, 88], [24, 89], [34, 62], [42, 55], [72, 54], [80, 44], [84, 26], [86, 13]],
-  // پژو ۴۰۵: کاپوت بلند و صندوق پهن
-  peugeot405: [[-98, 12], [-100, 28], [-99, 42], [-95, 49], [-32, 52], [-24, 68], [-19, 87], [22, 88], [32, 64], [42, 59], [82, 58], [92, 46], [97, 26], [98, 13]],
-  taxi:       [[-98, 12], [-100, 28], [-99, 42], [-95, 49], [-32, 52], [-24, 68], [-19, 87], [22, 88], [32, 64], [42, 59], [82, 58], [92, 46], [97, 26], [98, 13]],
-  // سمند: پهن و کشیده
-  samand: [[-103, 13], [-105, 30], [-104, 44], [-100, 52], [-36, 55], [-27, 71], [-22, 93], [27, 94], [38, 67], [48, 61], [88, 60], [98, 47], [102, 27], [103, 14]],
-  police: [[-103, 13], [-105, 30], [-104, 44], [-100, 52], [-36, 55], [-27, 71], [-22, 93], [27, 94], [38, 67], [48, 61], [88, 60], [98, 47], [102, 27], [103, 14]],
-  // نیسان: وانت — کابین جلو، دیواره بلند عقب
-  nissan: [[-100, 12], [-102, 28], [-101, 42], [-97, 51], [-48, 54], [-40, 70], [-34, 97], [2, 98], [10, 64], [16, 62], [90, 63], [97, 40], [100, 20], [100, 12]],
-  // تیبا: هاچ‌بک با عقب مایل
-  tiba: [[-84, 12], [-86, 28], [-85, 42], [-81, 49], [-26, 51], [-18, 66], [-13, 86], [20, 86], [32, 62], [44, 55], [64, 51], [74, 40], [80, 22], [84, 12]],
+  pride:  [[-86, 12], [-88, 32], [-87, 46], [-84, 52], [-30, 54], [-24, 72], [-20, 86], [26, 87], [36, 56], [74, 54], [82, 44], [85, 26], [86, 13]],
+  // پژو ۴۰۵: کشیده و کوتاه — کاپوت خیلی بلند، سقف پایین
+  peugeot405: [[-100, 12], [-102, 26], [-101, 38], [-97, 44], [-34, 46], [-26, 60], [-20, 79], [26, 80], [38, 58], [50, 52], [88, 51], [96, 42], [100, 24], [100, 13]],
+  taxi:       [[-100, 12], [-102, 26], [-101, 38], [-97, 44], [-34, 46], [-26, 60], [-20, 79], [26, 80], [38, 58], [50, 52], [88, 51], [96, 42], [100, 24], [100, 13]],
+  // سمند: بلند و پهن — بلندترین سقف
+  samand: [[-104, 14], [-106, 34], [-105, 48], [-101, 55], [-36, 58], [-28, 76], [-23, 97], [28, 98], [40, 70], [50, 63], [90, 62], [100, 50], [104, 30], [104, 15]],
+  police: [[-104, 14], [-106, 34], [-105, 48], [-101, 55], [-36, 58], [-28, 76], [-23, 97], [28, 98], [40, 70], [50, 63], [90, 62], [100, 50], [104, 30], [104, 15]],
+  // نیسان: وانت — کابین جلو، دیواره خیلی بلند بار
+  nissan: [[-102, 12], [-104, 30], [-103, 46], [-99, 54], [-50, 57], [-42, 74], [-36, 100], [2, 101], [10, 66], [16, 63], [92, 64], [99, 42], [102, 20], [102, 12]],
+  // تیبا: کوتاه‌ترین — هاچ‌بک گرد با عقب خیلی مایل
+  tiba: [[-79, 13], [-82, 30], [-80, 44], [-74, 50], [-24, 52], [-15, 68], [-8, 84], [18, 84], [34, 60], [48, 52], [62, 47], [72, 38], [77, 24], [79, 14]],
 };
 
-/** ناحیه شیشه: [ز جلو، ز عقب، ارتفاع پایین، ارتفاع بالا] */
+/** ناحیه شیشه: [ز جلو، ز عقب، ارتفاع پایین، ارتفاع بالا] — v5 هماهنگ با نیم‌رخ جدید */
 export const GLASS_BAND: Record<VehicleVariant, [number, number, number, number]> = {
   player: [-18, 36, 54, 82],
-  pride:  [-18, 36, 54, 82],
-  peugeot405: [-19, 34, 53, 81],
-  taxi:       [-19, 34, 53, 81],
-  samand: [-23, 38, 56, 86],
-  police: [-23, 38, 56, 86],
-  nissan: [-37, 8, 56, 90],
-  tiba:   [-15, 30, 52, 79],
+  pride:  [-19, 36, 53, 80],
+  peugeot405: [-24, 34, 47, 74],
+  taxi:       [-24, 34, 47, 74],
+  samand: [-26, 40, 59, 91],
+  police: [-26, 40, 59, 91],
+  nissan: [-38, 6, 58, 92],
+  tiba:   [-10, 28, 53, 79],
 };
 
 // ---------- رنگ‌های مبنا (hex → خطی هنگام نوشتن) ----------
@@ -216,21 +255,29 @@ export function buildVehicleParts(variant: VehicleVariant, opts: { lod1?: boolea
   // ---------- بدنه ----------
   const body = buildBodyGeometry(variant, lod1 ? 2 : 3);
 
-  // ---------- شیشه (باند کناری + جلو کج + عقب) ----------
+  // ---------- شیشه (باند کناری باریک‌تر از بدنه + جلو کج + عقب) — v5 کابین واقعی ----------
+  const cab = CABIN_W[variant];
   const glassParts: Part[] = [
-    box(wid + 1.5, bandH, bandLen, PART_COLORS.glass, 0, (gy0 + gy1) / 2, midZ),
-    box(wid * 0.86, bandH + 8, 6, PART_COLORS.glass, 0, (gy0 + gy1) / 2 + 2, gz0 - 4, 0.42),
-    box(wid * 0.84, bandH + 6, 6, PART_COLORS.glass, 0, (gy0 + gy1) / 2 + 3, gz1 + 5, variant === 'nissan' ? -0.15 : -0.38),
+    box(wid * cab, bandH, bandLen, PART_COLORS.glass, 0, (gy0 + gy1) / 2, midZ),
+    box(wid * cab * 0.95, bandH + 8, 6, PART_COLORS.glass, 0, (gy0 + gy1) / 2 + 2, gz0 - 4, 0.42),
+    box(wid * cab * 0.92, bandH + 6, 6, PART_COLORS.glass, 0, (gy0 + gy1) / 2 + 3, gz1 + 5, variant === 'nissan' ? -0.15 : -0.38),
   ];
   const glass = mergeParts(glassParts);
 
-  // ---------- تریم (جلوپنجره/آینه/دستگیره/اگزوز/خط در/آنتن/باربند/نوارها) ----------
+  // ---------- تریم (جلوپنجره/آینه/دستگیره/اگزوز/خط در/آنتن/باربند/نوارها) — v5 مخصوص هر مدل ----------
+  const grille = GRILLE_SPEC[variant];
   const trimParts: Part[] = [
-    // جلوپنجره کروم
-    box(wid * (variant === 'samand' || variant === 'police' || variant === 'nissan' ? 0.56 : 0.4), 9, 4, PART_COLORS.chrome, 0, 44, PROFILES[variant][0][0] - 2.5),
+    // جلوپنجره: پراید/تیبا پلاستیکی تیره، بقیه کروم
+    box(wid * grille.w, grille.h, 4, grille.chrome ? PART_COLORS.chrome : PART_COLORS.trim, 0, 44, PROFILES[variant][0][0] - 2.5),
     // اگزوز
     cyl(4, 4, 12, 8, PART_COLORS.chrome, wid * 0.26, 15, PROFILES[variant][PROFILES[variant].length - 1][0] + 6, Math.PI / 2),
   ];
+  if (variant === 'samand' || variant === 'police') {
+    // نوار کروم کنار بدنه سمند — امضای مدل
+    for (const sx of [-wid / 2 - 0.6, wid / 2 + 0.6]) {
+      trimParts.push(box(1.8, 4, PROFILES[variant][PROFILES[variant].length - 1][0] - PROFILES[variant][0][0] - 36, PART_COLORS.chrome, sx, 34, (PROFILES[variant][0][0] + PROFILES[variant][PROFILES[variant].length - 1][0]) / 2));
+    }
+  }
   if (!lod1) {
     // خط در + دستگیره
     const seamLen = bandLen * 0.42;
@@ -293,10 +340,14 @@ export function buildVehicleParts(variant: VehicleVariant, opts: { lod1?: boolea
   } else if (variant === 'pride' || variant === 'peugeot405') {
     // باربند برای برخی (به‌صورت extras جدا — ران‌تایم ۳۰٪ اضافه می‌کند)
     extras.set('roofrack', mergeParts([
-      box(wid * 0.7, 5, bandLen * 0.6, PART_COLORS.chrome, 0, topY + 3, midZ),
-      box(wid * 0.7, 8, 4, PART_COLORS.chrome, 0, topY, gz0 + bandLen * 0.22),
-      box(wid * 0.7, 8, 4, PART_COLORS.chrome, 0, topY, gz1 - bandLen * 0.22),
+      box(wid * cab * 0.8, 5, bandLen * 0.6, PART_COLORS.chrome, 0, topY + 3, midZ),
+      box(wid * cab * 0.8, 8, 4, PART_COLORS.chrome, 0, topY, gz0 + bandLen * 0.22),
+      box(wid * cab * 0.8, 8, 4, PART_COLORS.chrome, 0, topY, gz1 - bandLen * 0.22),
     ]));
+    if (variant === 'peugeot405') {
+      // اسپویلر لب صندوق — امضای ۴۰۵
+      trimParts.push(box(wid * 0.78, 4, 10, PART_COLORS.trim, 0, PROFILES[variant][PROFILES[variant].length - 1][1] + 1, PROFILES[variant][PROFILES[variant].length - 1][0] - 2));
+    }
   }
 
   const trim = mergeParts(trimParts);
@@ -330,14 +381,15 @@ export function buildVehicleParts(variant: VehicleVariant, opts: { lod1?: boolea
     [wid / 2 - tireW * 0.1, wr, axleRz],
   ];
 
-  // ---------- چراغ‌ها ----------
+  // ---------- چراغ‌ها (v5 — شکل مخصوص هر مدل) ----------
+  const ls = LIGHT_SPEC[variant];
   const lightGeoF = mergeParts([
-    box(wid * 0.2, 9, 4, PART_COLORS.lightF, -wid * 0.33, 44, PROFILES[variant][0][0] - 3),
-    box(wid * 0.2, 9, 4, PART_COLORS.lightF, wid * 0.33, 44, PROFILES[variant][0][0] - 3),
+    box(wid * ls.fW, ls.fH, 4, PART_COLORS.lightF, -wid * 0.33, 44, PROFILES[variant][0][0] - 3),
+    box(wid * ls.fW, ls.fH, 4, PART_COLORS.lightF, wid * 0.33, 44, PROFILES[variant][0][0] - 3),
   ]);
   const lightGeoR = mergeParts([
-    box(wid * 0.2, 9, 4, PART_COLORS.lightR, -wid * 0.33, 46, PROFILES[variant][PROFILES[variant].length - 1][0] + 3),
-    box(wid * 0.2, 9, 4, PART_COLORS.lightR, wid * 0.33, 46, PROFILES[variant][PROFILES[variant].length - 1][0] + 3),
+    box(wid * ls.rW, ls.rH, 4, PART_COLORS.lightR, -wid * 0.33, 46, PROFILES[variant][PROFILES[variant].length - 1][0] + 3),
+    box(wid * ls.rW, ls.rH, 4, PART_COLORS.lightR, wid * 0.33, 46, PROFILES[variant][PROFILES[variant].length - 1][0] + 3),
   ]);
 
   // ---------- پلاک ----------

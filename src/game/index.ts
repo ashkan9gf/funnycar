@@ -6,12 +6,14 @@
  */
 
 import { GameManager, type GameCallbacks, type GameState, type HudData, type MissionResultData } from './core/GameManager';
+import type { MissionCategory } from './data/missions';
 
 export interface MissionListItem {
   id: string;
   title: string;
   intro: string;
   objective: string;
+  category: MissionCategory;
   rewardCoins: number;
   rewardRep: number;
   timeLimitSec: number;
@@ -31,8 +33,8 @@ export interface GameInstance {
   getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean };
   getSave: () => { coins: number; reputation: number };
   toggleDebugFps: () => void;
-  /** فاز 4: مأموریت‌ها */
-  listMissions: () => MissionListItem[];
+  /** فاز 4: مأموریت‌ها (فاز ۵: با فیلتر دسته — park/taxi/challenge) */
+  listMissions: (category?: MissionCategory) => MissionListItem[];
   startMission: (id: string) => void;
   abandonMission: () => void;
   /** فاز BIG-IR: اسکران به تعمیرگاه بعد از خاموشی */
@@ -60,7 +62,7 @@ export async function createGame(
     getSettings: () => gm.getSettings(),
     getSave: () => gm.getSave(),
     toggleDebugFps: () => gm.toggleDebugFps(),
-    listMissions: () => gm.listMissions(),
+    listMissions: (category?: MissionCategory) => gm.listMissions(category),
     startMission: (id) => gm.startMission(id),
     abandonMission: () => gm.abandonMission(),
     towToRepair: () => gm.towToRepair(),
@@ -69,3 +71,4 @@ export async function createGame(
 }
 
 export type { GameState, HudData, MissionResultData };
+export type { MissionCategory } from './data/missions';

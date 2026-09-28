@@ -33,6 +33,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
+import type { MissionCategory } from "@/game";
 import { createGame, type GameInstance, type GameState, type HudData, type MissionListItem, type MissionResultData } from "@/game";
 import { HoldButton, TapButton } from "./touch-controls";
 
@@ -103,6 +104,15 @@ const FAIL_REASON_FA: Record<string, string> = {
   engine_died: "ماشین خاموش شد!",
   too_many_crashes: "تصادف‌ها از حد گذشت!",
   too_many_potholes: "چاله‌ها بیشتر از حد مجاز!",
+  park_missed: "پارک نشد! یه بار دیگه امتحان کن",
+};
+
+/** عنوان و توضیح هر دسته مأموریت (فاز ۵) */
+const CATEGORY_FA: Record<MissionCategory, { title: string; hint: string }> = {
+  story: { title: "مأموریت‌ها", hint: "مأموریت موفق: ۲۰ تا ۱۰۰ سکه + ۸ تا ۱۵ آبرو (طبق سند طراحی)" },
+  park: { title: "پارک دوبل", hint: "دنده‌عقب برو تو جای پارک، تراز وایسا، ترمز! هر دو جهت قبوله" },
+  taxi: { title: "مسافرکشی", hint: "وایسا سر جای سوارشدن، بعد برسون مقصد — سریع برسی انعام هم داره!" },
+  challenge: { title: "چالش‌ها", hint: "چالش سخت‌تر، جایزه بزرگ‌تر — آبروی راننده توی اینه!" },
 };
 
 export default function GameShell() {
@@ -120,6 +130,8 @@ export default function GameShell() {
   const [toast, setToast] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showMissions, setShowMissions] = useState(false);
+  /** فیلتر دسته مأموریت (فاز ۵) — null = همه (مأموریت‌های اصلی) */
+  const [missionFilter, setMissionFilter] = useState<MissionCategory | null>(null);
   const [missions, setMissions] = useState<MissionListItem[]>([]);
   const [missionResult, setMissionResult] = useState<MissionResultData | null>(null);
 
@@ -176,8 +188,6 @@ export default function GameShell() {
     },
     [applySteer],
   );
-
-  const comingSoon = useCallback(() => showToast("این حالت به‌زودی می‌آید! طبق نقشه راه فاز ۴ به ۷ ساخته می‌شود."), [showToast]);
 
   const repColor = hud.reputation >= 70 ? "#8AC926" : hud.reputation >= 35 ? "#F2B705" : "#D64545";
   const healthColor = hud.health >= 60 ? "#8AC926" : hud.health >= 30 ? "#F2B705" : "#D64545";
@@ -241,39 +251,28 @@ export default function GameShell() {
               رانندگی آزاد
             </button>
 
-            {/* حالت‌های بعدی */}
+            {/* حالت‌های بازی — فاز ۵: همه فعال! */}
             <div className="grid w-full max-w-xs grid-cols-2 gap-3">
-              {/* مأموریت‌ها — فاز 4 آماده است */}
-              <button
-                type="button"
-                className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#8AC926] py-3 text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  setMissions(gameRef.current?.listMissions() ?? []);
-                  setShowMissions(true);
-                }}
-              >
-                <Map className="h-6 w-6" />
-                <span className="text-sm font-extrabold">مأموریت‌ها</span>
-                <span className="text-[10px] font-bold opacity-60">فاز ۴ ✓</span>
-              </button>
-              {[
-                { icon: <Target className="h-6 w-6" />, label: "پارک دوبل" },
-                { icon: <Users className="h-6 w-6" />, label: "مسافرکشی" },
-                { icon: <PartyPopper className="h-6 w-6" />, label: "چالش‌ها" },
-              ].map((m) => (
+              {([
+                { cat: "story" as MissionCategory, icon: <Map className="h-6 w-6" />, label: "مأموریت‌ها" },
+                { cat: "park" as MissionCategory, icon: <Target className="h-6 w-6" />, label: "پارک دوبل" },
+                { cat: "taxi" as MissionCategory, icon: <Users className="h-6 w-6" />, label: "مسافرکشی" },
+                { cat: "challenge" as MissionCategory, icon: <PartyPopper className="h-6 w-6" />, label: "چالش‌ها" },
+              ]).map((m) => (
                 <button
-                  key={m.label}
+                  key={m.cat}
                   type="button"
-                  className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#FFF3D6] py-3 text-[#3a2e2a]"
+                  className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#8AC926] py-3 text-[#3a2e2a]"
                   onPointerDown={(e) => {
                     e.preventDefault();
-                    comingSoon();
+                    setMissionFilter(m.cat);
+                    setMissions(gameRef.current?.listMissions(m.cat) ?? []);
+                    setShowMissions(true);
                   }}
                 >
                   {m.icon}
                   <span className="text-sm font-extrabold">{m.label}</span>
-                  <span className="text-[10px] font-bold opacity-60">به‌زودی</span>
+                  <span className="text-[10px] font-bold opacity-60">فاز ۵ ✓</span>
                 </button>
               ))}
             </div>
@@ -320,14 +319,14 @@ export default function GameShell() {
         </div>
       )}
 
-      {/* ============ انتخاب مأموریت (فاز 4) ============ */}
+      {/* ============ انتخاب مأموریت (فاز 4 + فیلتر دسته فاز ۵) ============ */}
       {phase === "menu" && showMissions && (
         <div className="absolute inset-0 z-40 flex flex-col overflow-y-auto bg-[#3a2e2a]/70 px-4 py-6 backdrop-blur-[2px]">
           <div className="fc-pop mx-auto flex w-full max-w-md flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-2xl font-extrabold text-white drop-shadow-[0_2px_0_rgba(58,46,42,0.9)]">
-                <Map className="h-7 w-7 text-[#F2B705]" />
-                مأموریت‌ها
+                {missionFilter === "park" ? <Target className="h-7 w-7 text-[#F2B705]" /> : missionFilter === "taxi" ? <Users className="h-7 w-7 text-[#F2B705]" /> : missionFilter === "challenge" ? <PartyPopper className="h-7 w-7 text-[#F2B705]" /> : <Map className="h-7 w-7 text-[#F2B705]" />}
+                {CATEGORY_FA[missionFilter ?? "story"].title}
               </h2>
               <TapButton
                 ariaLabel="بستن مأموریت‌ها"
@@ -371,7 +370,7 @@ export default function GameShell() {
               </button>
             ))}
             <p className="mt-1 text-center text-[11px] font-bold text-white/75">
-              مأموریت موفق: ۲۰ تا ۱۰۰ سکه + ۸ تا ۱۵ آبرو (طبق سند طراحی)
+              {CATEGORY_FA[missionFilter ?? "story"].hint}
             </p>
           </div>
         </div>

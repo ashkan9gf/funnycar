@@ -25,6 +25,7 @@ import { RENDER3D, MISSIONS as M, RANDOM_EVENTS as RE, PEDESTRIANS as PEDS, DEBR
 import { WORLD as WR, WORLD_SIZE, roadCenter } from '../world/World';
 import { buildCar3D, variantFromAssetId, applyDamageVisual, detachBumper, type CarModel3D, type CarVariant } from './CarFactory3D';
 import { GlbLibrary, assembleCarFromGLB } from './GlbModels';
+import type { GuardCar } from '../managers/MissionManager';
 import { buildParkedGeometry, type VehicleVariant } from './vehicleGeometry';
 import type { TrafficLights } from '../world/TrafficLights';
 import {
@@ -46,6 +47,8 @@ export interface Draw3DOptions {
   potholes: Pothole[];
   peds: Pedestrian[];
   target: { x: number; y: number } | null;
+  /** فاز ۵: ماشین‌های نگهبان جای پارک دوبل (فقط مأموریت فعال) */
+  guardCars?: GuardCar[];
   /** حباب بازیکن (اگر جمله فعال دارد) */
   playerBubble: { line: string; x: number; y: number; portrait: string } | null;
   // ---------- فاز GRAPHICS_OVERHAUL ----------
@@ -108,6 +111,8 @@ export class WorldRenderer3D {
   private beaconRing: THREE.Mesh;
   private beaconDisc: THREE.Mesh;
   private beaconArrow: THREE.Mesh;
+  /** فاز ۵: مدل‌های ماشین نگهبان پارک (cache برای مأموریت فعال) */
+  private guardModels: CarModel3D[] = [];
 
   // عابرهای پیاده + شکستنی‌ها + زون تعمیر
   private pedModels: Array<{ g: THREE.Group; legL: THREE.Mesh; legR: THREE.Mesh; armL: THREE.Mesh; armR: THREE.Mesh }> = [];
@@ -1292,6 +1297,33 @@ export class WorldRenderer3D {
       }
     }
 
+    // ---------- فاز ۵: ماشین‌های نگهبان جای پارک دوبل ----------
+    const guards = opts.guardCars ?? [];
+    while (this.guardModels.length < guards.length) {
+      const gm = buildCar3D('pride', 104, guards[this.guardModels.length]?.len ?? 195);
+      this.guardModels.push(gm);
+      this.scene.add(gm.group);
+    }
+    while (this.guardModels.length > guards.length) {
+      const gm = this.guardModels.pop();
+      if (gm) this.scene.remove(gm.group);
+    }
+    for (let i = 0; i < guards.length; i++) {
+      const g = guards[i];
+      // مدل نگهبان با نوع درست — اگر نوع عوض شد، بساز دوباره
+      let gm = this.guardModels[i];
+      if ((gm as unknown as { __kind?: string }).__kind !== g.kind) {
+        this.scene.remove(gm.group);
+        gm = buildCar3D(g.kind as CarVariant, 104, g.len);
+        (gm as unknown as { __kind?: string }).__kind = g.kind;
+        this.guardModels[i] = gm;
+        this.scene.add(gm.group);
+      }
+      gm.group.visible = true;
+      gm.group.position.set(g.x, 0, g.y);
+      gm.group.rotation.set(0, -g.angle, 0);
+    }
+
     // ---------- شکستنی‌ها: همگام با وضعیت World (Instanced) ----------
     this.syncBreakableInstances();
 
@@ -1653,10 +1685,12 @@ export class WorldRenderer3D {
     }
 
     // بازیکن: فلش سفید با حاشیه تیره (چرخان با زاویه ماشین)
+    // ⚠️ جهت صحیح: heading دنیا = (sin a, -cos a) → چرخش بوم باید +angle باشد
+    // (قبلاً -angle بود → فلش وقتی ماشین شرق/غرب می‌رفت برعکس اشاره می‌کرد!)
     const px = x0 + opts.car.x * k;
     const py = y0 + opts.car.y * k;
     ctx.translate(px, py);
-    ctx.rotate(-opts.car.angle);
+    ctx.rotate(opts.car.angle);
     ctx.beginPath();
     ctx.moveTo(0, -8);
     ctx.lineTo(5.5, 6);

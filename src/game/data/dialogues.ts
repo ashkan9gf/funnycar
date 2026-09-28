@@ -128,6 +128,30 @@ export const DIALOGUES: Record<string, DialogueEvent> = {
     cooldownMs: 10000,
   },
 
+  // ---------- تاکسی (فاز ۵ — مسافرکشی) ----------
+  taxi_pickup: {
+    lines: [
+      'سلام! ببخشید دیر رسیدم، سوار می‌شم!',
+      'به‌به ماشینت تمیزه! برسونم فقط.',
+      'سلام آقا! مقصد رو گفتم دیگه؟',
+      'ایول دیر کردم؟ ترافیک بود دیگه!',
+    ],
+    speaker: 'passenger',
+    priority: 2,
+    cooldownMs: 3000,
+  },
+  taxi_dropoff: {
+    lines: [
+      'ممنون آقا! اینم کرایه.',
+      'دستت طلا! انعام هم جدا.',
+      'ایول! دفعه بعد باز تو رو صدا می‌زنم.',
+      'ممنون، سلامت رسیدیم!',
+    ],
+    speaker: 'passenger',
+    priority: 2,
+    cooldownMs: 3000,
+  },
+
   // ---------- پارک ----------
   parking_good: {
     lines: [
