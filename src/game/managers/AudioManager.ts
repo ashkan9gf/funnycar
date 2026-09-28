@@ -234,6 +234,88 @@ export class AudioManager {
     this.blip(base * 1.26, 0.26, 'triangle', 0.16, 'sfx');
   }
 
+  /**
+   * فاز ۷ — بوق شخصی بازیکن: هر بوق یک امضای صوتی سینتی دارد.
+   * همه مسیرها بی‌خطرند؛ اگر AudioContext نبود ساکت رد می‌شود.
+   */
+  hornById(id: string): void {
+    switch (id) {
+      case 'doble': {
+        // دو تُنه فاصله‌دار (نسبت ۱.۲۶) — پرحجم و جدی
+        this.blip(310, 0.34, 'triangle', 0.24, 'sfx');
+        this.blip(310 * 1.26, 0.34, 'triangle', 0.2, 'sfx');
+        this.blip(310 * 0.5, 0.34, 'sine', 0.14, 'sfx');
+        break;
+      }
+      case 'moto': {
+        // دو بوق نازک کوتاه — عصبی!
+        this.blip(920, 0.09, 'square', 0.1, 'sfx');
+        window.setTimeout(() => this.blip(920, 0.12, 'square', 0.12, 'sfx'), 130);
+        break;
+      }
+      case 'klaxon': {
+        // آنتیک: دو پالس مربعی بم با فاصله — «تَق تُق»
+        this.blip(235, 0.18, 'square', 0.16, 'sfx');
+        window.setTimeout(() => this.blip(235, 0.26, 'square', 0.18, 'sfx'), 210);
+        break;
+      }
+      case 'steam': {
+        // کشتی بخار: بم با شروع نرم + نویز نفس — «فوووو»
+        if (this.ctx && this.gains) {
+          try {
+            const t = this.now();
+            const osc = this.ctx.createOscillator();
+            const g = this.ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(96, t);
+            osc.frequency.exponentialRampToValueAtTime(62, t + 0.75);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.linearRampToValueAtTime(0.22, t + 0.08);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+            osc.connect(g);
+            g.connect(this.gains.sfx);
+            osc.start(t);
+            osc.stop(t + 0.9);
+          } catch { /* بی‌خطر */ }
+        }
+        this.noise(0.7, 0.1, 480, 'lowpass');
+        break;
+      }
+      case 'melody': {
+        // آهنگ‌دار نیسانی: آرپژ شاد ۶ نتی — سلطان خیابان
+        const notes = [660, 784, 880, 784, 660, 587];
+        notes.forEach((n, i) => {
+          window.setTimeout(() => {
+            this.blip(n, 0.12, 'triangle', 0.16, 'sfx');
+            this.blip(n * 2, 0.1, 'sine', 0.05, 'sfx');
+          }, i * 115);
+        });
+        break;
+      }
+      case 'crow': {
+        // کلاغ: دو «قار» نزولی + نویز خشن
+        this.blip(640, 0.14, 'sawtooth', 0.14, 'sfx', 380);
+        this.noise(0.12, 0.09, 1500, 'bandpass');
+        window.setTimeout(() => {
+          this.blip(590, 0.16, 'sawtooth', 0.14, 'sfx', 330);
+          this.noise(0.14, 0.09, 1300, 'bandpass');
+        }, 170);
+        break;
+      }
+      case 'police': {
+        // آژیر: سه دور تناوب دو تُنه
+        for (let i = 0; i < 3; i++) {
+          window.setTimeout(() => this.blip(740, 0.22, 'square', 0.09, 'sfx'), i * 440);
+          window.setTimeout(() => this.blip(560, 0.22, 'square', 0.09, 'sfx'), i * 440 + 220);
+        }
+        break;
+      }
+      default:
+        // classic — بوق همیشگی
+        this.horn(Math.floor(Math.random() * 3));
+    }
+  }
+
   crash(hard: boolean): void {
     const buf = this.buffer('sfx_crash_01');
     if (buf) {

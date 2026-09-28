@@ -9,6 +9,7 @@
 
 import { SAVE } from '../data/balance';
 import { DEFAULT_PAINT_ID, PAINT_IDS, UPGRADES, MAX_UPGRADE_LEVEL, type UpgradeId } from '../data/garage';
+import { DEFAULT_HORN_ID, HORN_IDS } from '../data/horns';
 
 export interface GameSettings {
   music: number;  // 0..1
@@ -32,6 +33,10 @@ export interface SaveData {
   ownedPaints: string[];
   /** فاز ۶ — رنگ انتخابی فعلی */
   paint: string;
+  /** فاز ۷ — بوق‌های خریده‌شده (بوق استاندارد همیشه هست) */
+  ownedHorns: string[];
+  /** فاز ۷ — بوق انتخابی فعلی */
+  horn: string;
 }
 
 function defaultSave(): SaveData {
@@ -47,6 +52,8 @@ function defaultSave(): SaveData {
     upgrades: defaultUpgrades(),
     ownedPaints: [DEFAULT_PAINT_ID],
     paint: DEFAULT_PAINT_ID,
+    ownedHorns: [DEFAULT_HORN_ID],
+    horn: DEFAULT_HORN_ID,
   };
 }
 
@@ -79,7 +86,18 @@ function migrate(raw: unknown): SaveData {
     upgrades: migrateUpgrades(data.upgrades),
     ownedPaints: migratePaints(data.ownedPaints),
     paint: typeof data.paint === 'string' && PAINT_IDS.includes(data.paint) ? data.paint : DEFAULT_PAINT_ID,
+    ownedHorns: migrateHorns(data.ownedHorns),
+    horn: typeof data.horn === 'string' && HORN_IDS.includes(data.horn)
+      ? data.horn
+      : DEFAULT_HORN_ID,
   };
+}
+
+/** اعتبارسنجی بوق‌ها — بوق استاندارد همیشه هست تا فروشگاه خراب نشود */
+function migrateHorns(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw.filter((h): h is string => typeof h === 'string' && HORN_IDS.includes(h)) : [];
+  if (!list.includes(DEFAULT_HORN_ID)) list.push(DEFAULT_HORN_ID);
+  return list;
 }
 
 /** اعتبارسنجی سطوح آپگرید در سیو قدیمی/خراب */

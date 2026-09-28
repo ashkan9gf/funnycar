@@ -184,18 +184,25 @@ export class MissionManager {
     }
   }
 
-  /** لیست مأموریت‌ها برای منو (با وضعیت انجام‌شدگی + فیلتر دسته فاز ۵) */
-  list(completed: string[], category?: MissionCategory): Array<MissionDef & { done: boolean }> {
+  /** لیست مأموریت‌ها برای منو (با وضعیت انجام‌شدگی + فیلتر دسته فاز ۵)
+   *  فاز ۷: قفل زنجیره — مأموریت‌های requires تا تمام‌شدن مأموریت مرجع قفل‌اند */
+  list(completed: string[], category?: MissionCategory): Array<MissionDef & { done: boolean; locked: boolean; requiresTitle: string | null }> {
     this.completedIds = new Set(completed);
     return MISSION_LIST
       .filter((m) => !category || (m.category ?? 'story') === category)
-      .map((m) => ({ ...m, done: this.completedIds.has(m.id) }));
+      .map((m) => {
+        const req = m.requires ? MISSION_LIST.find((x) => x.id === m.requires) : undefined;
+        const locked = m.requires !== undefined && !this.completedIds.has(m.requires);
+        return { ...m, done: this.completedIds.has(m.id), locked, requiresTitle: req?.title ?? null };
+      });
   }
 
-  /** شروع مأموریت — همیشه از وضعیت تمیز */
+  /** شروع مأموریت — همیشه از وضعیت تمیز (قفل زنجیره‌ای فاز ۷ رعایت می‌شود) */
   start(id: string): boolean {
     const def = MISSION_LIST.find((m) => m.id === id);
     if (!def) return false;
+    // فاز ۷: مأموریت قفل شروع نمی‌شود (نگهبان امنیتی — UI هم قفل نشان می‌دهد)
+    if (def.requires !== undefined && !this.completedIds.has(def.requires)) return false;
     this.cleanupMissionWorld(); // اگر مأموریت قبلی نگهبان داشته — جمع کن
     this.def = def;
     this.state = 'active';

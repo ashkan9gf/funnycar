@@ -10,7 +10,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Anchor,
   ArrowUp,
+  Bike,
+  Bird,
   Car,
   Check,
   ChevronLeft,
@@ -30,7 +33,9 @@ import {
   PartyPopper,
   Pause,
   Play,
+  Radio,
   Shield,
+  Siren,
   Square,
   Target,
   Users,
@@ -43,6 +48,8 @@ import {
   createGame,
   GARAGE_FOOTER,
   PAINT_FLAVOR,
+  HORN_FOOTER,
+  HORN_FLAVOR,
   type GameInstance,
   type GarageView,
   type GameState,
@@ -124,7 +131,7 @@ const FAIL_REASON_FA: Record<string, string> = {
 
 /** عنوان و توضیح هر دسته مأموریت (فاز ۵) */
 const CATEGORY_FA: Record<MissionCategory, { title: string; hint: string }> = {
-  story: { title: "مأموریت‌ها", hint: "مأموریت موفق: ۲۰ تا ۱۰۰ سکه + ۸ تا ۱۵ آبرو (طبق سند طراحی)" },
+  story: { title: "مأموریت‌ها", hint: "زنجیره «شاگردی عمو نقی» هم اینجاست — هر مرحله، مرحله بعد را باز می‌کند!" },
   park: { title: "پارک دوبل", hint: "دنده‌عقب برو تو جای پارک، تراز وایسا، ترمز! هر دو جهت قبوله" },
   taxi: { title: "مسافرکشی", hint: "وایسا سر جای سوارشدن، بعد برسون مقصد — سریع برسی انعام هم داره!" },
   challenge: { title: "چالش‌ها", hint: "چالش سخت‌تر، جایزه بزرگ‌تر — آبروی راننده توی اینه!" },
@@ -136,6 +143,18 @@ const UPGRADE_ICON: Record<UpgradeId, React.ReactNode> = {
   brake: <Octagon className="h-6 w-6" />,
   tire: <CircleDot className="h-6 w-6" />,
   armor: <Shield className="h-6 w-6" />,
+};
+
+/** آیکون هر بوق (فاز ۷) */
+const HORN_ICON: Record<string, React.ReactNode> = {
+  classic: <Megaphone className="h-6 w-6" />,
+  doble: <Volume2 className="h-6 w-6" />,
+  moto: <Bike className="h-6 w-6" />,
+  klaxon: <Radio className="h-6 w-6" />,
+  steam: <Anchor className="h-6 w-6" />,
+  melody: <Music className="h-6 w-6" />,
+  crow: <Bird className="h-6 w-6" />,
+  police: <Siren className="h-6 w-6" />,
 };
 
 export default function GameShell() {
@@ -371,7 +390,7 @@ export default function GameShell() {
             <p className="mt-auto text-center text-[11px] font-bold leading-5 text-white/70">
               دسکتاپ: جهت‌نما / WASD رانندگی — H بوق — P توقف — F شمارنده FPS
               <br />
-              فاز ۶ • گاراژ و آپگرید • موتور اختصاصی + Three.js
+              فاز ۷ • بوق‌های طنز + زنجیره شاگردی عمو نقی • موتور اختصاصی + Three.js
             </p>
           </div>
         </div>
@@ -394,24 +413,41 @@ export default function GameShell() {
                 <X className="h-6 w-6" />
               </TapButton>
             </div>
-            {missions.map((m) => (
+            {missions.map((m) => {
+              const locked = m.locked;
+              return (
               <button
                 key={m.id}
                 type="button"
-                className="fc-btn fc-panel flex w-full flex-col items-start gap-1 bg-[#FFF9EC] p-4 text-right"
+                disabled={locked}
+                className={`fc-btn fc-panel flex w-full flex-col items-start gap-1 p-4 text-right ${
+                  locked ? "bg-[#FFF9EC]/60 opacity-75" : "bg-[#FFF9EC]"
+                }`}
                 onPointerDown={(e) => {
                   e.preventDefault();
+                  if (locked) return;
                   gameRef.current?.startMission(m.id);
                   setShowMissions(false);
                 }}
               >
                 <div className="flex w-full items-center justify-between">
-                  <span className="text-lg font-extrabold text-[#3a2e2a]">{m.title}</span>
-                  {m.done && (
+                  <span className={`text-lg font-extrabold ${locked ? "text-[#3a2e2a]/55" : "text-[#3a2e2a]"}`}>{m.title}</span>
+                  {locked && (
+                    <span className="flex items-center gap-1 rounded-full bg-[#3a2e2a]/10 px-3 py-0.5 text-xs font-extrabold text-[#3a2e2a]/60">
+                      <Lock className="h-3.5 w-3.5" /> قفل
+                    </span>
+                  )}
+                  {!locked && m.done && (
                     <span className="rounded-full bg-[#8AC926] px-3 py-0.5 text-xs font-extrabold text-[#3a2e2a]">انجام شد ✓</span>
                   )}
                 </div>
-                <p className="text-xs font-bold leading-5 text-[#3a2e2a]/75">{m.intro}</p>
+                <p className={`text-xs font-bold leading-5 ${locked ? "text-[#3a2e2a]/45" : "text-[#3a2e2a]/75"}`}>{m.intro}</p>
+                {locked && m.requiresTitle && (
+                  <p className="mt-0.5 flex items-center gap-1.5 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[11px] font-extrabold text-[#B8801A]">
+                    <Lock className="h-3.5 w-3.5" /> اول «{m.requiresTitle}» را تمام کن!
+                  </p>
+                )}
+                {!locked && (
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-extrabold">
                   <span className="flex items-center gap-1 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[#B8801A]">
                     <Coins className="h-3.5 w-3.5" /> +{fa(m.rewardCoins)}
@@ -425,8 +461,10 @@ export default function GameShell() {
                     </span>
                   )}
                 </div>
+                )}
               </button>
-            ))}
+              );
+            })}
             <p className="mt-1 text-center text-[11px] font-bold text-white/75">
               {CATEGORY_FA[missionFilter ?? "story"].hint}
             </p>
@@ -562,6 +600,57 @@ export default function GameShell() {
                 <p className="text-center text-[11px] font-bold text-white/85">«{flavor}»</p>
               ) : null;
             })()}
+
+            {/* بوق‌ها (فاز ۷) — امضای صوتی راننده */}
+            <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-white/80">
+              <Megaphone className="h-4 w-4" /> بوق‌ها — بزن بشنوی، بعد بخر! (صدای واقعی پخش می‌شود):
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {garage.horns.map((h) => (
+                <button
+                  key={h.id}
+                  type="button"
+                  title={h.desc}
+                  className={`fc-btn flex items-center gap-2 rounded-2xl p-2.5 text-right ${
+                    h.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
+                  }`}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    if (h.owned) {
+                      if (!h.selected) purchase(() => gameRef.current!.selectHorn(h.id));
+                    } else {
+                      purchase(() => gameRef.current!.buyHorn(h.id));
+                    }
+                  }}
+                >
+                  <span
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                      h.selected ? "bg-[#3a2e2a] text-[#8AC926]" : "bg-[#FFF3D6] text-[#3a2e2a]"
+                    }`}
+                  >
+                    {HORN_ICON[h.id] ?? <Megaphone className="h-6 w-6" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block truncate text-sm font-extrabold ${h.selected ? "text-[#3a2e2a]" : "text-[#3a2e2a]"}`}>
+                      {h.name}
+                    </span>
+                    <span className={`block text-[10px] font-bold leading-3.5 ${h.selected ? "text-[#3a2e2a]/75" : "text-[#3a2e2a]/60"}`}>
+                      {h.owned ? (h.selected ? "وصل شد ✓" : "خریده‌شده — بزن وصل شه") : `${fa(h.price)} سکه`}
+                    </span>
+                  </span>
+                  {!h.owned && <Lock className="h-4 w-4 shrink-0 text-[#3a2e2a]/40" />}
+                </button>
+              ))}
+            </div>
+            {/* جمله طنز بوق انتخاب‌شده */}
+            {(() => {
+              const sel = garage.horns.find((x) => x.selected);
+              const flavor = sel ? HORN_FLAVOR[sel.id] : null;
+              return flavor ? (
+                <p className="text-center text-[11px] font-bold text-white/85">«{flavor}»</p>
+              ) : null;
+            })()}
+            <p className="text-center text-[11px] font-bold text-white/75">{HORN_FOOTER}</p>
 
             <p className="mt-1 text-center text-[11px] font-bold text-white/75">{GARAGE_FOOTER}</p>
           </div>
@@ -787,6 +876,12 @@ export default function GameShell() {
             <p className="mt-3 rounded-2xl bg-[#FFF3D6] px-3 py-2 text-sm font-bold leading-6 text-[#3a2e2a]">
               «{missionResult.line}»
             </p>
+            {missionResult.success && missionResult.unlockedNext && (
+              <p className="mt-2 flex items-center justify-center gap-1.5 rounded-2xl bg-[#8AC926]/25 px-3 py-2 text-sm font-extrabold text-[#3a2e2a]">
+                <Lock className="h-4 w-4" />
+                مأموریت جدید باز شد: {missionResult.unlockedNext}!
+              </p>
+            )}
             <div className="mt-4 space-y-2">
               <button
                 type="button"

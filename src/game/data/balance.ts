@@ -277,7 +277,8 @@ export const SAVE = {
   key: 'funnycarir_save',
   backupKey: 'funnycarir_save_backup',
   /** نسخه ۲: فاز ۶ — فیلدهای upgrades/ownedPaints/paint گاراژ اضافه شد */
-  version: 2,
+  /** نسخه ۳: فاز ۷ — فیلدهای ownedHorns/horn فروشگاه بوق اضافه شد */
+  version: 3,
 } as const;
 
 /** رندر دوبعدی (fallback و مرجع ابعاد منطقی) */

@@ -24,6 +24,8 @@ import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
+import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
+import { MISSION_LIST } from '../data/missions';
 import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
@@ -67,6 +69,8 @@ export interface MissionResultData {
   reason: string | null;
   /** جمله طنز انتخاب‌شده */
   line: string;
+  /** فاز ۷ — عنوان مأموریت زنجیره‌ای که با این پیروزی باز شد (null = هیچ) */
+  unlockedNext: string | null;
 }
 
 export interface GameCallbacks {
@@ -92,6 +96,15 @@ export interface GarageView {
     name: string;
     hex: string;
     price: number;
+    owned: boolean;
+    selected: boolean;
+  }>;
+  /** فاز ۷ — فروشگاه بوق‌ها */
+  horns: Array<{
+    id: string;
+    name: string;
+    price: number;
+    desc: string;
     owned: boolean;
     selected: boolean;
   }>;
@@ -303,6 +316,15 @@ export class GameManager {
         owned: d.ownedPaints.includes(p.id),
         selected: d.paint === p.id,
       })),
+      // فاز ۷ — بوق‌ها
+      horns: HORN_LIST.map((h) => ({
+        id: h.id,
+        name: h.name,
+        price: h.price,
+        desc: h.desc,
+        owned: d.ownedHorns.includes(h.id),
+        selected: d.horn === h.id,
+      })),
     };
   }
 
@@ -350,6 +372,38 @@ export class GameManager {
     this.save.mutate((s) => { s.paint = id; });
     this.renderer3d?.setPlayerPaint(p.hex);
     return { ok: true, coins: this.save.get().coins, msg: `رنگ «${p.name}» انتخاب شد` };
+  }
+
+  // ============ فروشگاه بوق‌ها (فاز ۷) ============
+
+  /** خرید بوق (اگر خریده نشده) + انتخاب آن + پیش‌نمایش صدا */
+  buyHorn(id: string): { ok: boolean; coins: number; msg: string } {
+    const h = hornById(id);
+    const d = this.save.get();
+    if (!h) return { ok: false, coins: d.coins, msg: 'این بوق تو قفسه‌مون نیست!' };
+    if (d.ownedHorns.includes(id)) return this.selectHorn(id);
+    if (d.coins < h.price) return { ok: false, coins: d.coins, msg: 'برای این بوق سکه کم داری! برو مسافرکشی...' };
+    this.save.mutate((s) => {
+      s.coins -= h.price;
+      s.ownedHorns.push(id);
+      s.horn = id;
+    });
+    this.audio.ensure();
+    this.audio.hornById(id); // پیش‌نمایش نصب!
+    this.audio.coin();
+    const flavor = HORN_FLAVOR[h.id as HornId];
+    return { ok: true, coins: this.save.get().coins, msg: flavor ?? `بوق «${h.name}» نصب شد!` };
+  }
+
+  /** انتخاب بوق خریده‌شده + پیش‌نمایش صدا */
+  selectHorn(id: string): { ok: boolean; coins: number; msg: string } {
+    const h = hornById(id);
+    const d = this.save.get();
+    if (!h || !d.ownedHorns.includes(id)) return { ok: false, coins: d.coins, msg: 'اول باید بخریش!' };
+    this.save.mutate((s) => { s.horn = id; });
+    this.audio.ensure();
+    this.audio.hornById(id); // پیش‌نمایش!
+    return { ok: true, coins: this.save.get().coins, msg: `بوق «${h.name}» وصل شد!` };
   }
 
   // ============ وضعیت‌ها ============
@@ -405,13 +459,30 @@ export class GameManager {
   setVirtualBrake(v: boolean): void { this.input.setVirtualBrake(v); }
   pressHorn(): void {
     if (this.state !== 'playing') return;
-    this.audio.horn(Math.floor(Math.random() * 3));
-    this.voice.trigger('horn_joke', performance.now());
-    // واکنش ترافیک (فاز 2): جواب بوق + حباب طنز روی ماشینِ جواب‌دهنده
+    // فاز ۷: بوق شخصی بازیکن — امضای صوتی هر بوق جداست
+    const hornId = (this.save.get().horn || 'classic') as HornId;
+    this.audio.hornById(hornId);
+    // جملات طنز خودِ راننده — بوق‌های خاص جمله مخصوص خودشان را دارند
+    const selfEvent = HORN_OWNER_EVENT[hornId];
+    if (selfEvent) {
+      this.voice.trigger(selfEvent, performance.now());
+    } else {
+      this.voice.trigger('horn_joke', performance.now());
+    }
+    // شکایت مسافر تاکسی اگر سرنشین داریم و داریم بوق‌بازی می‌کنیم (فاز ۷)
+    if (
+      this.mission.getState() === 'active' &&
+      this.mission.getDef()?.kind === 'taxi_fare' &&
+      this.mission.getPhase() === 'to_target'
+    ) {
+      this.voice.trigger('passenger_horn', performance.now());
+    }
+    // واکنش ترافیک: جواب بوق + حباب طنز روی ماشینِ جواب‌دهنده — متن متناسب با بوق (فاز ۷)
     const reacted = this.traffic.onPlayerHorn(this.vehicle.x, this.vehicle.y);
     if (reacted.length > 0) {
       const car = reacted[0];
-      this.fx.pushBubble(this.pickLine('traffic_honk'), car.x, car.y, 'char_driver_01_idle', 2.6);
+      const ev = HORN_REACT[hornId] ?? 'traffic_honk';
+      this.fx.pushBubble(this.pickLine(ev), car.x, car.y, 'char_driver_01_idle', 2.6);
     }
   }
   setSetting<K extends 'music' | 'sfx' | 'voice'>(k: K, v: number): void {
@@ -427,8 +498,9 @@ export class GameManager {
 
   // ============ مأموریت‌ها (فاز 4 + فاز ۵) ============
 
-  /** لیست مأموریت‌ها برای منو (با فیلتر دسته — فاز ۵: park/taxi/challenge) */
-  listMissions(category?: MissionCategory): Array<{ id: string; title: string; intro: string; objective: string; category: MissionCategory; rewardCoins: number; rewardRep: number; timeLimitSec: number; done: boolean }> {
+  /** لیست مأموریت‌ها برای منو (با فیلتر دسته — فاز ۵: park/taxi/challenge)
+   *  فاز ۷: قفل زنجیره + عنوان مأموریت پیش‌نیاز */
+  listMissions(category?: MissionCategory): Array<{ id: string; title: string; intro: string; objective: string; category: MissionCategory; rewardCoins: number; rewardRep: number; timeLimitSec: number; done: boolean; locked: boolean; requiresTitle: string | null }> {
     return this.mission.list(this.save.get().completedMissions, category).map((m) => ({
       id: m.id,
       title: m.title,
@@ -439,6 +511,8 @@ export class GameManager {
       rewardRep: m.rewardRep,
       timeLimitSec: m.timeLimitSec,
       done: m.done,
+      locked: m.locked,
+      requiresTitle: m.requiresTitle,
     }));
   }
 
@@ -510,8 +584,19 @@ export class GameManager {
     }
     this.voice.trigger(success ? 'mission_success' : 'mission_fail', performance.now());
 
-    const line = this.pickLine(success ? 'mission_success' : 'mission_fail');
-    this.callbacks.onMissionEnd?.({ success, missionId, title, coins, rep, reason, line });
+    // فاز ۷: زنجیره عمو نقی — جمله تبریک مکانیکی جای جمله معمولی
+    const isChain = success && def?.chain === 'naghi';
+    const line = isChain ? this.pickLine('naghi_chain') : this.pickLine(success ? 'mission_success' : 'mission_fail');
+
+    // فاز ۷: کدام مأموریت زنجیره‌ای با این پیروزی باز شد؟
+    let unlockedNext: string | null = null;
+    if (success) {
+      const completed = this.save.get().completedMissions;
+      const next = MISSION_LIST.find((m) => m.requires === missionId && !completed.includes(m.id));
+      if (next) unlockedNext = next.title;
+    }
+
+    this.callbacks.onMissionEnd?.({ success, missionId, title, coins, rep, reason, line, unlockedNext });
   }
 
   // ============ ترافیک و رویدادها (فاز 2) ============

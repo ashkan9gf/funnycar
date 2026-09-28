@@ -66,6 +66,11 @@ export interface MissionDef {
   rewardCoins: number;
   /** جایزه آبرو (سند: +۸ تا +۱۵) */
   rewardRep: number;
+  // ---------- فاز ۷: زنجیره داستانی ----------
+  /** فقط زنجیره: این مأموریت تا مأموریت با این id تمام نشود، قفل است (undefined = آزاد) */
+  requires?: string;
+  /** برچسب زنجیره داستانی (نمایش بج در منو) — مثلاً 'naghi' */
+  chain?: string;
 }
 
 /*
@@ -229,5 +234,85 @@ export const MISSION_LIST: MissionDef[] = [
     timeLimitSec: 85,
     rewardCoins: 55,
     rewardRep: 10,
+  },
+
+  // ================= زنجیره داستانی «شاگرد عمو نقی» (فاز ۷) =================
+  // قاعده: هر مرحله با تمام‌شدن مرحله قبل باز می‌شود (requires)
+  {
+    id: 'nq01_first_fare',
+    title: 'شاگردی ۱: اولین سفارش',
+    intro: 'عمو نقی گفته «برو مسافر بگیر تا بنزری جور شه!» مسافر اول، افتخار اول!',
+    objective: 'سوارش کن، برسون — زود برسی انعام هم داره!',
+    kind: 'taxi_fare',
+    category: 'story',
+    chain: 'naghi',
+    pickup: { x: 3080, y: 2380 },
+    target: { x: 5180, y: 4480 },
+    timeLimitSec: 110,
+    rewardCoins: 55,
+    rewardRep: 10,
+  },
+  {
+    id: 'nq02_park_garage',
+    title: 'شاگردی ۲: پارک جلوی گاراژ',
+    intro: 'جلوی گاراژ عمو نقی جا تنگه! دنده‌عقب برو، آبرومند بیا بیرون!',
+    objective: 'دنده‌عقب برو تو جای خالی، تراز وایسا، ترمز!',
+    kind: 'parallel_park',
+    category: 'story',
+    chain: 'naghi',
+    requires: 'nq01_first_fare',
+    target: { x: 1370, y: 980 },
+    spotAngle: 0,
+    spotLen: 280,
+    timeLimitSec: 90,
+    rewardCoins: 50,
+    rewardRep: 10,
+  },
+  {
+    id: 'nq03_ash_delivery',
+    title: 'شاگردی ۳: آش مامان‌بزرگ',
+    intro: 'کوزه آش مامان‌بزرگ دم صندلیه! یه تصادف یعنی آش روی سقف ماشین!',
+    objective: 'برس به مقصد — بدون حتی یک تصادف!',
+    kind: 'fragile_reach',
+    category: 'story',
+    chain: 'naghi',
+    requires: 'nq02_park_garage',
+    target: { x: 5880, y: 1680 },
+    timeLimitSec: 85,
+    rewardCoins: 60,
+    rewardRep: 12,
+  },
+  {
+    id: 'nq04_parts_round',
+    title: 'شاگردی ۴: قطعه‌های گم‌شده',
+    intro: 'قطعه‌ی پژوی مشتری سه‌جا گم شده! بگرد پیدا کن قبل از اینکه مشتری قهر کنه!',
+    objective: 'از هر ۳ چک‌پوینت به‌ترتیب رد شو!',
+    kind: 'checkpoint_run',
+    category: 'story',
+    chain: 'naghi',
+    requires: 'nq03_ash_delivery',
+    target: { x: 5880, y: 4480 },
+    checkpoints: [
+      { x: 3080, y: 7280 },
+      { x: 5880, y: 7280 },
+      { x: 5880, y: 4480 },
+    ],
+    timeLimitSec: 150,
+    rewardCoins: 70,
+    rewardRep: 12,
+  },
+  {
+    id: 'nq05_finale_race',
+    title: 'شاگردی ۵: آخر خط!',
+    intro: 'عمو نقی شرط بسته پژو سفید زودتر می‌رسه! ثابت کن پراید هم می‌تونه!',
+    objective: 'برس گوشه شمال‌شرقی شهر قبل از اتمام وقت!',
+    kind: 'timed_reach',
+    category: 'story',
+    chain: 'naghi',
+    requires: 'nq04_parts_round',
+    target: { x: 8680, y: 280 },
+    timeLimitSec: 120,
+    rewardCoins: 100,
+    rewardRep: 15,
   },
 ];

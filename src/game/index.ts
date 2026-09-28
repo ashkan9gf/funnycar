@@ -19,6 +19,10 @@ export interface MissionListItem {
   rewardRep: number;
   timeLimitSec: number;
   done: boolean;
+  /** فاز ۷ — قفل زنجیره داستانی */
+  locked: boolean;
+  /** فاز ۷ — عنوان مأموریت پیش‌نیاز (برای متن راهنمای قفل) */
+  requiresTitle: string | null;
 }
 
 export interface GameInstance {
@@ -45,6 +49,9 @@ export interface GameInstance {
   buyUpgrade: (id: UpgradeId) => PurchaseResult;
   buyPaint: (id: string) => PurchaseResult;
   selectPaint: (id: string) => PurchaseResult;
+  /** فاز ۷: فروشگاه بوق‌های طنز */
+  buyHorn: (id: string) => PurchaseResult;
+  selectHorn: (id: string) => PurchaseResult;
   dispose: () => void;
 }
 
@@ -76,6 +83,8 @@ export async function createGame(
     buyUpgrade: (id) => gm.buyUpgrade(id),
     buyPaint: (id) => gm.buyPaint(id),
     selectPaint: (id) => gm.selectPaint(id),
+    buyHorn: (id) => gm.buyHorn(id),
+    selectHorn: (id) => gm.selectHorn(id),
     dispose: () => gm.dispose(),
   };
 }
@@ -84,3 +93,4 @@ export type { GameState, HudData, MissionResultData, GarageView, PurchaseResult 
 export type { MissionCategory } from './data/missions';
 export type { UpgradeId } from './data/garage';
 export { GARAGE_FOOTER, PAINT_FLAVOR } from './data/garage';
+export { HORN_FOOTER, HORN_FLAVOR } from './data/horns';
