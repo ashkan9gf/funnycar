@@ -21,6 +21,8 @@ import {
   CircleDot,
   Coffee,
   Coins,
+  FolderOpen,
+  FlaskConical,
   Gauge,
   Home,
   Loader2,
@@ -354,6 +356,28 @@ export default function GameShell() {
               <span className="rounded-full bg-[#3a2e2a] px-2 py-0.5 text-[10px] font-extrabold text-[#F2B705]">جدید</span>
             </button>
 
+            {/* کنسول تست + فایل‌های پروژه (ابزار تست) */}
+            <div className="flex w-full max-w-xs gap-2">
+              <a
+                href="/test"
+                target="_blank"
+                rel="noreferrer"
+                className="fc-btn flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-[#FFF9EC] py-2.5 text-sm font-extrabold text-[#3a2e2a] no-underline"
+              >
+                <FlaskConical className="h-4 w-4" />
+                کنسول تست
+              </a>
+              <a
+                href="/files"
+                target="_blank"
+                rel="noreferrer"
+                className="fc-btn flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-[#FFF9EC] py-2.5 text-sm font-extrabold text-[#3a2e2a] no-underline"
+              >
+                <FolderOpen className="h-4 w-4" />
+                فایل‌ها
+              </a>
+            </div>
+
             {/* تنظیمات */}
             {showSettings ? (
               <div className="fc-panel fc-pop w-full max-w-xs bg-[#FFF9EC] p-4">
@@ -660,31 +684,31 @@ export default function GameShell() {
       {/* ============ HUD گیم‌پلی ============ */}
       {phase === "playing" && (
         <>
-          {/* نوار بالا */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-3">
+          {/* نوار بالا — dir ltr: توقف چپ، پنل‌ها کنارش؛ مینی‌مپ روی بوم بالا-راست است */}
+          <div dir="ltr" className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-start gap-2 p-3">
             <div className="pointer-events-auto">
-              <TapButton ariaLabel="توقف بازی" className="h-12 w-12 bg-[#FFF9EC] text-[#3a2e2a]" onTap={() => gameRef.current?.pause()}>
-                <Pause className="h-6 w-6" />
+              <TapButton ariaLabel="توقف بازی" className="h-10 w-10 bg-[#FFF9EC] text-[#3a2e2a]" onTap={() => gameRef.current?.pause()}>
+                <Pause className="h-5 w-5" />
               </TapButton>
             </div>
-            <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-col items-start gap-1.5">
               {/* پنل مأموریت فعال (فاز 4) */}
               {hud.mission && (
-                <div className="fc-panel pointer-events-auto w-[248px] bg-[#FFF9EC]/95 p-3">
+                <div className="fc-panel pointer-events-auto w-[188px] bg-[#FFF9EC]/95 p-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-extrabold text-[#3a2e2a]">{hud.mission.title}</span>
+                    <span className="text-[11px] font-bold text-[#3a2e2a]">{hud.mission.title}</span>
                     <TapButton
                       ariaLabel="انصراف از مأموریت"
-                      className="h-7 w-7 bg-[#D64545] text-white"
+                      className="h-6 w-6 bg-[#D64545] text-white"
                       onTap={() => gameRef.current?.abandonMission()}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3.5 w-3.5" />
                     </TapButton>
                   </div>
-                  <p className="mt-0.5 text-[10px] font-bold leading-4 text-[#3a2e2a]/70">{hud.mission.objective}</p>
+                  <p className="mt-0.5 text-[9px] font-medium leading-3 text-[#3a2e2a]/70">{hud.mission.objective}</p>
                   {hud.mission.timeLeft >= 0 && (
-                    <div className="mt-1.5">
-                      <div className="h-2.5 w-full overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
+                    <div className="mt-1">
+                      <div className="h-2 w-full overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
                         <div
                           className="h-full transition-all"
                           style={{
@@ -693,52 +717,52 @@ export default function GameShell() {
                           }}
                         />
                       </div>
-                      <div className="mt-0.5 flex items-center justify-between text-[10px] font-extrabold text-[#3a2e2a]/80">
+                      <div className="mt-0.5 flex items-center justify-between text-[9px] font-bold text-[#3a2e2a]/80">
                         <span>{fa(Math.ceil(hud.mission.timeLeft))} ثانیه</span>
                         <span>{fa(hud.mission.distM)} متر</span>
                       </div>
                     </div>
                   )}
                   {hud.mission.timeLeft < 0 && (
-                    <div className="mt-1 text-[10px] font-extrabold text-[#3a2e2a]/80">{fa(hud.mission.distM)} متر تا هدف</div>
+                    <div className="mt-1 text-[9px] font-bold text-[#3a2e2a]/80">{fa(hud.mission.distM)} متر تا هدف</div>
                   )}
                   {hud.mission.extra && (
-                    <div className="mt-1 rounded-full bg-[#FFF3D6] px-2 py-0.5 text-center text-[10px] font-extrabold text-[#3a2e2a]">{hud.mission.extra}</div>
+                    <div className="mt-1 rounded-full bg-[#FFF3D6] px-2 py-0.5 text-center text-[9px] font-bold text-[#3a2e2a]">{hud.mission.extra}</div>
                   )}
                 </div>
               )}
-              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
-                <Coins className="h-5 w-5 text-[#B8801A]" />
-                <span className="font-extrabold text-[#3a2e2a]">{fa(hud.coins)}</span>
+              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+                <Coins className="h-4 w-4 text-[#B8801A]" />
+                <span className="text-[11px] font-bold text-[#3a2e2a]">{fa(hud.coins)}</span>
               </div>
-              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
-                <Coffee className="h-5 w-5 text-[#D64545]" />
-                <div className="h-3 w-20 overflow-hidden rounded-full border-[3px] border-[#3a2e2a] bg-white">
+              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+                <Coffee className="h-4 w-4 text-[#D64545]" />
+                <div className="h-2.5 w-16 overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
                   <div className="h-full transition-all" style={{ width: `${hud.reputation}%`, backgroundColor: repColor }} />
                 </div>
               </div>
               {/* سلامت ماشین (فاز BIG-IR) */}
-              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
-                <Wrench className="h-5 w-5 text-[#5d6d7e]" />
-                <div className="h-3 w-20 overflow-hidden rounded-full border-[3px] border-[#3a2e2a] bg-white">
+              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+                <Wrench className="h-4 w-4 text-[#5d6d7e]" />
+                <div className="h-2.5 w-16 overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
                   <div className="h-full transition-all" style={{ width: `${hud.health}%`, backgroundColor: healthColor }} />
                 </div>
               </div>
-              <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC]/95 px-3 py-1.5">
-                <Gauge className="h-5 w-5 text-[#2A9D8F]" />
-                <span className="font-extrabold text-[#3a2e2a]">{fa(hud.speedKmh)} کیلومتر/ساعت</span>
+              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+                <Gauge className="h-4 w-4 text-[#2A9D8F]" />
+                <span className="text-[11px] font-bold text-[#3a2e2a]">{fa(hud.speedKmh)} km/h</span>
               </div>
               {hud.showFps && (
-                <div className="fc-panel bg-[#3a2e2a]/85 px-3 py-1">
-                  <span className="text-xs font-extrabold text-white">FPS: {fa(hud.fps)}</span>
+                <div className="fc-panel bg-[#3a2e2a]/85 px-2 py-0.5">
+                  <span className="text-[10px] font-bold text-white">FPS: {fa(hud.fps)}</span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* کنترل‌ها: فرمان پایین-چپ، گاز/ترمز پایین-راست (GAME_DESIGN بخش ۱۳) */}
+          {/* کنترل‌ها: فرمان پایین-چپ، گاز/ترمز پایین-راست — dir ltr تا RTL دکمه‌ها را برعکس نچیند */}
           <div className="pointer-events-none absolute inset-0 z-20">
-            <div className="pointer-events-auto absolute" style={{ left: 20, bottom: 28, display: "flex", gap: 14 }}>
+            <div className="pointer-events-auto absolute" style={{ left: 20, bottom: 28, display: "flex", gap: 14, direction: "ltr" }}>
               <HoldButton
                 ariaLabel="فرمان چپ"
                 onHold={steerLeft}
@@ -754,7 +778,7 @@ export default function GameShell() {
                 <ChevronRight className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
             </div>
-            <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: 20, bottom: 28 }}>
+            <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: 20, bottom: 28, direction: "ltr" }}>
               <div className="flex flex-col items-center gap-3">
                 <TapButton
                   ariaLabel="بوق"

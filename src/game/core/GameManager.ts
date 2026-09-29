@@ -18,11 +18,12 @@ import { PedestrianManager } from '../managers/PedestrianManager';
 import { MissionManager, faNum, type MissionHud, type GuardCar } from '../managers/MissionManager';
 import type { MissionCategory } from '../data/missions';
 import { Vehicle } from '../entities/Vehicle';
+import { DIR_INFO } from '../entities/TrafficCar';
 import { World, type WorldProp } from '../world/World';
 import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
-import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
+import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
@@ -186,8 +187,15 @@ export class GameManager {
 
     // ---------- انتخاب رندرر: اول WebGL (سه‌بعدی)، بعد 2D ----------
     // توجه: بعد از گرفتن یک نوع کانتکست، نوع دیگر روی همان کانواس ممکن نیست
-    const gl = (canvas.getContext('webgl2', { antialias: true })
-      ?? canvas.getContext('webgl', { antialias: true })) as WebGL2RenderingContext | WebGLRenderingContext | null;
+    // فاز FPS-1: در موبایل MSAA گران است — با pixelRatio=1 لازم نیست؛ خاموش می‌کنیم
+    const coarsePointer = typeof matchMedia !== 'undefined'
+      && matchMedia('(pointer: coarse)').matches;
+    const glOpts: WebGLContextAttributes = {
+      antialias: !coarsePointer,
+      powerPreference: 'high-performance',
+    };
+    const gl = (canvas.getContext('webgl2', glOpts)
+      ?? canvas.getContext('webgl', glOpts)) as WebGL2RenderingContext | WebGLRenderingContext | null;
     if (gl) {
       this.is3D = true;
       const overlay = document.createElement('canvas');
@@ -206,9 +214,14 @@ export class GameManager {
     }
 
     // ترافیک و رویدادهای تصادفی (فاز 2)
-    // فاز GTA-IR: ترکیب ایرانی — پراید غالب مثل خیابان‌های واقعی!
+    // فاز GTA-IR v0.2.7: همه واریانت‌ها GLB واقعی — ۲۰۶ و پیکان نقره‌ای پررنگ (درخواست کاربر)
     this.traffic = new TrafficManager(
-      ['veh_pride_01', 'veh_sedan_01', 'veh_pride_01', 'veh_taxi_01', 'veh_tiba_01', 'veh_pickup_01', 'veh_police_01'],
+      [
+        'veh_pride_01', 'veh_sedan_01', 'veh_samand_01', 'veh_sedan_01',
+        'veh_samand_01', 'veh_pride_01', 'veh_taxi_01', 'veh_sedan_01',
+        'veh_samand_01', 'veh_pride_01', 'veh_taxi_01', 'veh_samand_01',
+        'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_sedan_01',
+      ],
       { onHonk: (car) => this.onTrafficHonk(car) },
       (() => {
         const s = this.world.playerSpawn();
@@ -630,7 +643,7 @@ export class GameManager {
     }
   }
 
-  /** برخورد بازیکن با خودروی ترافیک — بازیکن کنار می‌رود، ترافیک مکث می‌کند + آسیب (فاز BIG-IR) */
+  /** برخورد بازیکن با خودروی ترافیک — هر دو جدا می‌شوند، ترافیک بر اساس شدت ضربه پرت می‌شود (فاز APK-FIX) */
   private resolveTrafficCollisions(dt: number): void {
     const v = this.vehicle;
     this.crashCooldown = Math.max(0, this.crashCooldown - dt);
@@ -643,12 +656,36 @@ export class GameManager {
       const penY = hh - Math.abs(dy);
       if (penX <= 0 || penY <= 0) continue;
 
-      const impact = Math.hypot(v.vx, v.vy);
-      if (penX < penY) v.x += dx >= 0 ? penX : -penX;
-      else v.y += dy >= 0 ? penY : -penY;
-      v.speed *= 0.5;
-      v.latVel *= 0.4;
-      c.stun(TRAFFIC.stunnedSec);
+      // شدت ضربه = سرعت «نسبی» بازیکن نسبت به ماشین ترافیک
+      const relVx = v.vx - DIR_INFO[c.dir].x * c.speed;
+      const relVy = v.vy - DIR_INFO[c.dir].y * c.speed;
+      const impact = Math.hypot(relVx, relVy);
+
+      // جداسازی نصفه‌نیمه: بازیکن یک نصفه عقب، ترافیک یک نصفه جلوتر
+      if (penX < penY) {
+        const s = dx >= 0 ? penX : -penX;
+        v.x += s * 0.5;
+        c.x -= s * 0.5;
+      } else {
+        const s = dy >= 0 ? penY : -penY;
+        v.y += s * 0.5;
+        c.y -= s * 0.5;
+      }
+
+      // پرتاب ترافیک: جهت ضربه = بردار سرعت بازیکن (در سایشِ آرام: محور جداسازی)
+      const kdx = impact > 40 ? relVx : -dx;
+      const kdy = impact > 40 ? relVy : -dy;
+      c.knock(kdx, kdy, impact);
+
+      // بازیکن فقط در ضربه واقعی کند می‌شود — ساییدنِ آرام دیگر حالت قفل ندارد
+      if (impact > COLLISION.softCrashSpeed) {
+        v.speed *= 0.55;
+        v.latVel *= 0.4;
+        c.stun(TRAFFIC.stunnedSec * 1.4);
+      } else {
+        v.speed *= 0.985;
+        c.stun(0.5);
+      }
 
       if (this.crashCooldown <= 0 && impact > COLLISION.softCrashSpeed) {
         this.crashCooldown = 0.8;
@@ -759,6 +796,112 @@ export class GameManager {
     if (this.state !== 'playing') return;
     if (Math.random() < PEDESTRIANS.bubbleChance) {
       this.fx.pushBubble(this.pickLine('pedestrian_scare'), x, y, 'char_pass_m_01_idle', 2.2);
+    }
+  }
+
+  // ============ برخورد با عابر پیاده (فاز SMASH) ============
+
+  private pedCd = 0;
+
+  /** ماشین با عابر برخورد می‌کند → عابر به هوا پرتاب می‌شود (طنز — بدون خشونت) */
+  private resolvePedestrianCollisions(dt: number): void {
+    this.pedCd = Math.max(0, this.pedCd - dt);
+    const v = this.vehicle;
+    const speed = Math.abs(v.speed);
+    if (speed < PEDESTRIANS.hitMinSpeed) return;
+    const rr = 34 + v.hitW * 0.42;
+    for (const ped of this.peds.peds) {
+      if (ped.knockT > 0 || ped.downT > 0 || ped.riseT > 0) continue;
+      const dx = ped.x - v.x;
+      const dy = ped.y - v.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > rr * rr) continue;
+
+      // ضربه!
+      this.peds.knockPed(ped, v.vx, v.vy, speed);
+      v.speed *= PEDESTRIANS.speedLoss;
+      if (this.pedCd > 0) break;
+      this.pedCd = 0.45;
+      this.audio.bump();
+      this.camera.addShake(CAM.maxShake * 0.35);
+      this.fx.spawnBurst(ped.x, ped.y, '#ffffff', 8, 170);
+      if (Math.random() < 0.7) {
+        this.fx.pushBubble(this.pickLine('pedestrian_scare'), ped.x, ped.y, 'char_pass_m_01_idle', 2.4);
+      }
+      this.save.mutate((d) => {
+        d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.pedHitPenalty);
+      });
+      this.voice.trigger('pedestrian_scare', performance.now());
+      break;
+    }
+  }
+
+  // ============ برخورد با خودروهای پارک‌شده (فاز SMASH) ============
+
+  private parkedCd = 0;
+
+  /** دوبله‌پارکی‌ها حالا مانع‌اند: بیرون‌اندازی + ضربه + آسیب (فاز SMASH) */
+  private resolveParkedCollisions(dt: number): void {
+    this.parkedCd = Math.max(0, this.parkedCd - dt);
+    const v = this.vehicle;
+    const cars = this.world.parkedCars;
+    for (const pc of cars) {
+      const r = PARKED_HIT.radius[pc.kind] ?? 90;
+      const rr = r + v.hitW * 0.45;
+      const dx = v.x - pc.x;
+      const dy = v.y - pc.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > rr * rr) continue;
+      const d = Math.sqrt(d2) || 1;
+      const nx = dx / d;
+      const ny = dy / d;
+
+      // بیرون‌اندازی کامل بازیکن (پارکی ثابت است)
+      const pen = rr - d;
+      v.x += nx * pen;
+      v.y += ny * pen;
+
+      const impact = Math.abs(v.speed);
+      if (impact < PARKED_HIT.softSpeed) {
+        v.speed *= 0.995;
+        continue;
+      }
+      const hard = impact > PARKED_HIT.hardSpeed;
+      if (hard) {
+        v.speed *= PARKED_HIT.hardKeep;
+      } else {
+        v.speed *= PARKED_HIT.slideKeep;
+      }
+      if (this.parkedCd > 0) break;
+      this.parkedCd = PARKED_HIT.cooldownSec;
+      const cx = (v.x + pc.x) / 2;
+      const cy = (v.y + pc.y) / 2;
+      if (hard) {
+        this.audio.crash(true);
+        this.camera.addShake(CAM.maxShake * 0.6);
+        this.fx.spawnBurst(cx, cy, '#D6D6D6', 12, 220);
+        this.fx.spawnDebris?.(cx, cy, '#4a4a48', 6, 260, 8);
+        const dmg = Math.min(
+          PARKED_HIT.hardDamageMax,
+          (PARKED_HIT.hardDamageBase + impact * PARKED_HIT.hardDamageScale) * v.tune.armorMul,
+        );
+        const fwd = Math.sin(v.angle) * (pc.x - v.x) - Math.cos(v.angle) * (pc.y - v.y);
+        v.applyDamage(dmg, fwd > 0);
+        this.renderer3d?.onPlayerDamaged(dmg, fwd > 0, cx, cy);
+        this.mission.onCrash('soft');
+        this.save.mutate((dd) => {
+          dd.reputation = Math.max(REPUTATION.min, dd.reputation - REPUTATION.softCrashPenalty);
+        });
+        this.voice.trigger('car_crash', performance.now());
+        if (Math.random() < 0.4) {
+          this.fx.pushBubble('وای ماشینم!', pc.x, pc.y, 'char_driver_01_idle', 2.2);
+        }
+      } else {
+        this.audio.bump();
+        this.camera.addShake(2.2);
+        this.fx.spawnBurst(cx, cy, '#c9c9c9', 5, 130);
+      }
+      break; // یک برخورد در هر گام
     }
   }
 
@@ -960,11 +1103,15 @@ export class GameManager {
     this.traffic.update(dt, this.vehicle);
     this.resolveTrafficCollisions(dt);
 
+    // ---------- برخورد با پارکی‌ها (فاز SMASH) ----------
+    this.resolveParkedCollisions(dt);
+
     // ---------- شکستنی‌ها (فاز BIG-IR) ----------
     this.updateBreakables(dt);
 
-    // ---------- عابرهای پیاده (فاز BIG-IR) ----------
+    // ---------- عابرهای پیاده (فاز BIG-IR + برخورد SMASH) ----------
     this.peds.update(dt, this.vehicle);
+    this.resolvePedestrianCollisions(dt);
 
     // ---------- دود ماشین آسیب‌دیده (فاز BIG-IR) ----------
     if (this.vehicle.health < DAMAGE.smokeBelow) {

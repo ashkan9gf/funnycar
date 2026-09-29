@@ -60,6 +60,17 @@ export const TRAFFIC = {
   honkBackChance: 0.45,
   /** پس از برخورد با بازیکن، چند ثانیه مکث می‌کنند */
   stunnedSec: 2.2,
+  // ---------- پرتاب برخوردی (فاز APK-FIX) ----------
+  /** سرعت پایه پرتاب ماشین ترافیک هنگام ضربه (px/s) */
+  knockBase: 60,
+  /** ضریب شدت ضربه → سرعت پرتاب (هرچه محکم‌تر بزنی، دورتر پرت می‌شود) */
+  knockScale: 2.1,
+  /** سقف سرعت پرتاب (px/s) */
+  knockMax: 620,
+  /** میرایی نمایی پرتاب (1/s) — ماشینک کم‌کم می‌ایستد */
+  knockDecay: 2.6,
+  /** چرخش تصادفی بدنه بر اثر ضربه محکم (rad/s بر px/s ضربه) */
+  spinScale: 0.0022,
   /** ابعاد رسم ترافیک (نسبت 4:7 مثل بازیکن) */
   drawW: 104,
   /** آستانه عرضی دید جلو — فقط هم‌لاین‌ها ترمز می‌کنند (لاین‌ها ۱۲۰px فاصله) */
@@ -123,6 +134,38 @@ export const PEDESTRIANS = {
   /** پرش ترس (ارتفاع px و مدت) */
   hopHeight: 26,
   hopSec: 0.5,
+  // ---------- برخورد واقعی با ماشین (فاز SMASH) ----------
+  /** کمترین سرعت برای به‌هوا پرتاب شدن عابر */
+  hitMinSpeed: 70,
+  /** مدت پرواز + چرخش در هوا (ثانیه) */
+  knockSec: 0.55,
+  /** مدت افتادن روی زمین (ثانیه) */
+  downSec: 1.7,
+  /** مدت بلند شدن (ثانیه) */
+  riseSec: 0.45,
+  /** ارتفاع پرتاب */
+  knockHeight: 46,
+  /** افت سرعت ماشین بعد از ضربه به عابر */
+  speedLoss: 0.9,
+} as const;
+
+/** خودروهای پارک‌شده — برخورد فیزیکی (فاز SMASH) */
+export const PARKED_HIT = {
+  /** شعاع تقریبی برخورد هر مدل (px) */
+  radius: { pride: 86, peugeot405: 98, tiba: 82, nissan: 98, samand: 100 } as Record<string, number>,
+  /** سرعت بالای این = ضربه جدی (صدا + آسیب + لرزش) */
+  hardSpeed: 230,
+  /** کمترین سرعت برای اثرگذاری بر سرعت بازیکن */
+  softSpeed: 55,
+  /** نگه‌داشت سرعت در ضربه جدی / ساییدن */
+  hardKeep: 0.52,
+  slideKeep: 0.985,
+  /** سردشدن بین دو ضربه (ثانیه) */
+  cooldownSec: 0.5,
+  /** آسیب ضربه جدی */
+  hardDamageBase: 3,
+  hardDamageScale: 0.03,
+  hardDamageMax: 12,
 } as const;
 
 /** رویدادهای تصادفی واقعی (فاز 2) */
@@ -223,6 +266,8 @@ export const REPUTATION = {
   hardCrashPenalty: 8,
   /** برخورد با خودروی ترافیک — خطای راننده بازیکن فرض می‌شود */
   trafficCrashPenalty: 4,
+  /** برخورد با عابر پیاده — آبرو کم می‌شود! */
+  pedHitPenalty: 3,
 } as const;
 
 /** چراغ راهنمای تقاطع‌ها (فاز GRAPHICS_OVERHAUL) */
@@ -310,6 +355,8 @@ export const RENDER3D = {
   fogNear: 1000,
   fogFar: 3300,
   skyColor: '#AEDCEB',
+  /** فاز FPS-1: برد دید شهرک‌های اسکایلاین — فراتر از مه کامل رندر نمی‌شوند */
+  townVisRange: 4600,
   /** نور */
   sunIntensity: 1.35,
   hemiIntensity: 0.85,
@@ -325,7 +372,7 @@ export const RENDER3D = {
   },
   gasStationShopHeight: 210,
   /** مینی‌مپ سبک GTA — اندازه (پیکسل CSS) */
-  minimapSize: 158,
+  minimapSize: 112,
   /** سرعت‌گیر (فاز GTA-IR) — ضریب کندی + آستانه سرعت + سردشدن + لرزش دوربین */
   bumpSlowFactor: 0.78,
   bumpMinSpeed: 80,

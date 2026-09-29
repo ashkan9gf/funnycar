@@ -11,7 +11,7 @@
 
 import * as THREE from 'three';
 import {
-  getBillboardTexture, getBusStopTexture, getSpeedBumpTexture, getStreetSignTexture,
+  getBillboardTexture, getBusStopTexture, getSpeedBumpTexture, getStreetSignTexture, getBannerTexture,
 } from './textures3d';
 
 // ---------- متریال‌های مشترک ----------
@@ -413,5 +413,90 @@ export function buildCrate(): THREE.Group {
   const plank2 = plank.clone();
   plank2.rotation.z = -0.5;
   g.add(plank, plank2);
+  return g;
+}
+
+// ============ فاز CITY-BEAUTY — پارک و زندگی رنگی ============
+
+/** حوض/fountain پارک محله — پایه سنگی + آب + ستون وسط */
+export function buildFountain(): THREE.Group {
+  const g = new THREE.Group();
+  const stone = new THREE.MeshLambertMaterial({ color: '#cfc5ae' });
+  const water = new THREE.MeshLambertMaterial({ color: '#3fa7c4', transparent: true, opacity: 0.85 });
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(52, 56, 18, 18), stone);
+  rim.position.y = 9;
+  rim.castShadow = true;
+  const pool = new THREE.Mesh(new THREE.CylinderGeometry(46, 46, 4, 18), water);
+  pool.position.y = 17;
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(7, 10, 34, 10), stone);
+  pillar.position.y = 32;
+  pillar.castShadow = true;
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(20, 12, 9, 12), stone);
+  bowl.position.y = 52;
+  bowl.castShadow = true;
+  const jet = new THREE.Mesh(new THREE.ConeGeometry(4.5, 22, 8), water);
+  jet.position.y = 70;
+  g.add(rim, pool, pillar, bowl, jet);
+  return g;
+}
+
+/** نیمکت پارک — نشیمن چوبی + پایه آهنی */
+export function buildBench(): THREE.Group {
+  const g = new THREE.Group();
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(92, 6, 30), M.wood);
+  seat.position.y = 22;
+  seat.castShadow = true;
+  const back = new THREE.Mesh(new THREE.BoxGeometry(92, 22, 5), M.wood);
+  back.position.set(0, 36, -14);
+  back.rotation.x = 0.14;
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(6, 22, 28), M.metal);
+  legL.position.set(-38, 11, 0);
+  const legR = legL.clone();
+  legR.position.x = 38;
+  g.add(seat, back, legL, legR);
+  return g;
+}
+
+/** گلکاری رنگی — خاک + گل‌های کوچک چندرنگ */
+export function buildFlowers(seed: number): THREE.Group {
+  const g = new THREE.Group();
+  const bed = new THREE.Mesh(new THREE.CylinderGeometry(44, 46, 8, 14), new THREE.MeshLambertMaterial({ color: '#5e4327' }));
+  bed.position.y = 4;
+  g.add(bed);
+  const petals = ['#E63946', '#F2B705', '#E2728C', '#ffffff', '#7B5EA7', '#FF8C42'];
+  let s = (seed * 7919) % 100000;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 9; i++) {
+    const c = petals[i % petals.length];
+    const fl = new THREE.Mesh(new THREE.SphereGeometry(5.5, 7, 5), new THREE.MeshLambertMaterial({ color: c }));
+    const a = rnd() * Math.PI * 2;
+    const r = 8 + rnd() * 32;
+    fl.position.set(Math.cos(a) * r, 10 + rnd() * 4, Math.sin(a) * r);
+    g.add(fl);
+  }
+  return g;
+}
+
+/** بنر خیابانی — دو تیر + پارچه رنگی با متن (بالا جاده — ماشین زیرش رد می‌شود) */
+export function buildBanner(text: string, color: string, span: number): THREE.Group {
+  const g = new THREE.Group();
+  const H = 250;
+  const poleGeo = new THREE.CylinderGeometry(5, 6, H, 8);
+  const p1 = new THREE.Mesh(poleGeo, M.pole);
+  p1.position.set(-span / 2, H / 2, 0);
+  p1.castShadow = true;
+  const p2 = new THREE.Mesh(poleGeo, M.pole);
+  p2.position.set(span / 2, H / 2, 0);
+  p2.castShadow = true;
+  const clothTex = getBannerTexture(text, color);
+  const cloth = new THREE.Mesh(
+    new THREE.PlaneGeometry(span * 0.94, 64),
+    // Basic — بنر همیشه رنگی و خوانا (سایه ساختمان رویش نمی‌افتد)
+    new THREE.MeshBasicMaterial({ map: clothTex, side: THREE.DoubleSide, transparent: true }),
+  );
+  cloth.position.y = H - 46;
+  // پارچه کمی موج — با دو مثلث خمیده ساده می‌ماند
+  cloth.rotation.x = 0.06;
+  g.add(p1, p2, cloth);
   return g;
 }

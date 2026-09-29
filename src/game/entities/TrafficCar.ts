@@ -9,6 +9,9 @@
 
 import { TRAFFIC } from '../data/balance';
 
+/** آستانه «ضربه واقعی» برای چرخش بدنه — هم‌خوان با COLLISION.softCrashSpeed (بدون import چرخشی) */
+const COLLISION_SOFT = 90;
+
 export type TrafficDir = 'N' | 'E' | 'S' | 'W';
 
 /** بردار و زاویه هدف هر جهت — angle با قرارداد Vehicle (0=شمال) */
@@ -36,6 +39,12 @@ export class TrafficCar {
 
   /** مکث پس از برخورد با بازیکن (ثانیه) */
   stunned = 0;
+  // ---------- پرتاب برخوردی (فاز APK-FIX) ----------
+  /** سرعت پرتاب فعلی بر اثر ضربه بازیکن (px/s) — مستقل از AI */
+  knockVx = 0;
+  knockVy = 0;
+  /** چرخش بدنه بر اثر ضربه محکم (rad/s) */
+  spinVel = 0;
   /** چند ثانیه است پشت مانع گیر کرده (برای بوق) */
   blockedSec = 0;
   /** در همینepisode گیر، بوق زده؟ */
@@ -74,27 +83,65 @@ export class TrafficCar {
   }
 
   /**
+   * پرتاب برخوردی — ماشین بر اساس شدت ضربه به عقب پرت می‌شود (فاز APK-FIX)
+   * @param dirX/dirY  جهت پرتاب (نرمال یا خام — داخل نرمال می‌شود)
+   * @param impact     شدت ضربه (px/s سرعت نسبی لحظه تماس)
+   */
+  knock(dirX: number, dirY: number, impact: number): void {
+    const len = Math.hypot(dirX, dirY) || 1;
+    const k = Math.min(TRAFFIC.knockMax, TRAFFIC.knockBase + impact * TRAFFIC.knockScale);
+    this.knockVx += (dirX / len) * k;
+    this.knockVy += (dirY / len) * k;
+    // ضربه محکم = کمی چرخش بدنه (طنز کارتونی!)
+    if (impact > COLLISION_SOFT) {
+      this.spinVel += (Math.random() - 0.5) * 2 * impact * TRAFFIC.spinScale;
+    }
+  }
+
+  /**
    * یک گام فیزیک — desiredSpeed را مدیر تعیین می‌کند (0 = ایست پشت مانع)
+   * شامل پرتاب برخوردی (knock) که مستقل از AI کار می‌کند (فاز APK-FIX)
    */
   update(dt: number, desiredSpeed: number): void {
-    // نرم شدن زاویه به سمت جهت هدف (پیچ‌های بصری)
-    const target = DIR_INFO[this.dir].angle;
-    let diff = target - this.angle;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    this.angle += diff * Math.min(1, 7 * dt);
+    // ---------- چرخش بدنه بر اثر ضربه (قبل از نرم‌سازی AI تا با هم نجنگند) ----------
+    if (Math.abs(this.spinVel) > 0.02) {
+      this.angle += this.spinVel * dt;
+      this.spinVel *= Math.exp(-3.2 * dt);
+      if (Math.abs(this.spinVel) < 0.02) this.spinVel = 0;
+    }
+
+    // ---------- پرتاب برخوردی: حرکت آزاد + میرایی (مستقل از استان/AI) ----------
+    const kv = Math.hypot(this.knockVx, this.knockVy);
+    if (kv > 2) {
+      this.x += this.knockVx * dt;
+      this.y += this.knockVy * dt;
+      const damp = Math.exp(-TRAFFIC.knockDecay * dt);
+      this.knockVx *= damp;
+      this.knockVy *= damp;
+    } else {
+      this.knockVx = 0;
+      this.knockVy = 0;
+    }
+
+    // نرم شدن زاویه به سمت جهت هدف (پیچ‌های بصری) — فقط وقتی چرخش ضربه تمام شده
+    if (Math.abs(this.spinVel) < 0.02) {
+      const target = DIR_INFO[this.dir].angle;
+      let diff = target - this.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      this.angle += diff * Math.min(1, 7 * dt);
+    }
 
     if (this.stunned > 0) {
       this.stunned -= dt;
       this.speed = Math.max(0, this.speed - TRAFFIC.brakePower * dt);
-      return;
-    }
-
-    // شتاب / ترمز تا سرعت مطلوب
-    if (this.speed < desiredSpeed) {
-      this.speed = Math.min(desiredSpeed, this.speed + TRAFFIC.accel * dt);
-    } else if (this.speed > desiredSpeed) {
-      this.speed = Math.max(desiredSpeed, this.speed - TRAFFIC.brakePower * dt);
+    } else {
+      // شتاب / ترمز تا سرعت مطلوب
+      if (this.speed < desiredSpeed) {
+        this.speed = Math.min(desiredSpeed, this.speed + TRAFFIC.accel * dt);
+      } else if (this.speed > desiredSpeed) {
+        this.speed = Math.max(desiredSpeed, this.speed - TRAFFIC.brakePower * dt);
+      }
     }
 
     // حرکت روی محور جهت
@@ -102,8 +149,10 @@ export class TrafficCar {
     this.x += v.x * this.speed * dt;
     this.y += v.y * this.speed * dt;
 
-    // قفل نرم روی مرکز لاین
-    if (v.x === 0) this.x += (this.lane - this.x) * Math.min(1, 5 * dt);
-    else this.y += (this.lane - this.y) * Math.min(1, 5 * dt);
+    // قفل نرم روی مرکز لاین — حین پرتاب فعالِ لاین را رها کن وگرنه با ضربه می‌جنگد
+    if (kv <= 40) {
+      if (v.x === 0) this.x += (this.lane - this.x) * Math.min(1, 5 * dt);
+      else this.y += (this.lane - this.y) * Math.min(1, 5 * dt);
+    }
   }
 }

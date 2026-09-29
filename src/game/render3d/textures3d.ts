@@ -215,7 +215,7 @@ export function getSidewalkTexture(): THREE.CanvasTexture {
     ctx.fillStyle = 'rgba(0,0,0,0.035)';
     ctx.fillRect(Math.random() * S, Math.random() * S, 3, 3);
   }
-  sidewalkTex = toTex(c, 6, 6);
+  sidewalkTex = toTex(c, 22, 22); // کاشی ریزتر — الگوی قرمز ظریف (فیکس غلبه قرمز-سفید)
   return sidewalkTex;
 }
 
@@ -537,4 +537,129 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
   const arr = [faceTex, faceTex, roofTex, roofTex, groundTex, groundTex];
   facadeTexCache.set(assetId, arr);
   return arr;
+}
+
+// ============ فاز CINEMATIC — آسمان گنبدی، ابر، بنر، آفتابی ============
+
+let skyDomeTex: THREE.CanvasTexture | null = null;
+
+/**
+ * آسمان سینمایی گنبدی — گرادیان غنی + هاله خورشید + غبار طلایی افق تهران
+ * روی نیم‌کره BackSide مپ می‌شود (u = زاویه افق، v = ارتفاع)
+ */
+export function getSkyDomeTexture(): THREE.CanvasTexture {
+  if (skyDomeTex) return skyDomeTex;
+  const { c, ctx } = makeCanvas(512, 256);
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0.0, '#2f6fae'); // آبی عمیق بالا
+  grad.addColorStop(0.35, '#5da4d6');
+  grad.addColorStop(0.62, '#a8d3e8');
+  grad.addColorStop(0.82, '#e8ddb5'); // غبار گرم افق
+  grad.addColorStop(1.0, '#f2d9a8'); // طلایی نزدیک زمین
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 256);
+  // هاله خورشید (بالا-راست نیم‌کره)
+  const sg = ctx.createRadialGradient(360, 70, 8, 360, 70, 90);
+  sg.addColorStop(0, 'rgba(255,244,214,0.95)');
+  sg.addColorStop(0.25, 'rgba(255,224,160,0.55)');
+  sg.addColorStop(1, 'rgba(255,214,140,0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(240, 0, 240, 170);
+  // چند ابر نرم دوردست
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  for (const [cx, cy, rw] of [[90, 62, 60], [150, 78, 44], [430, 110, 52], [250, 95, 40]] as const) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rw, rw * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  skyDomeTex = t;
+  return t;
+}
+
+let cloudTex: THREE.CanvasTexture | null = null;
+
+/** ابر نرم بیلبوردی — لکه‌های محو سفید */
+export function getCloudTexture(): THREE.CanvasTexture {
+  if (cloudTex) return cloudTex;
+  const { c, ctx } = makeCanvas(256, 128);
+  ctx.clearRect(0, 0, 256, 128);
+  const blob = (x: number, y: number, r: number, a: number): void => {
+    const g = ctx.createRadialGradient(x, y, 2, x, y, r);
+    g.addColorStop(0, `rgba(255,255,255,${a})`);
+    g.addColorStop(0.6, `rgba(252,250,246,${a * 0.5})`);
+    g.addColorStop(1, 'rgba(250,248,244,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  };
+  blob(128, 72, 62, 0.9);
+  blob(88, 80, 42, 0.8);
+  blob(172, 78, 46, 0.8);
+  blob(108, 58, 36, 0.7);
+  blob(150, 60, 34, 0.7);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  cloudTex = t;
+  return t;
+}
+
+/** پارچه بنر خیابانی — پس‌زمینه رنگی + متن سفید + دندانه پایین */
+export function getBannerTexture(text: string, color: string): THREE.CanvasTexture {
+  const key = `bn_${text}_${color}`;
+  const cached = labelTexCache.get(key);
+  if (cached) return cached;
+  const { c, ctx } = makeCanvas(1024, 128);
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 1024, 128);
+  // دندانه پرچم پایین پارچه
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, 128);
+  for (let x = 0; x < 1024; x += 64) {
+    ctx.lineTo(x + 32, 112);
+    ctx.lineTo(x + 64, 128);
+  }
+  ctx.lineTo(1024, 128);
+  ctx.closePath();
+  ctx.fill();
+  // نوارهای سفید بالا/پایین
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillRect(0, 8, 1024, 5);
+  ctx.fillRect(0, 92, 1024, 4);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = FA_FONT(58);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.35)';
+  ctx.shadowBlur = 6;
+  ctx.fillText(text, 512, 62, 960);
+  ctx.shadowBlur = 0;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  labelTexCache.set(key, t);
+  return t;
+}
+
+/** سایه‌بان مغازه — راه‌راه دو رنگ (خیلی ایرانی!) */
+export function getAwningTexture(color: string): THREE.CanvasTexture {
+  const key = `aw_${color}`;
+  const cached = labelTexCache.get(key);
+  if (cached) return cached;
+  const { c, ctx } = makeCanvas(256, 64);
+  ctx.fillStyle = '#fff6e8';
+  ctx.fillRect(0, 0, 256, 64);
+  ctx.fillStyle = color;
+  for (let x = 0; x < 256; x += 64) ctx.fillRect(x, 0, 32, 64);
+  // سایه ملایم پایین
+  const g = ctx.createLinearGradient(0, 40, 0, 64);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.18)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 40, 256, 24);
+  const t = toTex(c);
+  labelTexCache.set(key, t);
+  return t;
 }

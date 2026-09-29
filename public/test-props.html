@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>پیش‌نمایش پراپ‌های شهر</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #9db8a8; font-family: sans-serif; }
+  #info { position: fixed; top: 8px; right: 8px; background: rgba(0,0,0,.6); color: #fff; padding: 6px 12px; border-radius: 8px; font-size: 13px; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "/node_modules/three/build/three.module.js",
+    "three/examples/jsm/": "/node_modules/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="info">props.glb — ۱۴ پراپ</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#9db8a8');
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 500);
+camera.position.set(0, 70, 190);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 20, 0);
+
+scene.add(new THREE.AmbientLight('#ffffff', 1.6));
+const sun = new THREE.DirectionalLight('#fff4e0', 2.4);
+sun.position.set(30, 50, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = sun.shadow.camera.bottom = -60;
+sun.shadow.camera.right = sun.shadow.camera.top = 60;
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.BoxGeometry(200, 1, 200), new THREE.MeshLambertMaterial({ color: '#7fa070' }));
+ground.position.y = -0.5;
+ground.receiveShadow = true;
+scene.add(ground);
+
+new GLTFLoader().load('/public/assets/models/city/props.glb', (gltf) => {
+  const root = gltf.scene;
+  const kinds = [];
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    if (o.parent === root || (o.name.startsWith('prop_') && o.isMesh)) if (!kinds.includes(o)) kinds.push(o);
+  });
+  // پراپ‌ها: فرزندان CityPropsRoot (یا هر نودی به نام prop_*)
+  const props = [];
+  root.traverse((o) => { if (o.name && o.name.startsWith('prop_')) props.push(o); });
+  const wanted = new URLSearchParams(location.search).get('p');
+  const list = wanted ? props.filter((x) => x.name === 'prop_' + wanted) : props;
+  const cols = Math.ceil(Math.sqrt(list.length)) || 1;
+  const rows = Math.ceil(list.length / cols);
+  list.forEach((p, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    // نمایش: هر پراپ به ارتفاع نرمال (مقیاس بازی جداگانه اعمال می‌شود)
+    const bb = new THREE.Box3().setFromObject(p);
+    const size = new THREE.Vector3(); bb.getSize(size);
+    const s = (wanted ? 160 : 50) / Math.max(size.y, size.z, size.x, 0.001);
+    p.scale.setScalar(s);
+    p.position.set((col - (cols - 1) / 2) * (wanted ? 210 : 75), 0, (row - (rows - 1) / 2) * (wanted ? 210 : 75));
+    p.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true; o.receiveShadow = true;
+        o.material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+      }
+    });
+    scene.add(p);
+    console.log('prop:', p.name);
+  });
+  if (wanted) {
+    camera.position.set(140, 110, 220);
+    controls.target.set(0, 70, 0);
+    camera.lookAt(controls.target);
+    controls.update();
+  }
+  requestAnimationFrame(() => {
+    const dbg = list.map((p) => {
+      const bb = new THREE.Box3().setFromObject(p);
+      return p.name + ' pos=' + p.position.toArray().map((v) => v.toFixed(1)) + ' scl=' + p.scale.x.toFixed(1) + ' bb=' + bb.min.toArray().map((v) => v.toFixed(0)) + '..' + bb.max.toArray().map((v) => v.toFixed(0));
+    });
+    console.log('DBG ' + dbg.join(' | '));
+    console.log('DBG cam=' + camera.position.toArray().map((v) => v.toFixed(0)) + ' tgt=' + controls.target.toArray().map((v) => v.toFixed(0)));
+  });
+  window.__props = props.map((p) => p.name);
+  document.getElementById('info').textContent = `props.glb — ${props.length} پراپ: ` + props.map(p => p.name.replace('prop_', '')).join('، ');
+}, undefined, (e) => { document.getElementById('info').textContent = 'خطا: ' + e; });
+
+function tick() {
+  requestAnimationFrame(tick);
+  renderer.render(scene, camera);
+}
+tick();
+</script>
+</body>
+</html>

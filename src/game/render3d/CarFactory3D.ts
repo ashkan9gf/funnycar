@@ -18,6 +18,34 @@ export type CarVariant =
   | 'player' | 'pride' | 'peugeot405' | 'samand'
   | 'nissan' | 'tiba' | 'taxi' | 'police';
 
+/** چرخ مدل خارجی: چرخش حول محور واقعی خودش با جهت خودکار */
+export interface ExtWheelSpin {
+  /** گروه داخل پیوت — مش‌های چرخ به آن attach شده‌اند */
+  spinner: THREE.Group;
+  /** محور چرخ در فضای محلی spinner (نرمال‌شده) */
+  axis: THREE.Vector3;
+  /** +1 یا -1 — طوری که جلو رفتن = چرخش رو به جلو */
+  sign: number;
+}
+
+/** چرخاندن چرخ‌ها — مدل خارجی: محور/جهت واقعی؛ پروسیجرال: rotation.x */
+export function spinWheels(model: CarModel3D, amount: number): void {
+  if (model.extWheels && model.extWheels.length > 0) {
+    for (const ew of model.extWheels) ew.spinner.rotateOnAxis(ew.axis, ew.sign * amount);
+  } else {
+    for (const w of model.wheels) w.rotation.x += amount;
+  }
+}
+
+/** فرمان چرخ‌های جلو — با محور Y واقعی هر پیوت (مدل‌های با ریشه چرخیده) */
+export function steerWheels(model: CarModel3D, angle: number): void {
+  for (const pivot of model.steerable ?? []) {
+    const ax = pivot.userData.steerAxis as THREE.Vector3 | undefined;
+    if (ax) pivot.setRotationFromAxisAngle(ax, angle);
+    else pivot.rotation.y = angle;
+  }
+}
+
 // ---------- v5: مشخصات تنوع مدل‌ها (هماهنگ با vehicleGeometry.ts — منبع GLB) ----------
 /** عرض کابین نسبت به بدنه — کابین باریک‌تر = سیلوئت واقعی */
 const CABIN_W: Record<CarVariant, number> = {
@@ -50,7 +78,9 @@ const GRILLE_SPEC: Record<CarVariant, { w: number; h: number; chrome: boolean }>
 export interface CarModel3D {
   group: THREE.Group;
   /** چرخ‌ها برای انیمیشن چرخش (rotation.x با سرعت) */
-  wheels: THREE.Mesh[];
+  wheels: THREE.Object3D[];
+  /** چرخ‌های مدل خارجی: spinner + محور واقعی + جهت درست (فیکس چرخ ۲۰۶/پلیس/پیکان) */
+  extWheels?: ExtWheelSpin[];
   /** رنگ بدنه برای ذرات/جلوه‌ها */
   bodyColor: string;
   /** متریال بدنه — برای تیره‌شدن با آسیب */
@@ -73,6 +103,8 @@ export interface CarModel3D {
   rollZ?: number;
   /** پیک بدنه (گاز/ترمز) */
   pitchX?: number;
+  /** متریال‌های بدنه مدل خارجی — تیره‌شدن با آسیب */
+  damageMats?: THREE.MeshStandardMaterial[];
 }
 
 // ---------- متریال مشترک ----------
@@ -82,7 +114,7 @@ let rimMat: THREE.MeshPhongMaterial | null = null;
 let darkMat: THREE.MeshToonMaterial | null = null;
 let chromeMat: THREE.MeshPhongMaterial | null = null;
 let headMat: THREE.MeshBasicMaterial | null = null;
-let tailMat: THREE.MeshBasicMaterial | null = null;
+let tailMat: THREE.MeshStandardMaterial | null = null;
 let plateMat: THREE.MeshLambertMaterial | null = null;
 let taxiSignMat: THREE.MeshLambertMaterial | null = null;
 let outlineMat: THREE.MeshBasicMaterial | null = null;
@@ -109,7 +141,8 @@ function ensureShared(): void {
   darkMat = new THREE.MeshToonMaterial({ color: '#2e2622', gradientMap });
   chromeMat = new THREE.MeshPhongMaterial({ color: '#c2c8ce', shininess: 110, specular: '#ffffff' });
   headMat = new THREE.MeshBasicMaterial({ color: '#fff6cc' });
-  tailMat = new THREE.MeshBasicMaterial({ color: '#e2574c' });
+  // چراغ عقب: Standard با emissive — کد ترمز در draw3D روی emissive.set کار می‌کند
+  tailMat = new THREE.MeshStandardMaterial({ color: '#e2574c', emissive: '#5a0f08', emissiveIntensity: 0.7, roughness: 0.4 });
   plateMat = new THREE.MeshLambertMaterial({ map: getPlateTexture() });
   taxiSignMat = new THREE.MeshLambertMaterial({ map: getTaxiSignTexture() });
   outlineMat = new THREE.MeshBasicMaterial({ color: '#231a14', side: THREE.BackSide });
@@ -322,7 +355,7 @@ export function buildCar3D(
   for (const x of [-s.wid * 0.33, s.wid * 0.33]) {
     const h = new THREE.Mesh(lightFGeo, headMat as THREE.MeshBasicMaterial);
     h.position.set(x, 44, profile[0][0] - 3);
-    const t = new THREE.Mesh(lightRGeo, tailMat as THREE.MeshBasicMaterial);
+    const t = new THREE.Mesh(lightRGeo, tailMat as THREE.MeshStandardMaterial);
     t.position.set(x, 46, profile[profile.length - 1][0] + 3);
     g.add(h, t);
   }
@@ -416,34 +449,38 @@ export function buildCar3D(
     g.add(rack);
   }
 
-  // ---------- چرخ‌ها: تایر تور + رینگ + کلاهک ----------
+  // ---------- چرخ‌ها: تایر تور + پره‌های چرخان (فاز APK-FIX) ----------
+  // پره‌ها فرزندِ تایر می‌شوند تا با rotation.x همراهش بچرخند و چرخش دیده شود
+  // (رینگِ ثابتِ جدا، چرخش را نامرئی می‌کرد)
   const wheels: THREE.Mesh[] = [];
   const tireW = s.wid * 0.16;
   const wr = s.wheelR;
+  const R = wr - tireW / 2 + 2; // شعاع حلقه تایر
   for (const x of [-s.wid / 2 + tireW * 0.1, s.wid / 2 - tireW * 0.1]) {
     for (const z of [-s.len * 0.31, s.len * 0.31]) {
       const tire = new THREE.Mesh(
-        new THREE.TorusGeometry(wr - tireW / 2 + 2, tireW / 2, 8, 14),
+        new THREE.TorusGeometry(R, tireW / 2, 8, 14),
         tireMat as THREE.MeshToonMaterial,
       );
       tire.rotation.y = Math.PI / 2; // محور چرخ = X
       tire.position.set(x, wr, z);
       tire.castShadow = true;
-      const rim = new THREE.Mesh(
-        new THREE.CylinderGeometry(wr * 0.52, wr * 0.52, tireW * 0.75, 10),
-        rimMat as THREE.MeshPhongMaterial,
-      );
-      rim.rotation.z = Math.PI / 2;
-      rim.position.set(x + Math.sign(x) * tireW * 0.12, wr, z);
+      // پره‌های ضربدری + کلاهک — در فضای محلی تایر (صفحه XY، محور سوراخ = Z)
+      const spokeLen = R * 1.75;
+      const sp1 = new THREE.Mesh(new THREE.BoxGeometry(spokeLen, tireW * 0.34, tireW * 1.15), rimMat as THREE.MeshPhongMaterial);
+      const sp2 = new THREE.Mesh(new THREE.BoxGeometry(tireW * 0.34, spokeLen, tireW * 1.15), rimMat as THREE.MeshPhongMaterial);
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(wr * 0.3, wr * 0.3, tireW * 1.3, 10), rimMat as THREE.MeshPhongMaterial);
+      hub.rotation.x = Math.PI / 2; // محور استوانه → Z محلی (= X جهانی بعد از چرخش تایر)
+      tire.add(sp1, sp2, hub);
       wheels.push(tire);
-      g.add(tire, rim);
+      g.add(tire);
     }
   }
 
   // مقیاس نهایی بر اساس طول منطقی
   g.scale.setScalar(L / s.len);
   // متریال چراغ عقب کلون هر نمونه (ترمز روشن — فاز OVERHAUL)
-  const tailClone = (tailMat as THREE.MeshBasicMaterial).clone() as unknown as THREE.MeshStandardMaterial;
+  const tailClone = (tailMat as THREE.MeshStandardMaterial).clone();
   g.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.isMesh && m.material === tailMat) m.material = tailClone;
@@ -484,6 +521,10 @@ export function detachBumper(model: CarModel3D, front: boolean): boolean {
 export function applyDamageVisual(model: CarModel3D, amount: number): void {
   const c = model.bodyMat.color;
   c.multiplyScalar(Math.max(0.82, 1 - amount * 0.006));
+  // مدل خارجی: متریال PBR بدنه هم تیره می‌شود
+  for (const dm of model.damageMats ?? []) {
+    if (dm && dm.color) dm.color.multiplyScalar(Math.max(0.9, 1 - amount * 0.0022));
+  }
   // کجی انباشته — در draw3D با رول ترکیب و اعمال می‌شود (فاز OVERHAUL)
   model.damageTiltZ = (model.damageTiltZ ?? 0) + (Math.random() - 0.5) * Math.min(0.03, amount * 0.0016);
 }

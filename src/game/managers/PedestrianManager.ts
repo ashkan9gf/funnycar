@@ -40,6 +40,19 @@ export interface Pedestrian {
   phase: number;
   /** رنگ لباس (اندیس پالت رندر) */
   colorIdx: number;
+  // ---------- برخورد با ماشین (فاز SMASH) ----------
+  /** تایمر پرواز/چرخش در هوا */
+  knockT: number;
+  /** تایمر افتادن روی زمین */
+  downT: number;
+  /** تایمر بلند شدن */
+  riseT: number;
+  /** سرعت پرتاب */
+  kvx: number;
+  kvy: number;
+  /** زاویه چرخش در هوا */
+  spin: number;
+  spinRate: number;
 }
 
 export interface PedestrianCallbacks {
@@ -104,12 +117,50 @@ export class PedestrianManager {
         scareCd: 0,
         phase: (i * 1.7) % (Math.PI * 2),
         colorIdx: i % 6,
+        knockT: 0,
+        downT: 0,
+        riseT: 0,
+        kvx: 0,
+        kvy: 0,
+        spin: 0,
+        spinRate: 0,
       });
     }
   }
 
   update(dt: number, player: PlayerLike): void {
     for (const ped of this.peds) {
+      // ---------- پرتاب با ضربه ماشین (فاز SMASH) ----------
+      if (ped.knockT > 0) {
+        ped.knockT -= dt;
+        ped.x += ped.kvx * dt;
+        ped.y += ped.kvy * dt;
+        ped.kvx *= 1 - 1.9 * dt;
+        ped.kvy *= 1 - 1.9 * dt;
+        ped.spin += ped.spinRate * dt;
+        if (ped.knockT <= 0) ped.downT = P.downSec;
+        continue;
+      }
+      if (ped.downT > 0) {
+        ped.downT -= dt;
+        if (ped.downT <= 0) ped.riseT = P.riseSec;
+        continue;
+      }
+      if (ped.riseT > 0) {
+        ped.riseT -= dt;
+        if (ped.riseT <= 0) {
+          // بلند شد — فرار به سمت بیرون حلقه و ادامه مسیر
+          ped.hopT = P.hopSec;
+          const dx = ped.x - player.x;
+          const dy = ped.y - player.y;
+          const d = Math.hypot(dx, dy) || 1;
+          ped.fleeX = dx / d;
+          ped.fleeY = dy / d;
+          ped.scareCd = P.scareCooldownSec;
+        }
+        continue;
+      }
+
       const bx = ped.bi * WORLD.pitch + WORLD.roadW;
       const by = ped.bj * WORLD.pitch + WORLD.roadW;
       const x0 = bx + RING_INSET;
@@ -154,5 +205,17 @@ export class PedestrianManager {
         this.callbacks.onScare?.(ped.x, ped.y);
       }
     }
+  }
+
+  /** پرتاب عابر با ضربه ماشین — جهت = سرعت ماشین، شدت = سرعت (فاز SMASH) */
+  knockPed(ped: Pedestrian, vx: number, vy: number, impact: number): void {
+    const d = Math.hypot(vx, vy) || 1;
+    const power = Math.min(1.7, impact / 280);
+    ped.knockT = P.knockSec * (0.85 + power * 0.35);
+    ped.kvx = (vx / d) * (170 + 210 * power);
+    ped.kvy = (vy / d) * (170 + 210 * power);
+    ped.spin = 0;
+    ped.spinRate = (Math.random() - 0.5) * 22;
+    ped.hopT = 0;
   }
 }

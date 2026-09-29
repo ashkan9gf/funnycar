@@ -9,7 +9,8 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import type { CarModel3D, CarVariant } from './CarFactory3D';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import type { CarModel3D, CarVariant, ExtWheelSpin } from './CarFactory3D';
 import { VEHICLE_SPECS, FIXED_COLORS, VEHICLE_COLORS } from './vehicleGeometry';
 
 /** پالت رنگ تصادفی ترافیک — پراید غالب مثل خیابان واقعی */
@@ -27,7 +28,10 @@ export class GlbLibrary {
   private cache = new Map<string, Promise<THREE.Group | null>>();
   private loader = new GLTFLoader();
 
-  constructor(private baseUrl = '/assets/models') {}
+  constructor(private baseUrl = '/assets/models') {
+    // مدل‌های بهینه‌شده با EXT_meshopt_compression — بدون دیکودر، parse بی‌صدا null برمی‌گرداند
+    this.loader.setMeshoptDecoder(MeshoptDecoder);
+  }
 
   /** فایل GLB را (یک‌بار) لود می‌کند؛ خطا → null */
   load(relPath: string): Promise<THREE.Group | null> {
@@ -60,27 +64,277 @@ export class GlbLibrary {
     const v = variance % 3;
     return this.load(`buildings/${type}_${v}.glb`);
   }
+
+  /** اسکایلاین شهر (مدل شهر کاربر — بک‌دراپ دور محیط) */
+  async loadSkyline(): Promise<THREE.Group | null> {
+    return this.load('city/skyline.glb');
+  }
 }
 
-/** ساخت گروه ماشین از صحنه GLB — با کلون صحنه برای هر نمونه */
+/** ساخت گروه ماشین از صحنه GLB — با کلون صحنه برای هر نمونه
+ *  opts.external: مدل خارجی کاربر — متریال اصلی PBR حفظ می‌شود،
+ *  چرخ‌ها با پیوت هندسی (مرکز هندسه) سوار می‌شوند تا درست بچرخند.
+ */
 export function assembleCarFromGLB(
   variant: CarVariant,
   srcScene: THREE.Group,
-  opts: { lite?: boolean; bodyColor?: string } = {},
+  opts: { lite?: boolean; bodyColor?: string; external?: boolean } = {},
 ): CarModel3D {
   const spec = VEHICLE_SPECS[variant];
   const lite = opts.lite === true;
+  const external = opts.external === true;
   const bodyColor = opts.bodyColor ?? pickBodyColor(variant);
 
   const g = srcScene.clone(true);
-  const wheels: THREE.Mesh[] = [];
+  const wheels: THREE.Object3D[] = [];
   const steerable: THREE.Group[] = [];
   let bodyMat: THREE.MeshToonMaterial | null = null;
   let bumpers: CarModel3D['bumpers'] = { front: null, rear: null };
   let tailMat: THREE.MeshStandardMaterial | null = null;
   let lightBar: CarModel3D['lightBar'] | undefined;
 
-  // متریال‌های مشترک ران‌تایم
+  // ---------- مدل خارجی کاربر (۴ مدل ۱۴۰۴) ----------
+  if (external) {
+    g.updateMatrixWorld(true);
+    // چرخ: هر ماشی که نامش wheel/tire/tyre دارد (شامل rim جزئیات پلیس wstatic_*_wheel_*)
+    // فیلتر موقعیت: چرخ واقعی نزدیک محور طولی ماشین است (|z| ≤ 0.38×طول) —
+    // مه‌شکن‌های پلیس که نام wheel دارند (z=−93!) از خوشه چرخ حذف می‌شوند (فیکس پلیس)
+    const wheelMeshes: THREE.Mesh[] = [];
+    const lights: { red: THREE.Mesh | null; blue: THREE.Mesh | null } = { red: null, blue: null };
+    g.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = true;
+      const name = (mesh.name || '').toLowerCase();
+      if (name.includes('wheel') || name.includes('tire') || name.includes('tyre')) {
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        const bb = mesh.geometry.boundingBox;
+        if (bb) {
+          const wb = bb.clone().applyMatrix4(mesh.matrixWorld);
+          const cz = (wb.min.z + wb.max.z) / 2;
+          if (Math.abs(cz) <= spec.len * 0.38) wheelMeshes.push(mesh);
+        }
+      } else if (name === 'lightbar_red') lights.red = mesh;
+      else if (name === 'lightbar_blue') lights.blue = mesh;
+    });
+
+    // خوشه‌بندی چرخ‌ها بر اساس مرکز جهانی — پیوت = مرکز هندسی خوشه
+    const clusterR = spec.len * 0.2;
+    const gbbox = new THREE.Box3().setFromObject(g);
+    const bodyCenterZ = (gbbox.min.z + gbbox.max.z) / 2;
+    // چرخ واقعی در نیمه پایین بدنه است — فرمان داخل کابین/اسپیر بالا حذف می‌شود
+    const wheelTopY = gbbox.min.y + (gbbox.max.y - gbbox.min.y) * 0.5;
+
+    interface WheelCluster { pivot: THREE.Group; meshes: THREE.Mesh[]; }
+    const clusters: WheelCluster[] = [];
+    for (const mesh of wheelMeshes) {
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      const worldCenter = mesh.geometry.boundingBox!.getCenter(new THREE.Vector3()).applyMatrix4(mesh.matrixWorld);
+      let cl = clusters.find((c) => c.pivot.getWorldPosition(new THREE.Vector3()).distanceTo(worldCenter) < clusterR);
+      if (!cl && worldCenter.y > wheelTopY) continue; // چرخِ کابین (فرمان) — نه
+      if (!cl) {
+        const pivot = new THREE.Group();
+        const parent = mesh.parent ?? g;
+        pivot.position.copy(parent.worldToLocal(worldCenter.clone()));
+        parent.add(pivot);
+        pivot.updateMatrixWorld(true);
+        clusters.push({ pivot, meshes: [] });
+        cl = clusters[clusters.length - 1];
+        // جلو = z منفی (قرارداد بازی) → پیوت‌های جلو فرمان‌پذیر
+        if (pivot.getWorldPosition(new THREE.Vector3()).z < bodyCenterZ) steerable.push(pivot);
+      }
+      cl.meshes.push(mesh);
+    }
+
+    // ---------- هم‌اندازه‌سازی چرخ‌ها (فیکس لاستیک پلیس) ----------
+    // مدل پلیس در گوشه جلو-راست فقط یک لاستیک کوچک ۸٫۷ دارد (بقیه ۲۷٫۳!)
+    // هر خوشه که قطرش < ۶۲٪ بزرگ‌ترین خوشه است: مش‌هایش حذف و کلونِ
+    // بزرگ‌ترین چرخ به‌جایش در همان گوشه می‌نشیند (جهت/محور خودکار حفظ می‌شود)
+    let refDia = 0;
+    const clDia: number[] = [];
+    const triOf = (m: THREE.Mesh): number => {
+      const idx = m.geometry.getIndex();
+      return (idx ? idx.count : m.geometry.getAttribute('position')?.count ?? 0) / 3;
+    };
+    for (const cl of clusters) {
+      const wb = new THREE.Box3();
+      for (const m of cl.meshes) wb.expandByObject(m);
+      const sz = wb.getSize(new THREE.Vector3());
+      const dia = Math.max(sz.x, sz.y, sz.z);
+      clDia.push(dia);
+      if (dia > refDia) refDia = dia;
+    }
+    if (clusters.length > 0 && refDia > 0) {
+      const refIdx = clDia.indexOf(refDia);
+      const refCl = clusters[refIdx];
+      const refMesh = refCl.meshes.reduce((a, b) => (triOf(b) > triOf(a) ? b : a));
+      const tmpBox = new THREE.Box3();
+      for (let ci = 0; ci < clusters.length; ci++) {
+        if (ci === refIdx || clDia[ci] >= refDia * 0.62) continue;
+        const cl = clusters[ci];
+        // مرکز جهانی خوشه کم‌بهره (پیوت همان‌جا ساخته شده)
+        const target = cl.pivot.getWorldPosition(new THREE.Vector3());
+        // حذف مش‌های کوچک از صحنه و از خوشه
+        for (const m of cl.meshes) m.parent?.remove(m);
+        cl.meshes.length = 0;
+        // کلون مرجع — همان والد و ترنسفورم مرجع، سپس شیفت جهانی به گوشه مقصد
+        const parent = refMesh.parent ?? g;
+        const clone = refMesh.clone(true);
+        clone.name = `${refMesh.name}_fix${ci}`;
+        parent.add(clone);
+        clone.updateMatrixWorld(true);
+        tmpBox.setFromObject(clone);
+        const cur = tmpBox.getCenter(new THREE.Vector3());
+        const delta = target.clone().sub(cur);
+        clone.position.add(parent.worldToLocal(delta.clone()));
+        clone.updateMatrixWorld(true);
+        cl.meshes.push(clone);
+      }
+    }
+
+    // ---------- spinner + محور واقعی + جهت خودکار (فیکس چرخ ۲۰۶/پلیس/پیکان) ----------
+    const extWheels: ExtWheelSpin[] = [];
+    const tmpQ = new THREE.Quaternion();
+    for (const cl of clusters) {
+      const spinner = new THREE.Group();
+      cl.pivot.add(spinner);
+      for (const mesh of cl.meshes) spinner.attach(mesh);
+      g.updateMatrixWorld(true);
+
+      // بزرگ‌ترین مش خوشه = مرجع محور
+      let main = cl.meshes[0];
+      let mainTri = 0;
+      for (const m of cl.meshes) {
+        const idx = m.geometry.getIndex();
+        const tri = (idx ? idx.count : m.geometry.getAttribute('position')?.count ?? 0) / 3;
+        if (tri > mainTri) { mainTri = tri; main = m; }
+      }
+      // محور چرخ = باریک‌ترین بعد bbox هندسه (محور استوانه تایر)
+      if (!main.geometry.boundingBox) main.geometry.computeBoundingBox();
+      const sz = main.geometry.boundingBox!.getSize(new THREE.Vector3());
+      const localAxis = sz.x <= sz.y && sz.x <= sz.z ? new THREE.Vector3(1, 0, 0)
+        : sz.y <= sz.z ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+      main.getWorldQuaternion(tmpQ);
+      const axisWorld = localAxis.applyQuaternion(tmpQ);
+      // محور چرخ باید افقی باشد؛ اگر عمودی درآمد (اکسپورت معیوب) → فرض X
+      if (Math.abs(axisWorld.y) > 0.7) axisWorld.set(1, 0, 0);
+      axisWorld.y = 0;
+      if (axisWorld.lengthSq() < 1e-6) axisWorld.set(1, 0, 0);
+      axisWorld.normalize();
+      // جهت: جلو = -Z جهانی؛ نقطه بالای چرخ باید به -Z حرکت کند → ωx منفی
+      const sign = axisWorld.x > 0 ? -1 : 1;
+      // محور به فضای محلی spinner
+      spinner.getWorldQuaternion(tmpQ).invert();
+      const axisLocal = axisWorld.clone().applyQuaternion(tmpQ).normalize();
+      extWheels.push({ spinner, axis: axisLocal, sign });
+
+      // محور فرمان (Y جهانی) در فضای محلی پیوت
+      cl.pivot.getWorldQuaternion(tmpQ).invert();
+      cl.pivot.userData.steerAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(tmpQ).normalize();
+
+      // پره‌های دیده‌شدن چرخش — فقط خوشه‌های تک‌مشِ فاقد رینگ جزئی‌دار (مثل ۲۰۶)
+      if (cl.meshes.length === 1) {
+        // اندازه چرخ در فضای محلی spinner (نه جهانی!) — وگرنه داخل ریشه‌های اسکیل‌دار غول می‌شوند
+        const wb = new THREE.Box3().setFromObject(spinner);
+        const corners: THREE.Vector3[] = [];
+        for (const cx2 of [wb.min.x, wb.max.x])
+          for (const cy2 of [wb.min.y, wb.max.y])
+            for (const cz2 of [wb.min.z, wb.max.z])
+              corners.push(new THREE.Vector3(cx2, cy2, cz2));
+        const inv = new THREE.Matrix4().copy(spinner.matrixWorld).invert();
+        const lb = new THREE.Box3();
+        for (const cn of corners) {
+          lb.expandByPoint(cn.applyMatrix4(inv));
+        }
+        const size = lb.getSize(new THREE.Vector3());
+        const dia = Math.max(size.y, size.z, 1);
+        const w = Math.max(size.x, dia * 0.2);
+        const align = new THREE.Group();
+        align.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axisLocal);
+        const sp1 = new THREE.Mesh(new THREE.BoxGeometry(w * 1.14, dia * 0.76, dia * 0.13), getSpinMat());
+        const sp2 = new THREE.Mesh(new THREE.BoxGeometry(w * 1.14, dia * 0.13, dia * 0.76), getSpinMat());
+        const hub = new THREE.Mesh(new THREE.CylinderGeometry(dia * 0.15, dia * 0.15, w * 1.2, 10), getSpinMat());
+        hub.rotation.z = Math.PI / 2;
+        align.add(sp1, sp2, hub);
+        spinner.add(align);
+      }
+    }
+
+    // چراغ‌گردان: از خود مدل؛ پلیس با یک لامپ → لامپ دوم آینه‌ای ساخته می‌شود
+    // (فیکس فلاش تک‌رنگ پلیس: مدل فقط lightbar_blue داشت و red=blue می‌شد)
+    if (lights.red && lights.blue) {
+      lightBar = { red: lights.red, blue: lights.blue };
+    } else if (variant === 'police' && (lights.red || lights.blue)) {
+      const have = (lights.red ?? lights.blue) as THREE.Mesh;
+      have.updateWorldMatrix(true, false);
+      const wp = new THREE.Vector3().setFromMatrixPosition(have.matrixWorld);
+      const cxBody = (gbbox.min.x + gbbox.max.x) / 2;
+      const parent = have.parent ?? g;
+      const lp = parent.worldToLocal(new THREE.Vector3(2 * cxBody - wp.x, wp.y, wp.z));
+      const missingRed = !lights.red;
+      const m2 = new THREE.Mesh(
+        have.geometry,
+        new THREE.MeshBasicMaterial({ color: missingRed ? '#ff2d2d' : '#2d6bff' }),
+      );
+      m2.position.copy(lp);
+      m2.quaternion.copy(have.quaternion);
+      m2.scale.copy(have.scale);
+      parent.add(m2);
+      lightBar = missingRed ? { red: m2, blue: have } : { red: have, blue: m2 };
+    } else if (variant === 'police') {
+      const topY = gbbox.max.y;
+      const wid = (gbbox.max.x - gbbox.min.x) * 0.55;
+      const barBase = new THREE.Mesh(new THREE.BoxGeometry(wid * 0.55, 5, 22), new THREE.MeshToonMaterial({ color: '#2e2622' }));
+      barBase.position.y = topY + 2;
+      const red = new THREE.Mesh(new THREE.BoxGeometry(wid * 0.24, 11, 18), new THREE.MeshBasicMaterial({ color: '#ff2d2d' }));
+      red.position.set(-wid * 0.14, topY + 9, 0);
+      const blue = new THREE.Mesh(new THREE.BoxGeometry(wid * 0.24, 11, 18), new THREE.MeshBasicMaterial({ color: '#2d6bff' }));
+      blue.position.set(wid * 0.14, topY + 9, 0);
+      g.add(barBase, red, blue);
+      lightBar = { red, blue };
+    }
+
+    if (!bodyMat) bodyMat = new THREE.MeshToonMaterial({ color: bodyColor, gradientMap: getGradient() });
+
+    // متریال آسیب: متریال بدنه اصلی برای تیره‌شدن با ضربه
+    const damageMats: THREE.MeshStandardMaterial[] = [];
+    const best = { mesh: null as THREE.Mesh | null, tri: 0 };
+    g.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const idx = mesh.geometry.getIndex();
+      const tri = (idx ? idx.count : mesh.geometry.getAttribute('position')?.count ?? 0) / 3;
+      if (tri > best.tri) { best.tri = tri; best.mesh = mesh; }
+    });
+    if (best.mesh) {
+      const seen = new Set<THREE.Material>();
+      best.mesh.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (!m) return;
+        const list = Array.isArray(m) ? m : [m];
+        for (const mm of list) {
+          if (seen.has(mm)) continue;
+          seen.add(mm);
+          damageMats.push(mm as unknown as THREE.MeshStandardMaterial);
+        }
+      });
+    }
+
+    return {
+      group: g,
+      wheels,
+      extWheels,
+      bodyColor,
+      bodyMat,
+      bumpers,
+      lightBar,
+      len: spec.len,
+      wid: spec.wid,
+      ...{ steerable, tailMat: null, damageTiltZ: 0, rollZ: 0, pitchX: 0, damageMats },
+    } as CarModel3D;
+  }
+
+  // ---------- مدل‌های تولیدی پروژه (پراید/پژو/...) — مسیر قبلی ----------
   const outlineMat = new THREE.MeshBasicMaterial({ color: '#231a14', side: THREE.BackSide });
 
   g.traverse((obj) => {
@@ -157,4 +411,25 @@ function getGradient(): THREE.DataTexture {
     gradient.needsUpdate = true;
   }
   return gradient;
+}
+
+// ---------- پره چرخ برای مدل‌های procedural (چرخش دیده شود) ----------
+let spinMat: THREE.MeshToonMaterial | null = null;
+function getSpinMat(): THREE.MeshToonMaterial {
+  if (!spinMat) spinMat = new THREE.MeshToonMaterial({ color: '#c9ccd1', gradientMap: getGradient() });
+  return spinMat;
+}
+export function decorateWheelSpin(wheel: THREE.Mesh): void {
+  if (!wheel.geometry.boundingBox) wheel.geometry.computeBoundingBox();
+  const size = new THREE.Vector3();
+  if (wheel.geometry.boundingBox) wheel.geometry.boundingBox.getSize(size);
+  // محور چرخ = X (پهنای ماشین)؛ صفحه چرخ = YZ
+  const dia = Math.max(size.y, size.z, 0.001);
+  const w = size.x > 0.001 ? size.x : dia * 0.3;
+  if (!spinMat) spinMat = new THREE.MeshToonMaterial({ color: '#c9ccd1', gradientMap: getGradient() });
+  const spoke1 = new THREE.Mesh(new THREE.BoxGeometry(w * 1.12, dia * 0.82, dia * 0.14), spinMat);
+  const spoke2 = new THREE.Mesh(new THREE.BoxGeometry(w * 1.12, dia * 0.14, dia * 0.82), spinMat);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(dia * 0.17, dia * 0.17, w * 1.25, 10), spinMat);
+  hub.rotation.z = Math.PI / 2; // محور استوانه → X
+  wheel.add(spoke1, spoke2, hub);
 }

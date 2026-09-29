@@ -46,9 +46,19 @@ local-*
 *.log
 dev.log
 dev.out.log
-test
+/test
 prompt
 
 server.log
 # Skills directory
 /skills/
+# heavy non-source dirs (Tailwind scan + repo hygiene)
+/android-sdk
+/assets_inbox
+/assets-inbox
+/download
+/skills
+/examples
+/tool-results
+/android-build
+/temp_model

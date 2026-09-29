@@ -21,7 +21,12 @@ export interface WorldProp {
   solid: boolean;     // برخورد دارد؟
   kind: 'tree' | 'trash' | 'pole' | 'cone' | 'building' | 'crate'
     | 'busstop' | 'vendor' | 'billboard' | 'streetSign' | 'moto' | 'bags'
-    | 'azadiTower' | 'miladTower';
+    // کیت شهری GLB (فاز CITY-KIT) — درخت GLB + قطعات خیابانی
+    | 'gtree' | 'gconeA' | 'gconeB' | 'gdrum' | 'gbarricadeA' | 'gbarricadeB'
+    | 'gbarrier' | 'gdelineator' | 'gtreeSmall'
+    | 'azadiTower' | 'miladTower'
+    // فاز CITY-BEAUTY — پارک و زندگی رنگی
+    | 'fountain' | 'bench' | 'flowers' | 'banner';
   /** برای ساختمان‌ها: شناسه Asset ساختمان */
   assetId?: string;
   /** رنگ placeholder ساختمان */
@@ -140,13 +145,23 @@ export class World {
   }
 
   // ---------- بلوک‌ها: ساختمان‌ها و پروپ‌ها ----------
-  /** بلوک 840px: پیاده‌رو ~100 → جای ساختمان تا 640 */
-  private addBuilding(bx: number, by: number, assetId: string, landmark = false): void {
-    const size = landmark ? 660 : 640;
-    const x = bx + (840 - size) / 2;
-    const y = by + (840 - size) / 2;
-    this.props.push({ id: `building_${x}_${y}`, x, y, w: size, h: size, solid: false, kind: 'building', assetId, landmark });
-    this.colliders.push({ x, y, w: size, h: size });
+  /** بلوک 840px: پیاده‌رو ~100 → جای ساختمان تا 640
+   *  فاز CITY-FULL: w/h صریح = جای‌گذاری دقیق در همان مختصات (چند ساختمان در بلوک) */
+  private addBuilding(bx: number, by: number, assetId: string, landmark = false, w?: number, h?: number): void {
+    let x: number, y: number, size: number, sizeH: number;
+    if (landmark || w === undefined || h === undefined) {
+      size = landmark ? 660 : 640;
+      sizeH = size;
+      x = bx + (840 - size) / 2;
+      y = by + (840 - sizeH) / 2;
+    } else {
+      size = w;
+      sizeH = h;
+      x = bx;
+      y = by;
+    }
+    this.props.push({ id: `building_${x}_${y}`, x, y, w: size, h: sizeH, solid: false, kind: 'building', assetId, landmark });
+    this.colliders.push({ x, y, w: size, h: sizeH });
   }
 
   private addProp(kind: WorldProp['kind'], x: number, y: number, w: number, h: number, solid: boolean, extra?: Partial<WorldProp>): void {
@@ -161,6 +176,7 @@ export class World {
      *  شمال (j=0..1): آپارتمان‌های بلند + برج میلاد (4,0)
      *  مرکز (j=2..3): پارک‌ها + تعمیرگاه + پمپ بنزین + برج آزادی (0,3)
      *  جنوب (j=4..5): خانه‌های آجری و مغازه‌ها
+     * فاز CITY-FULL: هر بلوک ۲ تا ۴ ساختمان + حیاط پر — شهر نباید خالی بماند!
      */
     const layout: string[] = [];
     for (let j = 0; j < N; j++) {
@@ -178,6 +194,15 @@ export class World {
       }
     }
 
+    // چیدمان‌های متراکم بلوک — قطعی با seed بلوک
+    // (بلوک 840: حاشیه پیاده‌رو ~60 → ناحیه ساختمان 60..780)
+    const layoutOf = (i: number, j: number): string => {
+      const r = (i * 31 + j * 57) % 6;
+      if (j <= 1) return ['twin', 'towerRow', 'quad', 'twin', 'bigCourt', 'towerRow'][r]; // شمال بلند
+      if (j === 2 || j === 3) return ['shopRow', 'quad', 'twin', 'rowHouses', 'bigCourt', 'quad'][r]; // مرکز ترکیبی
+      return ['rowHouses', 'shopRow', 'quad', 'rowHouses', 'twin', 'shopRow'][r]; // جنوب خانه‌ای
+    };
+
     layout.forEach((cell, idx) => {
       const i = idx % N;
       const j = Math.floor(idx / N);
@@ -186,30 +211,55 @@ export class World {
       const cx = bx + 420;
       const cy = by + 420;
       const seed = i * 7 + j * 13;
+      const lay = layoutOf(i, j);
 
       if (cell === 'park') {
-        // پارک محله — درخت‌های برخوردی + زباله/مخروط شکستنی
-        this.addProp('tree', cx - 230, cy - 190, 120, 120, true);
-        this.addProp('tree', cx + 120, cy - 220, 140, 140, true);
-        this.addProp('tree', cx - 60, cy + 110, 125, 125, true);
-        this.addProp('tree', cx + 200, cy + 150, 105, 105, true);
-        this.addProp('tree', cx - 220, cy + 10, 110, 110, true);
-        this.addProp('trash', cx + 40, cy - 40, 60, 60, false, { breakable: true });
-        this.addProp('cone', cx - 120, cy + 40, 54, 54, false, { breakable: true });
+        // پارک محله — حوض وسط + نیمکت + گلکاری + درخت‌های رنگی
+        this.addProp('fountain', cx - 55, cy - 55, 110, 110, true, { landmark: false });
+        this.addProp('bench', cx - 240, cy + 30, 96, 34, true, { rot: 0 });
+        this.addProp('bench', cx + 150, cy + 30, 96, 34, true, { rot: 0 });
+        this.addProp('bench', cx - 45, cy - 260, 96, 34, true, { rot: Math.PI / 2 });
+        this.addProp('bench', cx - 45, cy + 240, 96, 34, true, { rot: Math.PI / 2 });
+        this.addProp('flowers', cx - 190, cy - 190, 90, 90, false);
+        this.addProp('flowers', cx + 110, cy - 200, 90, 90, false);
+        this.addProp('flowers', cx - 200, cy + 120, 90, 90, false);
+        this.addProp('flowers', cx + 190, cy + 150, 90, 90, false);
+        this.addProp('tree', cx - 280, cy + 10, 120, 120, true);
+        this.addProp('tree', cx + 250, cy - 80, 140, 140, true);
+        this.addProp('tree', cx + 90, cy + 290, 125, 125, true);
+        this.addProp('trash', cx + 40, cy - 160, 60, 60, false, { breakable: true });
+        this.addProp('cone', cx - 160, cy + 40, 54, 54, false, { breakable: true });
         return;
       }
       if (cell === 'milad') {
         // برج میلاد — پایه روی بلوک، غول‌پیکر (دیده از همه‌جا)
         this.addProp('miladTower', bx + 220, by + 220, 400, 400, true, { landmark: true });
+        // فاز CITY-FULL: پلازای دور برج — خالی نماند!
         this.addProp('tree', bx + 690, by + 160, 110, 110, true);
         this.addProp('tree', bx + 130, by + 660, 110, 110, true);
+        this.addProp('tree', bx + 60, by + 60, 115, 115, true);
+        this.addProp('tree', bx + 700, by + 700, 120, 120, true);
+        this.addProp('flowers', bx + 170, by + 300, 90, 90, false);
+        this.addProp('flowers', bx + 590, by + 420, 90, 90, false);
+        this.addProp('flowers', bx + 380, by + 150, 90, 90, false);
+        this.addProp('flowers', bx + 380, by + 610, 90, 90, false);
+        this.addProp('bench', bx + 150, by + 420, 96, 34, true, { rot: Math.PI / 2 });
+        this.addProp('bench', bx + 600, by + 300, 96, 34, true, { rot: Math.PI / 2 });
+        this.addProp('trash', bx + 640, by + 90, 58, 58, false, { breakable: true });
         return;
       }
       if (cell === 'azadi') {
-        // برج آزادی در میدان
+        // برج آزادی در میدان — دور میدان هم پُر است (فاز CITY-FULL)
         this.addProp('azadiTower', bx + 100, by + 180, 640, 440, true, { landmark: true });
         this.addProp('tree', bx + 180, by + 680, 110, 110, true);
         this.addProp('bags', bx + 700, by + 240, 46, 40, false, { breakable: true });
+        this.addProp('tree', bx + 690, by + 690, 120, 120, true);
+        this.addProp('tree', bx + 60, by + 60, 115, 115, true);
+        this.addProp('flowers', bx + 770, by + 420, 90, 90, false);
+        this.addProp('flowers', bx + 300, by + 700, 90, 90, false);
+        this.addProp('bench', bx + 620, by + 640, 96, 34, true, { rot: 0 });
+        this.addProp('bench', bx + 80, by + 740, 96, 34, true, { rot: 0 });
+        this.addProp('crate', bx + 740, by + 60, 62, 62, false, { breakable: true });
         return;
       }
       if (cell === 'garage') {
@@ -221,22 +271,107 @@ export class World {
         return;
       }
       const isLandmark = cell === 'gas';
-      this.addBuilding(bx, by, cell, isLandmark);
-      // پروپ‌های کنار ساختمان — با تنوع قطعی
+      if (isLandmark) {
+        // پمپ بنزین — تک‌ساختمانه لندمارک (سایبان دارد)
+        this.addBuilding(bx, by, cell, true);
+        return;
+      }
+
+      // ---------- فاز CITY-FULL: بلوک متراکم — ۲ تا ۴ ساختمان + حیاط پر ----------
+      // ناحیه ساختمان: 50..790 در هر دو محور
+      const A = 50;
+      const midX = bx + 420;
+      const midY = by + 420;
+      const isNorth = j <= 1;
+      const isSouth = j >= 4;
+      // آپارتمان/مغازه/خانه — تنوع بر اساس cell اصلی بلوک
+      const apt = 'env_building_apartment_01';
+      const shop = 'env_building_shop_01';
+      const home = 'env_building_home_01';
+      const bCell = (k: number): string => {
+        // در بلوک شمالی همه آپارتمان/مغازه، جنوبی همه خانه/مغازه، مرکز ترکیبی
+        if (isNorth) return k % 2 === 0 ? apt : shop;
+        if (isSouth) return k % 2 === 0 ? home : shop;
+        return k % 3 === 0 ? apt : k % 3 === 1 ? shop : home;
+      };
+
+      if (lay === 'twin') {
+        // دو برج دوقلو با کوچه میانی + درخت‌های کوچه
+        this.addBuilding(bx + A, by + 120, bCell(seed), false, 340, 600);
+        this.addBuilding(bx + 450, by + 120, bCell(seed + 1), false, 340, 600);
+        this.addProp('gtreeSmall', midX - 70, by + 90, 140, 134, false, { rot: 0 });
+        this.addProp('gtreeSmall', midX - 70, by + 610, 140, 134, false, { rot: 2 });
+        if (seed % 2 === 0) this.addProp('bench', midX - 60, midY - 17, 96, 34, true, { rot: 0 });
+      } else if (lay === 'towerRow') {
+        // یک برج بلند + دو خانه کوتاه جلو — آسمان‌خط لایه‌ای
+        this.addBuilding(bx + 180, by + 60, bCell(seed), false, 480, 420);
+        this.addBuilding(bx + 70, by + 520, bCell(seed + 1), false, 300, 260);
+        this.addBuilding(bx + 470, by + 520, bCell(seed + 2), false, 300, 260);
+        this.addProp('flowers', midX - 60, by + 450, 90, 90, false);
+        this.addProp('gtreeSmall', bx + 60, by + 400, 140, 134, false, { rot: 1 });
+        this.addProp('gtreeSmall', bx + 640, by + 400, 140, 134, false, { rot: 3 });
+      } else if (lay === 'quad') {
+        // چهار ساختمان گوشه‌ای با کوچه ضربدری — سبک محله قدیمی
+        this.addBuilding(bx + A, by + A, bCell(seed), false, 320, 320);
+        this.addBuilding(bx + 470, by + A, bCell(seed + 1), false, 320, 320);
+        this.addBuilding(bx + A, by + 470, bCell(seed + 2), false, 320, 320);
+        this.addBuilding(bx + 470, by + 470, bCell(seed + 3), false, 320, 320);
+        // وسط کوچه‌ها: درخت + نیمکت
+        this.addProp('gtree', midX - 65, midY - 61, 130, 122, false, { rot: 0 });
+        if (seed % 2 === 0) this.addProp('bench', midX + 60, midY - 17, 96, 34, true, { rot: 0 });
+        if (seed % 3 === 0) this.addProp('trash', midX - 200, midY + 40, 58, 58, false, { breakable: true });
+      } else if (lay === 'rowHouses') {
+        // سه خانه حیاط‌دار ردیفی + باغچه — سبک جنوب تهران
+        this.addBuilding(bx + A, by + 80, home, false, 260, 280);
+        this.addBuilding(bx + 330, by + 80, home, false, 260, 280);
+        this.addBuilding(bx + 590, by + 80, home, false, 260, 280);
+        this.addBuilding(bx + A, by + 500, shop, false, 300, 290);
+        this.addBuilding(bx + 460, by + 500, bCell(seed), false, 330, 290);
+        this.addProp('flowers', bx + 340, by + 420, 90, 90, false);
+        this.addProp('gtreeSmall', bx + 130, by + 420, 140, 134, false, { rot: 2 });
+        this.addProp('gtreeSmall', bx + 620, by + 420, 140, 134, false, { rot: 0 });
+      } else if (lay === 'shopRow') {
+        // ردیف مغازه + پلازا کوچک با نیمکت — خیابان کسایی
+        this.addBuilding(bx + A, by + 140, shop, false, 220, 560);
+        this.addBuilding(bx + 310, by + 140, shop, false, 220, 560);
+        this.addBuilding(bx + 570, by + 140, bCell(seed + 1), false, 220, 560);
+        this.addProp('bench', bx + 270, by + 60, 96, 34, true, { rot: 0 });
+        this.addProp('bench', bx + 530, by + 60, 96, 34, true, { rot: 0 });
+        this.addProp('gtreeSmall', bx + 30, by + 60, 140, 134, false, { rot: 1 });
+        this.addProp('gtreeSmall', bx + 660, by + 60, 140, 134, false, { rot: 3 });
+        if (seed % 2 === 1) this.addProp('bags', bx + 250, by + 730, 46, 40, false, { breakable: true });
+      } else {
+        // bigCourt — ساختمان بزرگ + حیاط سبز پر از detail
+        this.addBuilding(bx + A, by + A, bCell(seed), false, 460, 460);
+        this.addProp('gtree', bx + 580, by + 90, 130, 122, false, { rot: 1 });
+        this.addProp('gtree', bx + 580, by + 620, 130, 122, false, { rot: 3 });
+        this.addProp('gtreeSmall', bx + 90, by + 580, 140, 134, false, { rot: 0 });
+        this.addProp('flowers', bx + 590, by + 380, 90, 90, false);
+        this.addProp('flowers', bx + 300, by + 590, 90, 90, false);
+        this.addProp('bench', bx + 560, by + 300, 96, 34, true, { rot: Math.PI / 2 });
+        if (seed % 4 === 0) this.addProp('trash', bx + 540, by + 740, 58, 58, false, { breakable: true });
+      }
+
+      // پروپ‌های کنار خیابان — با تنوع قطعی (همه چیدمان‌ها)
       if (seed % 3 === 0) this.addProp('trash', bx + 60, by + 770, 58, 58, false, { breakable: true });
       if (seed % 4 === 1) this.addProp('pole', bx + 780, by + 80, 46, 46, true);
       if (seed % 4 === 2) this.addProp('cone', bx + 760, by + 760, 54, 54, false, { breakable: true });
       if (seed % 5 === 0) this.addProp('crate', bx + 110, by + 90, 62, 62, false, { breakable: true });
       if (seed % 5 === 2) this.addProp('bags', bx + 730, by + 640, 46, 40, false, { breakable: true });
+      // کیت شهری: درخت کوچک GLB روی پیاده‌رو غربی/شرقی + درخت بزرگ در پارک جنوبی بلوک
+      if (seed % 3 === 1) this.addProp('gtreeSmall', bx + 34, by + 300 + (seed % 4) * 110, 152, 146, false, { rot: seed % 4 });
+      if (seed % 7 === 5) this.addProp('gtree', bx + 780 - (seed % 3) * 30, by + 180, 130, 122, false, { rot: (seed + 2) % 4 });
     });
 
-    // دیوارهای محدوده دنیا (نگه‌داشتن بازیکن داخل شهر)
+    // ---------- مرز دور جهان (فاز OPEN-WORLD): دیوار شهر حذف شد!
+    // شهرک‌های اسکایلاین همه قابل ورودند — مرز بیرونی دور کل جهان + شهرک‌ها
+    const F = 5400; // عمق شهرک + حاشیه
     const m = 4;
     this.colliders.push(
-      { x: -m, y: -m, w: WORLD_SIZE + 2 * m, h: m },
-      { x: -m, y: WORLD_SIZE, w: WORLD_SIZE + 2 * m, h: m },
-      { x: -m, y: -m, w: m, h: WORLD_SIZE + 2 * m },
-      { x: WORLD_SIZE, y: -m, w: m, h: WORLD_SIZE + 2 * m },
+      { x: -F, y: -F, w: WORLD_SIZE + 2 * F, h: m }, // شمال
+      { x: -F, y: WORLD_SIZE, w: WORLD_SIZE + 2 * F, h: m }, // جنوب
+      { x: -F, y: -F, w: m, h: WORLD_SIZE + 2 * F }, // غرب
+      { x: WORLD_SIZE, y: -F, w: m, h: WORLD_SIZE + 2 * F }, // شرق
     );
   }
 
@@ -316,6 +451,8 @@ export class World {
     addLife('billboard', roadCenter(5) - 360, segMids[3] + 330, 220, 40, false, { label: 'تهران|پایتخت ترافیک!', rot: -0.08 });
     // خوش‌آمد به تهران — کنار مسیر اسپاون
     addLife('billboard', roadCenter(1) + 350, segMids[3] - 310, 220, 40, false, { label: 'خوش آمدید به|تهران!' });
+    // دروازه شهرک شرقی — کنار جاده دسترسی
+    addLife('billboard', WORLD_SIZE - 350, roadCenter(3) + 340, 220, 40, false, { label: 'شهرک غرب|خوش آمدید!' });
     // تابلوهای خیابان‌های معروف در تقاطع‌ها
     addLife('streetSign', roadCenter(1) + 320, roadCenter(1) + 320, 40, 30, false, { label: 'خیابان ولیعصر' });
     addLife('streetSign', roadCenter(2) - 350, roadCenter(1) + 320, 40, 30, false, { label: 'خیابان انقلاب' });
@@ -336,6 +473,65 @@ export class World {
       [segMids[1] + 110, roadCenter(3) + 320], [segMids[4] - 110, roadCenter(2) - 320],
     ];
     for (const [x, y] of bagSpots) addLife('bags', x, y, 46, 40, false, { breakable: true });
+
+    // ---------- کیت شهری GLB (فاز CITY-KIT) — درخت‌های GLB + خوشه راهسازی پروسیجرال ----------
+    // فقط پراپ‌های تمیزِ کیت (درخت) استفاده می‌شوند؛ بقیه قطعات کیت هنوز ایراد رندر دارند
+    const edge2 = WORLD.roadW / 2 + 40; // کمی عقب‌تر از دوبله‌پارک‌ها (310)
+    centers.forEach((cx, i) => {
+      segMids.forEach((my, j) => {
+        if ((i * 7 + j * 3) % 4 !== 0) return;
+        const side = (i + j) % 2 === 0 ? 1 : -1;
+        const x = cx + side * edge2;
+        // خوشه راهسازی کنار جاده عمودی — مخروط پروسیجرال (شکستنی)
+        this.addProp('cone', x - 24, my - 170, 54, 54, false, { breakable: true });
+        this.addProp('cone', x + 12, my + 70, 54, 54, false, { breakable: true });
+        this.addProp('trash', x - 10, my + 190, 58, 58, false, { breakable: true });
+      });
+    });
+    // درخت بزرگ GLB کنار بعضی سگمنت‌های جاده (پیاده‌رو)
+    centers.forEach((cx, i) => {
+      segMids.forEach((my, j) => {
+        if ((i * 11 + j * 5) % 3 !== 0) return;
+        const side = (i * 3 + j) % 2 === 0 ? 1 : -1;
+        this.addProp('gtree', cx + side * (edge2 + 34), my + 120, 130, 122, false, { rot: (i * 3 + j) % 4 });
+      });
+    });
+
+    // ---------- بنرهای خیابانی رنگی (فاز CITY-BEAUTY) — روی جاده، ماشین زیرش رد می‌شود ----------
+    const BANNERS: Array<[string, string, number, number]> = [
+      ['جشنواره فروش فانی‌کار', '#E63946', 1, 0],
+      ['چهارشنبه‌سوق محله', '#2D7DD2', 2, 1],
+      ['جشن نان تازه — نانوایی سعید', '#F2B705', 3, 2],
+      ['افتتاحیه کافه ساعت ۵', '#8AC926', 4, 3],
+      ['خوش آمدید به تهران بزرگ', '#E07A5F', 5, 4],
+      ['چشم شما نقطه نظر شهر', '#7B5EA7', 2, 3],
+    ];
+    for (const [text, color, ri, si] of BANNERS) {
+      const overV = ri % 2 === 0; // بنر روی جاده عمودی — پارچه در راستای X
+      if (overV) this.addProp('banner', roadCenter(ri), segMids[si % segMids.length], 620, 40, false, { label: text, rot: 0, tint: color });
+      else this.addProp('banner', segMids[si % segMids.length], roadCenter(ri), 40, 620, false, { label: text, rot: Math.PI / 2, tint: color });
+    }
+
+    // ---------- زندگی خیابانی بلوار شهرک غرب (شرق دروازه — تکمیل شهر) ----------
+    const gx0 = WORLD_SIZE + 260;
+    const gx1 = WORLD_SIZE + 2300;
+    const gy = roadCenter(3);
+    for (let x = gx0; x < gx1; x += 340) {
+      // درخت‌های دو طرف بلوار + سطل و مخروط
+      const side = ((x / 340) | 0) % 2 === 0 ? 1 : -1;
+      this.addProp('gtree', x, gy + side * 330, 130, 122, false, { rot: (x / 340) % 4 });
+      if ((x / 340) % 3 === 0) this.addProp('bags', x + 60, gy - side * 300, 46, 40, false, { breakable: true });
+      if ((x / 340) % 4 === 2) this.addProp('cone', x - 40, gy + side * 300, 54, 54, false, { breakable: true });
+    }
+    // دوبله‌پارکی روی بلوار شهرک (برخورد دارد — فاز SMASH)
+    let bk = 0;
+    for (let x = gx0 + 220; x < gx1 - 100; x += 420) {
+      this.parkedCars.push({ x, y: gy - 310, angle: Math.PI, kind: kinds[bk++ % kinds.length] });
+      this.parkedCars.push({ x: x + 160, y: gy + 310, angle: 0, kind: kinds[bk++ % kinds.length] });
+    }
+    addLife('streetSign', WORLD_SIZE + 700, gy + 320, 40, 30, false, { label: 'بلوار شهرک غرب' });
+    addLife('billboard', WORLD_SIZE + 1500, gy - 340, 220, 40, false, { label: 'شهرک غرب|قلب تپنده شرق!' });
+    addLife('busstop', WORLD_SIZE + 1100, gy + 330, 120, 44, true);
   }
 
   // ---------- سکه‌ها (روی همه جاده‌های اصلی) ----------
