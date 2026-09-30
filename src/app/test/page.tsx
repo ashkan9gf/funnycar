@@ -32,6 +32,8 @@ const MODELS: {
   { id: "samand", label: "پیکان نقره‌ای", sub: "ترافیک — old-car شما", rel: "vehicles/samand.glb", variant: "samand", size: "۳٫۹MB" },
   { id: "taxi", label: "تاکسی کراون‌ویکتوریا", sub: "ترافیک — ford-taxi شما", rel: "vehicles/taxi.glb", variant: "taxi", size: "۴۱۶KB" },
   { id: "police", label: "پلیس لو-پلی", sub: "ترافیک — police-car شما", rel: "vehicles/police.glb", variant: "police", size: "۱۶۸KB" },
+  { id: "renault4", label: "رنو ۴ (جدید)", sub: "ترافیک — renault_4_cv شما", rel: "vehicles/renault4.glb", variant: "renault4", size: "۴٫۵MB" },
+  { id: "vintage", label: "ماشین قدیمی زنگ‌زده (جدید)", sub: "ترافیک — rusty_vintage_car شما", rel: "vehicles/vintage.glb", variant: "vintage", size: "۲٫۸MB" },
   { id: "skyline", label: "اسکایلاین شهر", sub: "بک‌دراپ شهر — city_scene شما", rel: "city/skyline.glb", variant: null, size: "۱۶MB" },
   { id: "props", label: "پراپ‌های شهری", sub: "اجسام شهر — cities شما", rel: "city/props.glb", variant: null, size: "۹۶۰KB" },
 ];
@@ -148,6 +150,8 @@ export default function TestConsolePage() {
   const frameCamera = useCallback((group: THREE.Object3D) => {
     const T = threeRef.current;
     if (!T) return;
+    // دیباگ: دسترسی از کنسول مرورگر (دوربین/مدل)
+    (window as unknown as { __fcTest?: unknown }).__fcTest = T;
     group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(group);
     if (box.isEmpty()) return;

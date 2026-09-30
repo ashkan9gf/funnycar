@@ -16,7 +16,8 @@ import { getPlateTexture, getTaxiSignTexture } from './textures3d';
 
 export type CarVariant =
   | 'player' | 'pride' | 'peugeot405' | 'samand'
-  | 'nissan' | 'tiba' | 'taxi' | 'police';
+  | 'nissan' | 'tiba' | 'taxi' | 'police'
+  | 'renault4' | 'vintage';
 
 /** چرخ مدل خارجی: چرخش حول محور واقعی خودش با جهت خودکار */
 export interface ExtWheelSpin {
@@ -51,6 +52,7 @@ export function steerWheels(model: CarModel3D, angle: number): void {
 const CABIN_W: Record<CarVariant, number> = {
   player: 0.86, pride: 0.84, peugeot405: 0.80, taxi: 0.80,
   samand: 0.88, police: 0.88, nissan: 0.78, tiba: 0.76,
+  renault4: 0.82, vintage: 0.80,
 };
 /** شکل چراغ جلو/عقب مخصوص هر مدل */
 const LIGHT_SPEC: Record<CarVariant, { fW: number; fH: number; rW: number; rH: number }> = {
@@ -62,6 +64,8 @@ const LIGHT_SPEC: Record<CarVariant, { fW: number; fH: number; rW: number; rH: n
   police:     { fW: 0.20, fH: 12, rW: 0.20, rH: 11 },
   nissan:     { fW: 0.20, fH: 10, rW: 0.20, rH: 10 },
   tiba:       { fW: 0.17, fH: 9,  rW: 0.17, rH: 9 },
+  renault4:   { fW: 0.20, fH: 9,  rW: 0.20, rH: 9 },
+  vintage:    { fW: 0.22, fH: 10, rW: 0.22, rH: 10 },
 };
 /** جلوپنجره مخصوص هر مدل (پراید/تیبا پلاستیکی تیره) */
 const GRILLE_SPEC: Record<CarVariant, { w: number; h: number; chrome: boolean }> = {
@@ -73,6 +77,8 @@ const GRILLE_SPEC: Record<CarVariant, { w: number; h: number; chrome: boolean }>
   police:     { w: 0.56, h: 10, chrome: true },
   nissan:     { w: 0.52, h: 11, chrome: true },
   tiba:       { w: 0.34, h: 7,  chrome: false },
+  renault4:   { w: 0.42, h: 8,  chrome: false },
+  vintage:    { w: 0.50, h: 10, chrome: true },
 };
 
 export interface CarModel3D {
@@ -183,6 +189,10 @@ const PROFILES: Record<CarVariant, Profile> = {
   nissan: [[-102, 12], [-104, 30], [-103, 46], [-99, 54], [-50, 57], [-42, 74], [-36, 100], [2, 101], [10, 66], [16, 63], [92, 64], [99, 42], [102, 20], [102, 12]],
   // تیبا: کوتاه‌ترین — هاچ‌بک گرد
   tiba: [[-79, 13], [-82, 30], [-80, 44], [-74, 50], [-24, 52], [-15, 68], [-8, 84], [18, 84], [34, 60], [48, 52], [62, 47], [72, 38], [77, 24], [79, 14]],
+  // رنو۴: هاچ‌بک جعبه‌ای بلند — کاپوت کوتاه، عقب تقریباً قائم
+  renault4: [[-88, 14], [-89, 34], [-87, 48], [-80, 52], [-30, 54], [-24, 74], [-20, 90], [24, 90], [36, 62], [58, 54], [74, 46], [84, 32], [88, 16]],
+  // قدیمی کلاسیک: سدان سه‌حجمه با کاپوت بلند و گلگیر گرد
+  vintage: [[-98, 14], [-99, 36], [-96, 50], [-88, 55], [-34, 57], [-26, 78], [-20, 94], [26, 95], [40, 66], [52, 58], [84, 56], [94, 42], [98, 26], [98, 15]],
 };
 
 /** ناحیه شیشه هر خودرو v5: [ز جلو، ز عقب، ارتفاع پایین شیشه، ارتفاع بالا] */
@@ -195,6 +205,8 @@ const GLASS_BAND: Record<CarVariant, [number, number, number, number]> = {
   police: [-26, 40, 59, 91],
   nissan: [-38, 6, 58, 92],
   tiba: [-10, 28, 53, 79],
+  renault4: [-24, 30, 55, 84],
+  vintage: [-26, 34, 58, 88],
 };
 
 /** مشخصات بدنه هر خودرو v5 (واحد: پیکسل منطقی) */
@@ -207,6 +219,8 @@ const SPECS: Record<CarVariant, { len: number; wid: number; wheelR: number; hood
   police:     { len: 208, wid: 112, wheelR: 24, hoodFrac: 0.34 },
   nissan:     { len: 204, wid: 112, wheelR: 26, hoodFrac: 0.28 },
   tiba:       { len: 158, wid: 98,  wheelR: 21, hoodFrac: 0.32 },
+  renault4:   { len: 176, wid: 77,  wheelR: 16, hoodFrac: 0.26 },
+  vintage:    { len: 197, wid: 73,  wheelR: 16, hoodFrac: 0.38 },
 };
 
 /** ساخت بدنه اکسترودشده از نیم‌رخ — عرض در محور X، جلو سمت -Z */
@@ -260,6 +274,7 @@ export function buildCar3D(
   } else if (variant === 'taxi') body = '#f2c230';
   else if (variant === 'police') body = '#f7f7f2';
   else if (variant === 'nissan') body = '#2f6fae'; // نیسان آبی معروف!
+  else if (variant === 'renault4' || variant === 'vintage') body = pickColor(COLORS[variant] ?? ['#d9d9d4']);
 
   const bodyMat = toon(body);
   const g = new THREE.Group();
@@ -534,6 +549,8 @@ export function variantFromAssetId(assetId: string): CarVariant {
   if (assetId.includes('taxi')) return 'taxi';
   if (assetId.includes('police')) return 'police';
   if (assetId.includes('pickup')) return 'nissan';
+  if (assetId.includes('renault')) return 'renault4';
+  if (assetId.includes('vintage')) return 'vintage';
   if (assetId.includes('pride')) return 'pride';
   if (assetId.includes('tiba')) return 'tiba';
   if (assetId.includes('samand')) return 'samand';

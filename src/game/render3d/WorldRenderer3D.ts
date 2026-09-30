@@ -27,7 +27,7 @@ import { buildCar3D, variantFromAssetId, applyDamageVisual, detachBumper, spinWh
 import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin } from './GlbModels';
 
 /** واریانت‌های با مدل خارجی کاربر — متریال GLB حفظ می‌شود (بدون پره مصنوعی) */
-const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi']);
+const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage']);
 import type { GuardCar } from '../managers/MissionManager';
 import { buildParkedGeometry, type VehicleVariant } from './vehicleGeometry';
 import type { TrafficLights } from '../world/TrafficLights';

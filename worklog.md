@@ -465,3 +465,27 @@ Work Log:
 Stage Summary:
 - v0.2.11 دوباره ساخته و تحویل شد؛ همه فیکس‌های قبلی (شهر کامل، ساختمان‌های نامرئی، لگ، NaN، اسکایلاین، لاستیک پلیس) داخلش هستند چون سورس از اسنپ‌شات کامل بازیابی شد
 - درس: بعد از ریست محیط همیشه /tmp/my-project را چک کن — اسنپ‌شات محیط قبلی آنجاست؛ کار به کامیت git قدیمی اکتفا نکن
+
+---
+Task ID: 25
+Agent: Super Z (main agent)
+Task: درخواست کاربر — «چند خودرو هنوز تک‌رنگ سفید و بی‌مدل‌اند؛ دو مدل جدید می‌دهم، بررسی کن و بگذار تو پروژه» + zip دو مدل از uploadkon
+
+Work Log:
+- دانلود و بازرسی دو مدل Sketchfab: renault_4_cv.glb (۱۵ مش / ۹۵٬۳۱۴ مثلث / ۹ متریال / ۶ تکسچر) و rusty_vintage_car.glb (۱ مش یکپارچه / ۴۰٬۰۰۰ مثلث / ۱ متریال + ۳ PNG حدود ۹MB)
+- اسکریپت پردازش scripts/process_user_models.mjs (gltf-transform + sharp + meshoptimizer): بیک ماتریس‌های world روی هندسه + صفر کردن ترنسفورم همه نودها (شامل ریشه Sketchfab با چرخش -۹۰°X)، قائم‌سازی هوشمند با امتیاز پروفایل ماشین (طول/ارتفاع≈۲٫۴)، rotY برای طول روی Z، مقیاس به ۱۷۶/۱۹۷ واحد (۱م=۴۸u)، مرکز و زمین در y=0
+- 🐛 درس بزرگ: xfp/xdir قبلی ماتریس column-major گلف را row-major می‌خواند → بیک = وارونه (ترانهаде) و translate بی‌اثر! با اصلاح column-major + بازبینی بصری ۴ نمای دوربین در کنسول تست فیکس شد
+- رنو۴: ۴ مش چرخ مستقل با نام‌گذاری wheel_fl/fr/rl/rr روی نود (نه فقط مش — three.js نام نود را می‌بیند!) + بذر-خوشه چهارگوشه؛ هر ۴ گوشه درست + فلیپ ۱۸۰ (مدل رو به +Z بود)
+- قدیمی: کِیو چرخ از مش یکپارچه انجام شد ولی حفره‌های زشت می‌گذاشت → خاموش شد (carve:false)؛ بدنه سالم، بدون اسپین چرخ (قابل قبول برای ترافیک) + فلیپ ۱۸۰
+- carve جدید: remap رأس‌ها به accessor مستقل per-wheel (position مشترک بدنه → bbox چرخ = کل ماشین → خوشه‌بندی ران‌تایم خراب می‌شد)
+- تکسچرها: ریسایز ۵۱۲ + JPEG q84 برای baseColor، PNG برای normal/alpha — از ۹MB به ~۱MB؛ prune حذف تکسچرهای بی‌استفاده؛ doubleSided خاموش برای opaque
+- LOD1: weld + simplify (میش‌اپتایمزایر — سینتکس فکتوری این نسخه: weld({})(doc)) → رنو ۶۰k مثلث / قدیمی ۱۶k — هر دو grounded و بدون NaN
+- ادغام در کد: VehicleVariant/CarVariant + VEHICLE_SPECS (رنو len176 wid77، قدیمی len197 wid73 — از خود مدل) + PROFILES/GLASS_BAND/SPECS/CABIN_W/LIGHT_SPEC/GRILLE_SPEC + VEHICLE_COLORS + variantFromAssetId (renault/vintage) + EXTERNAL_MODELS + ترافیک گیم‌منیجر (۲ رنو + ۱ قدیمی در چرخه ۱۶تایی) + assets.manifest (اسپرایت موقت ۲بعدی) + دو ورودی جدید در کنسول /test
+- ابزار دیباگ: check_orientation.mjs (bbox/چرخ با GLTFLoader واقعی)، debug_assemble.mjs (همان assembleCarFromGLB بازی در bun — ۳۰ مش/صفر NaN/۵ خوشه چرخ/۲ فرمان‌پذیر)، probe_wheels.mjs، masscheck (میانگین Y کالیبره روی سمند/پلیس/تیبا — رنو -۰٫۲۱ ✅)، دسترسی __fcTest در کنسول تست برای کنترل دوربین
+- E2E: کنسول — رنو از نمای -Z شیشه‌جلو/برف‌پاک‌کن/فرمان دیده می‌شود (جلو = -Z ✓)؛ گیم‌پلی — ترافیک شامل veh_renault4_01×۲ و veh_vintage_01×۱ اسپاون شد
+- tsc پاک؛ بیلد scripts/build_apk_v0212.sh → versionCode 12 / versionName 0.2.12 → download/FunnyCarIR-v0.2.12-test.apk (۳۱٫۷MB / 31750915 bytes — ۴ GLB جدید داخلش) → آپلود uploadkon ✓ (content-length دقیقاً برابر)
+
+Stage Summary:
+- دو مدل جدید کاربر با موفقیت به ترافیک اضافه شد: «رنو ۴» (چرخ‌گردان کامل) و «قدیمی زنگ‌زده» — تنوع ترافیک از ۷ به ۹ واریانت رسید
+- هر دو مدل در کنسول تست (برگه /test) قابل بازدید هستند + ابزارهای بازرسی GLB ماندگار شدند
+- درس: نام چرخ باید روی NODE نوشته شود نه mesh؛ accessor مشترک بین مش‌ها bbox چرخ را خراب می‌کند؛ سینتکس gltf-transform این نسخه فکتوری است: prune({})(doc)

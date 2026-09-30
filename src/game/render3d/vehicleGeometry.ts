@@ -15,7 +15,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 // ---------- مشخصات هر واریانت ----------
 export type VehicleVariant =
   | 'player' | 'pride' | 'peugeot405' | 'samand'
-  | 'nissan' | 'tiba' | 'taxi' | 'police';
+  | 'nissan' | 'tiba' | 'taxi' | 'police'
+  | 'renault4' | 'vintage';
 
 export interface VehicleSpec {
   len: number;
@@ -40,6 +41,9 @@ export const VEHICLE_SPECS: Record<VehicleVariant, VehicleSpec> = {
   police:     { len: 208, wid: 112, wheelR: 24, axleF: 0.33,  axleR: 0.30 },
   nissan:     { len: 204, wid: 112, wheelR: 26, axleF: 0.295, axleR: 0.325 },
   tiba:       { len: 158, wid: 98,  wheelR: 21, axleF: 0.32,  axleR: 0.315 },
+  // مدل‌های جدید کاربر (رنو۴ و قدیمی زنگ‌زده) — ابعاد واقعی از خود GLB
+  renault4:   { len: 176, wid: 77,  wheelR: 16, axleF: 0.323, axleR: 0.323 },
+  vintage:    { len: 197, wid: 73,  wheelR: 16, axleF: 0.32,  axleR: 0.32  },
 };
 
 /**
@@ -50,6 +54,7 @@ export const VEHICLE_SPECS: Record<VehicleVariant, VehicleSpec> = {
 export const CABIN_W: Record<VehicleVariant, number> = {
   player: 0.86, pride: 0.84, peugeot405: 0.80, taxi: 0.80,
   samand: 0.88, police: 0.88, nissan: 0.78, tiba: 0.76,
+  renault4: 0.82, vintage: 0.80,
 };
 
 /** v5 — شکل چراغ جلو/عقب مخصوص هر مدل: [نسبت عرض، ارتفاع] */
@@ -62,6 +67,8 @@ export const LIGHT_SPEC: Record<VehicleVariant, { fW: number; fH: number; rW: nu
   police:     { fW: 0.20, fH: 12, rW: 0.20, rH: 11 },
   nissan:     { fW: 0.20, fH: 10, rW: 0.20, rH: 10 },
   tiba:       { fW: 0.17, fH: 9,  rW: 0.17, rH: 9 },   // بادامی
+  renault4:   { fW: 0.20, fH: 9,  rW: 0.20, rH: 9 },   // گرد و ساده
+  vintage:    { fW: 0.22, fH: 10, rW: 0.22, rH: 10 },  // گلگیرگرد قدیمی
 };
 
 /** v5 — جلوپنجره مخصوص هر مدل: [نسبت عرض، ارتفاع، کروم؟] — پراید پلاستیکی مشکی! */
@@ -74,6 +81,8 @@ export const GRILLE_SPEC: Record<VehicleVariant, { w: number; h: number; chrome:
   police:     { w: 0.56, h: 10, chrome: true },
   nissan:     { w: 0.52, h: 11, chrome: true },
   tiba:       { w: 0.34, h: 7,  chrome: false },
+  renault4:   { w: 0.42, h: 8,  chrome: false },   // جلوپنجره ساده قدیمی
+  vintage:    { w: 0.50, h: 10, chrome: true },    // جلوپنجره کروم بزرگ کلاسیک
 };
 
 // ---------- نیم‌رخ v5 — هر مدل با سیلوئت متمایز ----------
@@ -93,6 +102,10 @@ export const PROFILES: Record<VehicleVariant, Profile> = {
   nissan: [[-102, 12], [-104, 30], [-103, 46], [-99, 54], [-50, 57], [-42, 74], [-36, 100], [2, 101], [10, 66], [16, 63], [92, 64], [99, 42], [102, 20], [102, 12]],
   // تیبا: کوتاه‌ترین — هاچ‌بک گرد با عقب خیلی مایل
   tiba: [[-79, 13], [-82, 30], [-80, 44], [-74, 50], [-24, 52], [-15, 68], [-8, 84], [18, 84], [34, 60], [48, 52], [62, 47], [72, 38], [77, 24], [79, 14]],
+  // رنو۴: هاچ‌بک جعبه‌ای بلند
+  renault4: [[-88, 14], [-89, 34], [-87, 48], [-80, 52], [-30, 54], [-24, 74], [-20, 90], [24, 90], [36, 62], [58, 54], [74, 46], [84, 32], [88, 16]],
+  // قدیمی کلاسیک: سدان سه‌حجمه کاپوت‌بلند
+  vintage: [[-98, 14], [-99, 36], [-96, 50], [-88, 55], [-34, 57], [-26, 78], [-20, 94], [26, 95], [40, 66], [52, 58], [84, 56], [94, 42], [98, 26], [98, 15]],
 };
 
 /** ناحیه شیشه: [ز جلو، ز عقب، ارتفاع پایین، ارتفاع بالا] — v5 هماهنگ با نیم‌رخ جدید */
@@ -105,6 +118,8 @@ export const GLASS_BAND: Record<VehicleVariant, [number, number, number, number]
   police: [-26, 40, 59, 91],
   nissan: [-38, 6, 58, 92],
   tiba:   [-10, 28, 53, 79],
+  renault4: [-24, 30, 55, 84],
+  vintage: [-26, 34, 58, 88],
 };
 
 // ---------- رنگ‌های مبنا (hex → خطی هنگام نوشتن) ----------
@@ -113,6 +128,9 @@ export const VEHICLE_COLORS: Record<string, string[]> = {
   peugeot405: ['#f7f7f2', '#c8c8c4', '#5d6d7e', '#7b241c', '#34495e', '#e8a33d'],
   samand: ['#bfc9ca', '#f2f3f4', '#424949', '#5d8aa8'],
   tiba: ['#b03a2e', '#d5dbdb', '#f4f4f0', '#1a5276'],
+  // مدل‌های جدید: رنگ ثابت خودشان را دارند (تکسچر واقعی) — فقط فال‌بک پروسیجرال
+  renault4: ['#e8e8e2', '#7b9db8', '#b8543f', '#d8c9a3'],
+  vintage: ['#8a6f4d', '#6b7d5a', '#9a4f3c', '#7a7a72'],
 };
 export const FIXED_COLORS: Partial<Record<VehicleVariant, string>> = {
   player: '#f4f4f0',

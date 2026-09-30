@@ -84,6 +84,15 @@ export const ASSETS_MANIFEST: Record<string, AssetEntry> = {
     src: 'assets/vehicles/traffic/veh_pickup_01.png',
     placeholder: { type: 'vehicle', w: 256, h: 448, label: 'PLACEHOLDER_VEHICLE' },
   },
+  // مدل‌های جدید کاربر — اسپرایت ۲بعدی موقت (سه‌بعدی GLB واقعی دارد)
+  veh_renault4_01: {
+    src: 'assets/vehicles/traffic/veh_sedan_01.png',
+    placeholder: { type: 'vehicle', w: 256, h: 448, label: 'PLACEHOLDER_VEHICLE' },
+  },
+  veh_vintage_01: {
+    src: 'assets/vehicles/traffic/veh_pickup_01.png',
+    placeholder: { type: 'vehicle', w: 256, h: 448, label: 'PLACEHOLDER_VEHICLE' },
+  },
   veh_sedan_01: {
     src: 'assets/vehicles/traffic/veh_sedan_01.png',
     placeholder: { type: 'vehicle', w: 256, h: 448, label: 'PLACEHOLDER_VEHICLE' },

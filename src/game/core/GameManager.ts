@@ -214,13 +214,13 @@ export class GameManager {
     }
 
     // ترافیک و رویدادهای تصادفی (فاز 2)
-    // فاز GTA-IR v0.2.7: همه واریانت‌ها GLB واقعی — ۲۰۶ و پیکان نقره‌ای پررنگ (درخواست کاربر)
+    // فاز GTA-IR v0.2.12: + رنو۴ و قدیمی زنگ‌زده (مدل‌های جدید کاربر)
     this.traffic = new TrafficManager(
       [
-        'veh_pride_01', 'veh_sedan_01', 'veh_samand_01', 'veh_sedan_01',
-        'veh_samand_01', 'veh_pride_01', 'veh_taxi_01', 'veh_sedan_01',
+        'veh_pride_01', 'veh_sedan_01', 'veh_samand_01', 'veh_renault4_01',
+        'veh_samand_01', 'veh_pride_01', 'veh_taxi_01', 'veh_vintage_01',
         'veh_samand_01', 'veh_pride_01', 'veh_taxi_01', 'veh_samand_01',
-        'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_sedan_01',
+        'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_renault4_01',
       ],
       { onHonk: (car) => this.onTrafficHonk(car) },
       (() => {
