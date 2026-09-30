@@ -96,6 +96,22 @@ export function assembleCarFromGLB(
   // ---------- مدل خارجی کاربر (۴ مدل ۱۴۰۴) ----------
   if (external) {
     g.updateMatrixWorld(true);
+    // 🔑 فیکس «لاستیک باگ رنو۴»: تکه ۵۲×۴۲ کاپوت/جلوکاپی که نام wheel_fr دارد (x≈۰ = وسط بدنه!)
+    // به‌عنوان چرخ خوشه می‌شد و کل جلوی ماشین در حرکت می‌چرخید!
+    // فیلترها: چرخ واقعی همیشه نزدیک گلگیرها است (|x-cx| ≥ ۰٫۱۵×عرض) و کوچک (≤ ۰٫۲۸×طول)
+    const wheelMatsFixed = new Set<THREE.Material>();
+    const darkWheelMat = (): THREE.MeshToonMaterial => {
+      let m = wheelMatsFixed.values().next().value as THREE.MeshToonMaterial | undefined;
+      if (!m) { m = new THREE.MeshToonMaterial({ color: '#26241f', gradientMap: getGradient() }); wheelMatsFixed.add(m); }
+      return m;
+    };
+    const isUntexturedLight = (mat: THREE.Material | THREE.Material[]): boolean => {
+      const m = Array.isArray(mat) ? mat[0] : mat;
+      if (!m || !(m instanceof THREE.MeshStandardMaterial)) return false;
+      if (m.map) return false;
+      const c = m.color;
+      return c.r > 0.55 && c.g > 0.55 && c.b > 0.55 && Math.abs(c.r - c.g) < 0.12 && Math.abs(c.g - c.b) < 0.12;
+    };
     // چرخ: هر ماشی که نامش wheel/tire/tyre دارد (شامل rim جزئیات پلیس wstatic_*_wheel_*)
     // فیلتر موقعیت: چرخ واقعی نزدیک محور طولی ماشین است (|z| ≤ 0.38×طول) —
     // مه‌شکن‌های پلیس که نام wheel دارند (z=−93!) از خوشه چرخ حذف می‌شوند (فیکس پلیس)
@@ -112,7 +128,12 @@ export function assembleCarFromGLB(
         if (bb) {
           const wb = bb.clone().applyMatrix4(mesh.matrixWorld);
           const cz = (wb.min.z + wb.max.z) / 2;
-          if (Math.abs(cz) <= spec.len * 0.38) wheelMeshes.push(mesh);
+          if (Math.abs(cz) <= spec.len * 0.38) {
+            wheelMeshes.push(mesh);
+          } else if (isUntexturedLight(mesh.material)) {
+            // 🔑 قطعه wheel-named خارج از قطر محور (مه‌شکن پلیس z=−۹۳) — سفیدِ خام نباشد
+            mesh.material = darkWheelMat();
+          }
         }
       } else if (name === 'lightbar_red') lights.red = mesh;
       else if (name === 'lightbar_blue') lights.blue = mesh;
@@ -122,6 +143,7 @@ export function assembleCarFromGLB(
     const clusterR = spec.len * 0.2;
     const gbbox = new THREE.Box3().setFromObject(g);
     const bodyCenterZ = (gbbox.min.z + gbbox.max.z) / 2;
+    const bodyCenterX = (gbbox.min.x + gbbox.max.x) / 2;
     // چرخ واقعی در نیمه پایین بدنه است — فرمان داخل کابین/اسپیر بالا حذف می‌شود
     const wheelTopY = gbbox.min.y + (gbbox.max.y - gbbox.min.y) * 0.5;
 
@@ -133,6 +155,20 @@ export function assembleCarFromGLB(
       let cl = clusters.find((c) => c.pivot.getWorldPosition(new THREE.Vector3()).distanceTo(worldCenter) < clusterR);
       if (!cl && worldCenter.y > wheelTopY) continue; // چرخِ کابین (فرمان) — نه
       if (!cl) {
+        // 🔑 فیلتر مرکز بدنه: مش wheel-named که روی خط وسط طولی است (|x| < ۱۵٪ عرض)
+        // چرخ نیست — تکه بدنه است (رنو۴: جلوکاپی wheel_fr با span ۵۲!). بدنه‌ای بزرگ →
+        // دست‌نخورده؛ قطعه کوچک (مه‌شکن پلیس) → تیره می‌شود
+        const wb2 = mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld);
+        const mDim = Math.max(wb2.max.x - wb2.min.x, wb2.max.y - wb2.min.y, wb2.max.z - wb2.min.z);
+        if (Math.abs(worldCenter.x - bodyCenterX) < spec.wid * 0.15) {
+          // 🔑 هر قطعه wheel-named بی‌تکسچرِ روشن که چرخ نیست (شاسی داخلی رنو۴ / مه‌شکن پلیس) → تیره
+          if (isUntexturedLight(mesh.material)) mesh.material = darkWheelMat();
+          continue;
+        }
+        // 🔑 فیلتر اندازه: هیچ چرخ واقعی بیش از ۲۸٪ طول ماشین نیست (رنو۴: ۵۲/۱۷۶=۳۰٪)
+        if (mDim > spec.len * 0.28) continue;
+        // 🔑 فیکس «چرخ سفید خام»: رینگ/لاستیک بی‌تکسچر روشن (رنو۴/پلیس/۴۰۵/سمند) → لاستیک تیره
+        if (isUntexturedLight(mesh.material)) mesh.material = darkWheelMat();
         const pivot = new THREE.Group();
         const parent = mesh.parent ?? g;
         pivot.position.copy(parent.worldToLocal(worldCenter.clone()));
@@ -142,6 +178,8 @@ export function assembleCarFromGLB(
         cl = clusters[clusters.length - 1];
         // جلو = z منفی (قرارداد بازی) → پیوت‌های جلو فرمان‌پذیر
         if (pivot.getWorldPosition(new THREE.Vector3()).z < bodyCenterZ) steerable.push(pivot);
+      } else if (isUntexturedLight(mesh.material)) {
+        mesh.material = darkWheelMat();
       }
       cl.meshes.push(mesh);
     }
@@ -223,41 +261,19 @@ export function assembleCarFromGLB(
       axisWorld.normalize();
       // جهت: جلو = -Z جهانی؛ نقطه بالای چرخ باید به -Z حرکت کند → ωx منفی
       const sign = axisWorld.x > 0 ? -1 : 1;
-      // محور به فضای محلی spinner
+      // محور به فضای محلی spinner + 🔑 SNAP به محور اصلی — چرخ هیچ‌وقت کج نچرخد
       spinner.getWorldQuaternion(tmpQ).invert();
       const axisLocal = axisWorld.clone().applyQuaternion(tmpQ).normalize();
-      extWheels.push({ spinner, axis: axisLocal, sign });
+      if (Math.abs(axisLocal.x) >= Math.abs(axisLocal.z)) axisLocal.set(Math.sign(axisLocal.x) || 1, 0, 0);
+      else axisLocal.set(0, 0, Math.sign(axisLocal.z));
+      // 🔑 base مطلق + angle تجمعی — spinWheels هر فریم quaternion مطلق می‌سازد (صفر drift)
+      extWheels.push({ spinner, axis: axisLocal, sign, base: spinner.quaternion.clone(), angle: 0 });
 
       // محور فرمان (Y جهانی) در فضای محلی پیوت
       cl.pivot.getWorldQuaternion(tmpQ).invert();
       cl.pivot.userData.steerAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(tmpQ).normalize();
-
-      // پره‌های دیده‌شدن چرخش — فقط خوشه‌های تک‌مشِ فاقد رینگ جزئی‌دار (مثل ۲۰۶)
-      if (cl.meshes.length === 1) {
-        // اندازه چرخ در فضای محلی spinner (نه جهانی!) — وگرنه داخل ریشه‌های اسکیل‌دار غول می‌شوند
-        const wb = new THREE.Box3().setFromObject(spinner);
-        const corners: THREE.Vector3[] = [];
-        for (const cx2 of [wb.min.x, wb.max.x])
-          for (const cy2 of [wb.min.y, wb.max.y])
-            for (const cz2 of [wb.min.z, wb.max.z])
-              corners.push(new THREE.Vector3(cx2, cy2, cz2));
-        const inv = new THREE.Matrix4().copy(spinner.matrixWorld).invert();
-        const lb = new THREE.Box3();
-        for (const cn of corners) {
-          lb.expandByPoint(cn.applyMatrix4(inv));
-        }
-        const size = lb.getSize(new THREE.Vector3());
-        const dia = Math.max(size.y, size.z, 1);
-        const w = Math.max(size.x, dia * 0.2);
-        const align = new THREE.Group();
-        align.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), axisLocal);
-        const sp1 = new THREE.Mesh(new THREE.BoxGeometry(w * 1.14, dia * 0.76, dia * 0.13), getSpinMat());
-        const sp2 = new THREE.Mesh(new THREE.BoxGeometry(w * 1.14, dia * 0.13, dia * 0.76), getSpinMat());
-        const hub = new THREE.Mesh(new THREE.CylinderGeometry(dia * 0.15, dia * 0.15, w * 1.2, 10), getSpinMat());
-        hub.rotation.z = Math.PI / 2;
-        align.add(sp1, sp2, hub);
-        spinner.add(align);
-      }
+      // 🔑 حذف «پره‌های سفید چرخش»: باکس‌های سفید متقاطع روی چرخ‌های تک‌مش — کاربر آن‌ها را
+      // باگ لاستیک می‌دید («فقط تاکسی سالمه» چون خوشه دومی داشت). چرخ واقعی خودش زیباست.
     }
 
     // چراغ‌گردان: از خود مدل؛ پلیس با یک لامپ → لامپ دوم آینه‌ای ساخته می‌شود

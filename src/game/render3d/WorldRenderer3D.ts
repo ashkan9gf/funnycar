@@ -796,11 +796,11 @@ export class WorldRenderer3D {
       lodGroup.visible = false;
       model.group.add(lodGroup);
       (model as unknown as { lod1Group?: THREE.Group }).lod1Group = lodGroup;
-      // چرخ‌های LOD هم وارد لیست چرخش شوند + پره بگیرند (فاز APK-FIX)
+      // چرخ‌های LOD هم وارد لیست چرخش شوند (فاز APK-FIX)
+      // 🔑 پره‌های سفید decorateWheelSpin حذف شد — کاربر آن‌ها را باگ لاستیک می‌دید
       lodGroup.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.isMesh && m.name.startsWith('wheel_')) {
-          if (!external) decorateWheelSpin(m);
           model.wheels.push(m);
         }
       });

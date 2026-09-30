@@ -393,7 +393,8 @@ export class World {
     // 🔑 فیکس «خودروی سفید تک‌رنگ»: pride/tiba/nissan GLB بدون تکسچر با متریال سفید خالص دارند
     // (bc=[1,1,1,1] بدون baseColorTexture) — در merge پارکی متریال GLB حفظ می‌شود → سفیدِ کدر!
     // درخواست کاربر: «مدل‌های جدید را جای ماشین سفید بگذار» → رنو۴ و قدیمیِ تکسچردار جایگزین شدند
-    const kinds: ParkedCar['kind'][] = ['peugeot405', 'samand', 'renault4', 'vintage'];
+    // 🔑 سهم قدیمیِ زنگ‌زده کم شد (۱ از ۶) — درخواست کاربر: «زیاد نزار ازش توی خیابون‌ها»
+    const kinds: ParkedCar['kind'][] = ['peugeot405', 'samand', 'renault4', 'vintage', 'peugeot405', 'samand'];
     let k = 0;
     const addParked = (x: number, y: number, angle: number) => {
       if (x < 60 || x > WORLD_SIZE - 60 || y < 60 || y > WORLD_SIZE - 60) return;

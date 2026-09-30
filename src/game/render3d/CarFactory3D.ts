@@ -23,16 +23,27 @@ export type CarVariant =
 export interface ExtWheelSpin {
   /** گروه داخل پیوت — مش‌های چرخ به آن attach شده‌اند */
   spinner: THREE.Group;
-  /** محور چرخ در فضای محلی spinner (نرمال‌شده) */
+  /** محور چرخ در فضای محلی spinner (نرمال‌شده + snap به محور اصلی) */
   axis: THREE.Vector3;
   /** +1 یا -1 — طوری که جلو رفتن = چرخش رو به جلو */
   sign: number;
+  /** کاترنیون پایه spinner (قبل از هر چرخشی) — برای اسپین مطلق بدون drift */
+  base: THREE.Quaternion;
+  /** زاویه تجمعی فعلی (رادیان) — به‌جای rotateOnAxis افزایشی که wobble جمع می‌کند */
+  angle: number;
 }
 
-/** چرخاندن چرخ‌ها — مدل خارجی: محور/جهت واقعی؛ پروسیجرال: rotation.x */
+/** چرخاندن چرخ‌ها — مدل خارجی: محور/جهت واقعی؛ پروسیجرال: rotation.x
+ * 🔑 فیکس «لاستیک باگ در حرکت»: rotateOnAxis افزایشی، خطای ممیز شناور و کجی محور را
+ * فریم‌به‌فریم جمع می‌کرد → چرخ بعد از چند ثانیه کج/کولاش می‌شد. حالا هر فریم کاترنیون
+ * مطلق = base × axisAngle(axis, angle) ست می‌شود — صفر drift، صفر wobble */
+const _spinQ = new THREE.Quaternion();
 export function spinWheels(model: CarModel3D, amount: number): void {
   if (model.extWheels && model.extWheels.length > 0) {
-    for (const ew of model.extWheels) ew.spinner.rotateOnAxis(ew.axis, ew.sign * amount);
+    for (const ew of model.extWheels) {
+      ew.angle += ew.sign * amount;
+      ew.spinner.quaternion.copy(ew.base).multiply(_spinQ.setFromAxisAngle(ew.axis, ew.angle));
+    }
   } else {
     for (const w of model.wheels) w.rotation.x += amount;
   }
