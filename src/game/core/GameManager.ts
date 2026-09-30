@@ -219,8 +219,8 @@ export class GameManager {
       [
         'veh_pride_01', 'veh_sedan_01', 'veh_samand_01', 'veh_renault4_01',
         'veh_samand_01', 'veh_pride_01', 'veh_taxi_01', 'veh_vintage_01',
-        'veh_samand_01', 'veh_pride_01', 'veh_taxi_01', 'veh_samand_01',
-        'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_renault4_01',
+        'veh_renault4_01', 'veh_pride_01', 'veh_taxi_01', 'veh_samand_01',
+        'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_vintage_01',
       ],
       { onHonk: (car) => this.onTrafficHonk(car) },
       (() => {

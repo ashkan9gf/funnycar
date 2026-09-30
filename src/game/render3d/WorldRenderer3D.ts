@@ -846,11 +846,10 @@ export class WorldRenderer3D {
    */
   private buildParkedAsync(): void {
     const kinds: Array<{ kind: VehicleVariant; target: number }> = [
-      { kind: 'pride', target: 188 },
       { kind: 'peugeot405', target: 196 },
-      { kind: 'tiba', target: 168 },
-      { kind: 'nissan', target: 200 },
       { kind: 'samand', target: 206 },
+      { kind: 'renault4', target: 176 },
+      { kind: 'vintage', target: 197 },
     ];
     void (async () => {
       for (const entry of kinds) {
@@ -962,11 +961,10 @@ export class WorldRenderer3D {
     cars: Array<{ x: number; y: number; angle: number }>,
   ): void {
     const palette: Record<string, string[]> = {
-      pride: ['#f4f4f0', '#3f7fd4', '#b03a2e', '#e8d9b0', '#d9d9d4'],
       peugeot405: ['#f7f7f2', '#5d6d7e'],
-      tiba: ['#b03a2e', '#d5dbdb'],
-      nissan: ['#2f6fae'],
       samand: ['#bfc9ca'],
+      renault4: ['#e8e8e2', '#7b9db8', '#b8543f', '#d8c9a3'],
+      vintage: ['#8a6f4d', '#6b7d5a', '#9a4f3c', '#7a7a72'],
     };
     const colors = palette[kind] ?? ['#d9d9d4'];
     const mat = this.vcToonMat();
@@ -981,7 +979,7 @@ export class WorldRenderer3D {
       const c = new THREE.Color(colors[i % colors.length]);
       mesh.setColorAt(i, c);
       tmpQ.setFromEuler(tmpE.set(0, -pc.angle, 0));
-      const s = 188 / { player: 172, pride: 172, peugeot405: 196, samand: 206, nissan: 200, tiba: 168, taxi: 196, police: 206 }[kind];
+      const s = 188 / { player: 172, pride: 172, peugeot405: 196, samand: 206, nissan: 200, tiba: 168, taxi: 196, police: 206, renault4: 176, vintage: 197 }[kind];
       this.tmpM.compose(this.tmpV.set(pc.x, 0, pc.y), tmpQ, this.tmpS.set(s, s, s));
       mesh.setMatrixAt(count, this.tmpM);
       count++;

@@ -43,11 +43,11 @@ export interface WorldProp {
   brokenTimer?: number;
 }
 
-/** ماشین دوبله‌پارک کنار جدول */
+/** ماشین دوبله‌پارک کنار جدول — فقط مدل‌های با GLB تکسچردار (فیکس خودروی سفیدِ بی‌متریال) */
 export interface ParkedCar {
   x: number; y: number;
   angle: number;
-  kind: 'pride' | 'peugeot405' | 'tiba' | 'nissan' | 'samand';
+  kind: 'peugeot405' | 'samand' | 'renault4' | 'vintage';
 }
 
 /** سرعت‌گیر روی جاده — horiz = جاده افقی (خودرو در راستای X از رویش رد می‌شود) */
@@ -390,7 +390,10 @@ export class World {
     const edge = WORLD.roadW / 2 + 30; // کنار جدول، بدون تداخل با لاین بیرونی (310)
 
     // ---------- دوبله‌پارکی‌ها ----------
-    const kinds: ParkedCar['kind'][] = ['pride', 'peugeot405', 'tiba', 'nissan', 'samand'];
+    // 🔑 فیکس «خودروی سفید تک‌رنگ»: pride/tiba/nissan GLB بدون تکسچر با متریال سفید خالص دارند
+    // (bc=[1,1,1,1] بدون baseColorTexture) — در merge پارکی متریال GLB حفظ می‌شود → سفیدِ کدر!
+    // درخواست کاربر: «مدل‌های جدید را جای ماشین سفید بگذار» → رنو۴ و قدیمیِ تکسچردار جایگزین شدند
+    const kinds: ParkedCar['kind'][] = ['peugeot405', 'samand', 'renault4', 'vintage'];
     let k = 0;
     const addParked = (x: number, y: number, angle: number) => {
       if (x < 60 || x > WORLD_SIZE - 60 || y < 60 || y > WORLD_SIZE - 60) return;

@@ -366,6 +366,11 @@ export function assembleCarFromGLB(
         pivot.add(mesh);
         steerable.push(pivot);
       }
+    } else if (name === 'trim' || name.startsWith('bumper_') || name === 'plate' || name === 'roofrack') {
+      // 🔑 فیکس «تریم سفیدِ خام»: GLBهای پراید/تیبا/نیسان بدون تکسچر و بدون vertex-color هستند
+      // (baseColorFactor=[1,1,1,1]) — تریم/سپر/پلاک به‌جای سفید وسواس‌بار، تیره کارتونی می‌شود
+      // (bumpers در این مسیر null است — detachBumper تاثیری نمی‌پذیرد)
+      mesh.material = new THREE.MeshToonMaterial({ color: '#2e2b28', gradientMap: getGradient() });
     } else if (name === 'lights_rear') {
       tailMat = new THREE.MeshStandardMaterial({ color: '#e2574c', emissive: '#5a0f08', emissiveIntensity: 0.7, roughness: 0.4 });
       mesh.material = tailMat;

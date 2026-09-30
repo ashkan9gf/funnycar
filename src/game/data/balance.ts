@@ -152,7 +152,7 @@ export const PEDESTRIANS = {
 /** خودروهای پارک‌شده — برخورد فیزیکی (فاز SMASH) */
 export const PARKED_HIT = {
   /** شعاع تقریبی برخورد هر مدل (px) */
-  radius: { pride: 86, peugeot405: 98, tiba: 82, nissan: 98, samand: 100 } as Record<string, number>,
+  radius: { pride: 86, peugeot405: 98, tiba: 82, nissan: 98, samand: 100, renault4: 88, vintage: 98 } as Record<string, number>,
   /** سرعت بالای این = ضربه جدی (صدا + آسیب + لرزش) */
   hardSpeed: 230,
   /** کمترین سرعت برای اثرگذاری بر سرعت بازیکن */

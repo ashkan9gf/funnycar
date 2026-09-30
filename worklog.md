@@ -489,3 +489,25 @@ Stage Summary:
 - دو مدل جدید کاربر با موفقیت به ترافیک اضافه شد: «رنو ۴» (چرخ‌گردان کامل) و «قدیمی زنگ‌زده» — تنوع ترافیک از ۷ به ۹ واریانت رسید
 - هر دو مدل در کنسول تست (برگه /test) قابل بازدید هستند + ابزارهای بازرسی GLB ماندگار شدند
 - درس: نام چرخ باید روی NODE نوشته شود نه mesh؛ accessor مشترک بین مش‌ها bbox چرخ را خراب می‌کند؛ سینتکس gltf-transform این نسخه فکتوری است: prune({})(doc)
+
+---
+Task ID: 26
+Agent: Super Z (main agent)
+Task: درخواست کاربر — «ماشین‌های جدید توی پروژه نیستن؛ اگر کامل شدن بزارشون جای این ماشین سفیده» + اسکرین‌شات خودروی سفید
+
+Work Log:
+- 🔑 ریشه‌یابی نهایی «خودروی سفید تک‌رنگ»: تحلیل متریال همه GLBهای خودرو با اسکریپت (scripts/check_vehicle_glbs.py) — pride.glb / tiba.glb / nissan.glb هر سه «بدون هیچ تکسچری» با baseColorFactor=[1,1,1,1] و بدون COLOR_0 هستند (فقط ~۱٫۹هزار مثلث) — در مسیر ترافیک مشِ name=body با MeshToonMaterial(bodyColor) رنگ می‌گیرد ولی در merge پارکی (buildParkedGLBKind) متریال GLB حفظ می‌شود → همه دوبله‌پارکی‌های pride/tiba/nissan سفیدِ خام! (همان خودروی سفید اسکرین‌شات کاربر)
+- جایگزینی طبق خواسته صریح کاربر («مدل‌های جدید را جای ماشین سفید بگذار»):
+  * World.ts — ParkedCar.kind و چرخه kinds: pride/peugeot405/tiba/nissan/samand → peugeot405/samand/renault4/vintage (رنو۴ target=176 و قدیمی target=197 از ابعاد واقعی مدل)
+  * WorldRenderer3D — buildParkedAsync targets + پالت و اسکیل فال‌بک procedural برای رنو۴/قدیمی
+  * balance.ts — PARKED_HIT.radius += renault4:88, vintage:98 (برخورد پارکی سالم)
+  * GlbModels.ts — مسیر غیر-external: تریم/سپر/پلاک/بام‌بار سفیدِ خام pride/tiba/nissan در ترافیک هم تیره کارتونی شد (#2e2b28) — بدون vertex-color بودند
+  * GameManager — سهم مدل‌های جدید در چرخه ۱۶تایی ترافیک: رنو۴ ۲→۳ و قدیمی ۱→۲ (کاربر نگران «نیستن در پروژه» بود)
+- tsc پاک؛ بدون رفرنس جامانده به kindهای قدیمی (rg)
+- E2E (agent-browser): منو سالم → راندنی آزاد → خودروی قدیمیِ زنگ‌زده تکسچردار دقیقاً جای پارکی سفید رندر شد (پایین راست کادر) + کنسول صفر خطا/NaN + کنسول /test هر دو مدل جدید با برچسب «جدید» در لیست
+- بیلد: scripts/build_apk_v0213.sh → versionCode 13 / versionName 0.2.13 → download/FunnyCarIR-v0.2.13-test.apk (۳۱٫۷۵MB / 31750915 bytes / ۳۴ GLB) — راستی‌آزمایی داخل APK: aapt2 badging v13 ✓ + در باندل minified: kinds=["peugeot405","samand","renault4","vintage"] و radius {renault4:88, vintage:98} ✓
+- آپلود uploadkon → https://uploadkon.ir/uploads/0fcf30_26FunnyCarIR-v0-2-13-test.zip — HEAD: content-length=31750915 دقیقاً برابر لوکال ✓
+
+Stage Summary:
+- «خودروی سفید تک‌رنگ» برای همیشه از دوبله‌پارکی‌ها حذف شد: حالا فقط ۴ نوع تکسچردار پارک می‌شوند (پژو۴۰۵/سمند/رنو۴/قدیمی) — دو مدل جدید کاربر همه‌جا دیده می‌شوند
+- درس: در merge پارکی متریال GLB حفظ می‌شود؛ هر GLB بدون baseColorTexture و بدون vertex-color و بدون recolor در مسیر assemble، در پارکی سفیدِ خام می‌ماند — حتی اگر در ترافیک رنگی باشد
