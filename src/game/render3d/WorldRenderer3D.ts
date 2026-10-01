@@ -152,6 +152,9 @@ function dequantizeGeoNew(src: THREE.BufferGeometry): THREE.BufferGeometry | nul
 /** رکورد رندر یک قطعه — برای dispose مرتب هنگام خروج از برد */
 interface ChunkRender {
   group: THREE.Group;
+  /** مرکز قطعه در دنیا — برای کالای فاصله‌ای (فاز OPT-2) */
+  ci: number;
+  cj: number;
   coins?: { mesh: THREE.InstancedMesh; seeds: number[]; data: Coin[] };
   lights?: { lamps: THREE.InstancedMesh[]; i: number; j: number; ns: number; ew: number };
   repair?: THREE.Group;
@@ -251,6 +254,13 @@ export class WorldRenderer3D {
   private asphaltC = new THREE.Color('#5c5c60');
   private darkC = new THREE.Color('#1a1512');
 
+  // ---------- فاز OPT-1: رزولوشن تطبیقی — فریم گران شد کمی پایین، خلوت شد بالا ----------
+  private renderScale = 1;
+  private frameEMA = 16.7;
+  private lastScaleTune = 0;
+  private pixelW = 2;
+  private pixelH = 2;
+
   constructor(
     glCanvas: HTMLCanvasElement,
     gl: WebGL2RenderingContext | WebGLRenderingContext,
@@ -273,7 +283,8 @@ export class WorldRenderer3D {
     this.octx = octx;
 
     // ---------- فاز CINEMATIC: گنبد آسمان + مه گرم غبار افق تهران ----------
-    this.scene.fog = new THREE.Fog('#e6dcc4', 1300, RENDER3D.fogFar);
+    // فاز LUX: رنگ مه دقیقاً با افق گنبد آسمان هم‌خوان — مرز افق نامرئی می‌شود
+    this.scene.fog = new THREE.Fog('#e8ddb5', 1300, RENDER3D.fogFar);
     this.buildSkyDome();
     this.buildClouds();
 
@@ -289,7 +300,8 @@ export class WorldRenderer3D {
     this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight('#ffdfb0', RENDER3D.sunIntensity);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
+    // فاز LUX: سایه ۲۰۴۸ + normalBias — لبه‌های سایه تمیز، بدون acne روی دیوارها
+    this.sun.shadow.mapSize.set(2048, 2048);
     // فاز FPS-1: محدوده سایه تنگ‌تر (±۸۲۰ → ±۶۲۰) — رندر سایه ~۲ برابر سبک‌تر
     // و کیفیت سایه نزدیک ماشین بهتر؛ دوردست در مه گم است و سایه‌اش دیده نمی‌شود
     this.sun.shadow.camera.left = -620;
@@ -298,8 +310,14 @@ export class WorldRenderer3D {
     this.sun.shadow.camera.bottom = -620;
     this.sun.shadow.camera.near = 100;
     this.sun.shadow.camera.far = 2600;
-    this.sun.shadow.bias = -0.0006;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 2.4;
     this.scene.add(this.sun, this.sun.target);
+    // فاز LUX: نور پرکننده آبی ملایم از سمت مقابل خورشید — حجم و عمق بهتر
+    // دیوارهای درسایه کاملاً سیاه نمی‌شوند، بدون هزینه سایه (castShadow=false)
+    const fill = new THREE.DirectionalLight('#bcd2ea', 0.5);
+    fill.position.set(-420, 380, -260);
+    this.scene.add(fill);
 
     // ---------- فاز INFINITE-IR: دنیای بی‌پایان (زمین پایه + استریم قطعه‌ها) ----------
     this.initStreamingWorld();
@@ -472,7 +490,15 @@ export class WorldRenderer3D {
   /** ساخت رندر یک قطعه — جاده + بلوک + ساختمان + پراپ + پارکی + سکه + چراغ + سرعت‌گیر */
   private buildChunk(key: string, cd: ChunkData): void {
     const group = new THREE.Group();
-    const rec: ChunkRender = { group, disposeGeos: [], disposeMats: [], breakables: [] };
+    const P0 = WR.pitch;
+    const rec: ChunkRender = {
+      group,
+      ci: cd.i * P0 + P0 / 2,
+      cj: cd.j * P0 + P0 / 2,
+      disposeGeos: [],
+      disposeMats: [],
+      breakables: [],
+    };
 
     const P = WR.pitch;
     const W = WR.roadW;
@@ -1838,6 +1864,19 @@ export class WorldRenderer3D {
     this.syncChunks(car.x, car.y);
     this.baseGround.position.set(car.x, -0.2, car.y);
 
+    // ---------- فاز OPT-2: کالای فاصله‌ای قطعه‌ها — آن‌سوی مه کامل رندر نشود ----------
+    // مه در fogFar=۳۳۰۰ صددرصد است؛ قطعه‌ای که کلش فراتر از مه است هیچ پیکسلی نمی‌دهد.
+    // مرکز قطعه دورتر از fogFar + نیم‌قطر (~۱۰۰۰) → group.visible=false (صرفه: ۹~۱۲ قطعه از ۴۹)
+    {
+      const cullD = RENDER3D.fogFar + 1000;
+      const cullD2 = cullD * cullD;
+      for (const rec of this.chunkRenders.values()) {
+        const dx = rec.ci - car.x;
+        const dz = rec.cj - car.y;
+        rec.group.visible = dx * dx + dz * dz <= cullD2;
+      }
+    }
+
     // ---------- ماشین بازیکن ----------
     this.playerModel.group.position.set(car.x, 0, car.y);
     this.playerModel.group.rotation.y = -car.angle;
@@ -2005,7 +2044,7 @@ export class WorldRenderer3D {
     // ---------- سکه‌ها (per chunk) ----------
     for (const rec of this.chunkRenders.values()) {
       const cc = rec.coins;
-      if (!cc) continue;
+      if (!cc || !rec.group.visible) continue; // فاز OPT-2: قطعه مخفی = آپدیت ماتریس هم لازم نیست
       for (let i = 0; i < cc.data.length; i++) {
         const c = cc.data[i];
         const bob = Math.sin(t * 3 + cc.seeds[i]) * 5;
@@ -2075,7 +2114,7 @@ export class WorldRenderer3D {
     const rPulse = 0.5 + 0.5 * Math.sin(t * 2.4);
     for (const rec of this.chunkRenders.values()) {
       const rz = rec.repair;
-      if (!rz) continue;
+      if (!rz || !rec.group.visible) continue;
       rz.children[0].scale.setScalar(0.94 + rPulse * 0.1);
       ((rz.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.55 + rPulse * 0.35;
     }
@@ -2103,6 +2142,19 @@ export class WorldRenderer3D {
     const dt = Math.min(0.1, Math.max(0.0001, (nowMs - this.lastDrawMs) / 1000));
     this.lastDrawMs = nowMs;
     this.updateChaseCamera(car, dt, t);
+
+    // ---------- فاز OPT-1: تنظیم رزولوشن تطبیقی (هر ۱٫۴ ثانیه یک بار) ----------
+    this.frameEMA = this.frameEMA * 0.92 + dt * 1000 * 0.08;
+    if (nowMs - this.lastScaleTune > 1400) {
+      this.lastScaleTune = nowMs;
+      if (this.frameEMA > 23 && this.renderScale > 0.62) {
+        this.renderScale = Math.max(0.62, this.renderScale - 0.08);
+        this.applyRenderSize();
+      } else if (this.frameEMA < 14.5 && this.renderScale < 1) {
+        this.renderScale = Math.min(1, this.renderScale + 0.05);
+        this.applyRenderSize();
+      }
+    }
 
     // ---------- نور خورشید دنبال بازیکن — زاویه پایین‌تر = سایه‌های بلند سینمایی ----------
     this.sun.position.set(car.x + 520, 640, car.y + 380);
@@ -2589,8 +2641,9 @@ export class WorldRenderer3D {
   /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی */
   resize(pixelW: number, pixelH: number, dpr: number): void {
     this.dpr = dpr;
-    this.r3.setPixelRatio(1);
-    this.r3.setSize(pixelW, pixelH, false);
+    this.pixelW = Math.max(2, pixelW);
+    this.pixelH = Math.max(2, pixelH);
+    this.applyRenderSize();
     this.overlay.width = pixelW;
     this.overlay.height = pixelH;
     // ابعاد منطقی برای پروجکشن = پیکسل CSS
@@ -2604,6 +2657,14 @@ export class WorldRenderer3D {
     this.cam3.fov = this.fovBase;
     this.cam3.aspect = aspect;
     this.cam3.updateProjectionMatrix();
+  }
+
+  /** فاز OPT-1: اعمال رزولوشن داخلی با ضریب renderScale (کانواس با CSS کش می‌آید) */
+  private applyRenderSize(): void {
+    const w = Math.max(2, Math.round(this.pixelW * this.renderScale));
+    const h = Math.max(2, Math.round(this.pixelH * this.renderScale));
+    this.r3.setPixelRatio(1);
+    this.r3.setSize(w, h, false);
   }
 
   dispose(): void {

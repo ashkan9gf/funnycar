@@ -65,10 +65,6 @@ export class GlbLibrary {
     return this.load(`buildings/${type}_${v}.glb`);
   }
 
-  /** اسکایلاین شهر (مدل شهر کاربر — بک‌دراپ دور محیط) */
-  async loadSkyline(): Promise<THREE.Group | null> {
-    return this.load('city/skyline.glb');
-  }
 }
 
 /** ساخت گروه ماشین از صحنه GLB — با کلون صحنه برای هر نمونه

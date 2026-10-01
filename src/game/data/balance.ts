@@ -366,11 +366,9 @@ export const RENDER3D = {
   fogNear: 1000,
   fogFar: 3300,
   skyColor: '#AEDCEB',
-  /** فاز FPS-1: برد دید شهرک‌های اسکایلاین — فراتر از مه کامل رندر نمی‌شوند */
-  townVisRange: 4600,
-  /** نور */
-  sunIntensity: 1.35,
-  hemiIntensity: 0.85,
+  /** نور — فاز LUX: خورشید طلایی قوی‌تر + آسمان روشن‌تر (نور پرکننده در رندرر) */
+  sunIntensity: 1.5,
+  hemiIntensity: 0.95,
   /** سقف رد لاستیک و ذرات در حالت سه‌بعدی (Pool) */
   skidMax: 180,
   particleMax: 140,

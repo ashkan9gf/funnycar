@@ -34,7 +34,6 @@ const MODELS: {
   { id: "police", label: "پلیس لو-پلی", sub: "ترافیک — police-car شما", rel: "vehicles/police.glb", variant: "police", size: "۱۶۸KB" },
   { id: "renault4", label: "رنو ۴ (جدید)", sub: "ترافیک — renault_4_cv شما", rel: "vehicles/renault4.glb", variant: "renault4", size: "۴٫۵MB" },
   { id: "vintage", label: "ماشین قدیمی زنگ‌زده (جدید)", sub: "ترافیک — rusty_vintage_car شما", rel: "vehicles/vintage.glb", variant: "vintage", size: "۲٫۸MB" },
-  { id: "skyline", label: "اسکایلاین شهر", sub: "بک‌دراپ شهر — city_scene شما", rel: "city/skyline.glb", variant: null, size: "۱۶MB" },
   { id: "props", label: "پراپ‌های شهری", sub: "اجسام شهر — cities شما", rel: "city/props.glb", variant: null, size: "۹۶۰KB" },
 ];
 
