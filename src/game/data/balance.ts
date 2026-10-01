@@ -151,8 +151,19 @@ export const PEDESTRIANS = {
 
 /** خودروهای پارک‌شده — برخورد فیزیکی (فاز SMASH) */
 export const PARKED_HIT = {
-  /** شعاع تقریبی برخورد هر مدل (px) */
+  /** شعاع تقریبی برخورد هر مدل (px) — قدیمی (فقط fallback) */
   radius: { pride: 86, peugeot405: 98, tiba: 82, nissan: 98, samand: 100, renault4: 88, vintage: 98 } as Record<string, number>,
+  /**
+   * فاز HITBOX-EXACT: جعبه برخورد دقیق هر مدل پارکی [نصف‌عرض (X)، نصف‌طول (Y)]
+   * برخورد OBB دقیق — «نچسبیدن به ماشین» دیگر تصادف حساب نمی‌شود!
+   * ابعاد از خود مدل‌ها: پژو len196، سمند len206، رنو۴ len176/wid77، قدیمی len197/wid73
+   */
+  box: {
+    peugeot405: { hw: 39, hh: 90 },
+    samand: { hw: 39, hh: 95 },
+    renault4: { hw: 35, hh: 81 },
+    vintage: { hw: 34, hh: 91 },
+  } as Record<string, { hw: number; hh: number }>,
   /** سرعت بالای این = ضربه جدی (صدا + آسیب + لرزش) */
   hardSpeed: 230,
   /** کمترین سرعت برای اثرگذاری بر سرعت بازیکن */

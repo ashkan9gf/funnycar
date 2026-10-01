@@ -377,8 +377,10 @@ export function getBusStopTexture(): THREE.CanvasTexture {
  * فاز GTA-IR: خانه آجری با بالکن، مغازه با تابلو فارسی، تعمیرگاه
  * خروجی: [side, side, top, bottom, side, side] برای متریال آرایه‌ای BoxGeometry
  */
-export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
-  const cached = facadeTexCache.get(assetId);
+export function getFacadeTextures(assetId: string, signOverride?: string): THREE.CanvasTexture[] {
+  // فاز IR-SIGNS: هر متن تابلو نسخه بافت خودش را دارد (کش بر اساس assetId + متن)
+  const cacheKey = `${assetId}|${signOverride ?? ''}`;
+  const cached = facadeTexCache.get(cacheKey);
   if (cached) return cached;
 
   let wall = '#e7d9b8';
@@ -397,7 +399,7 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
     case 'env_building_shop_01':
       wall = '#f2c98c'; trim = '#c98d4b'; winBg = '#b8d8e8';
       awning = '#e2574c';
-      signText = 'سوپرمارکت';
+      signText = signOverride ?? 'سوپرمارکت'; // فاز IR-SIGNS: تنوع مغازه‌ها
       break;
     case 'env_building_garage_01':
       wall = '#c4c0b8'; trim = '#8f8f8a'; winBg = '#7f96a8';
@@ -471,17 +473,21 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
     }
   }
   if (signText) {
-    // تابلوی فارسی بالای ورودی
-    gx.fillStyle = '#3a2e2a';
-    gx.fillRect(28, 96, 200, 42);
+    // تابلوی فارسی بالای ورودی — رنگ تخته بر اساس متن (تنوع بصری مغازه‌ها)
+    let sh = 0;
+    for (let si = 0; si < signText.length; si++) sh = (sh * 31 + signText.charCodeAt(si)) >>> 0;
+    const BOARD = ['#3a2e2a', '#22577a', '#7a3b2e', '#3f5e2e', '#5b3a6e', '#8a5a1f'];
+    const boardC = BOARD[sh % BOARD.length];
+    gx.fillStyle = boardC;
+    gx.fillRect(24, 92, 208, 50);
     gx.fillStyle = '#FFF9EC';
-    gx.font = FA_FONT(26);
+    gx.font = FA_FONT(signText.length > 10 ? 22 : 26);
     gx.textAlign = 'center';
     gx.textBaseline = 'middle';
     gx.fillText(signText, 128, 118);
-    gx.strokeStyle = '#FFF9EC';
+    gx.strokeStyle = '#F2D48A';
     gx.lineWidth = 3;
-    gx.strokeRect(28, 96, 200, 42);
+    gx.strokeRect(24, 92, 208, 50);
   }
   if (awning) {
     // آویز راه‌راه مغازه
@@ -535,7 +541,7 @@ export function getFacadeTextures(assetId: string): THREE.CanvasTexture[] {
   const groundTex = toTex(groundF);
   const roofTex = toTex(roof);
   const arr = [faceTex, faceTex, roofTex, roofTex, groundTex, groundTex];
-  facadeTexCache.set(assetId, arr);
+  facadeTexCache.set(cacheKey, arr);
   return arr;
 }
 

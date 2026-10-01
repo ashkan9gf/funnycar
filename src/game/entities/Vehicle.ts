@@ -4,12 +4,14 @@
  * مدل ساده و قابل پیش‌بینی:
  *  - سرعت روی محور جلو/عقب، فرمان فقط وقتی حرکت می‌کنی اثر دارد
  *  - همه اعداد از balance.ts می‌آیند (بدون عدد Hard-Code)
- *  - برخورد AABB با موانع — نتیجه: توقف/جهش + رویداد + «نقطه برخورد»
+ *  - برخورد OBB دقیق (SAT) با موانع — نتیجه: توقف/جهش + رویداد + «نقطه برخورد»
+ *    (فاز HITBOX-EXACT: در حرکت مورب دیگر برخورد خیالی وجود ندارد)
  *  - سلامت (health): برخورد با موانع بزرگ آسیب می‌زند؛ سرعت بیشینه افت می‌کند
  */
 
 import { VEHICLE_PHYSICS as VP, COLLISION, DRIFT, DAMAGE } from '../data/balance';
 import { NEUTRAL_TUNING, type VehicleTuning } from '../data/garage';
+import { obbFromAngle, obbFromAABB, satOverlapMTV } from './obb';
 
 export interface Collider {
   x: number; y: number; w: number; h: number;
@@ -169,49 +171,40 @@ export class Vehicle {
     this.x += (this.vx + this.rightX * this.latVel) * dt;
     this.y += (this.vy + this.rightY * this.latVel) * dt;
 
-    // ---------- برخورد (حل محور-به-محور = لغزش در امتداد دیوار + نقطه تماس) ----------
+    // ---------- برخورد (فاز HITBOX-EXACT: OBB×SAT — اگر واقعاً نخوردی، تصادف نیست!) ----------
+    // جعبه چرخان دقیق ماشین در برابر مانع — در حرکت مورب دیگر جعبه متورم نداریم
+    const velX = this.vx + this.rightX * this.latVel;
+    const velY = this.vy + this.rightY * this.latVel;
+    const playerBox = obbFromAngle(this.x, this.y, this.angle, this.hitH / 2, this.hitW / 2);
+
     for (const c of colliders) {
-      if (!this.overlaps(c)) continue;
+      // رد سریع با دایره محاطی (کولایدهای دور تست SAT نمی‌گیرند)
+      const ccx = c.x + c.w / 2;
+      const ccy = c.y + c.h / 2;
+      const cRad = Math.hypot(c.w, c.h) / 2 + this.hitH / 2;
+      const ddx = ccx - this.x;
+      const ddy = ccy - this.y;
+      if (ddx * ddx + ddy * ddy > cRad * cRad) continue;
 
-      const hw = this.hitW / 2;
-      const hh = this.hitH / 2;
-      // عمق نفوذ در هر جهت
-      const penLeft = this.x + hw - c.x;
-      const penRight = c.x + c.w - (this.x - hw);
-      const penTop = this.y + hh - c.y;
-      const penBottom = c.y + c.h - (this.y - hh);
-      const minX = Math.min(penLeft, penRight);
-      const minY = Math.min(penTop, penBottom);
+      const mtv = satOverlapMTV(playerBox, obbFromAABB(c.x, c.y, c.w, c.h));
+      if (!mtv) continue;
 
-      // رفع نفوذ در محور کم‌عمق‌تر + اندازه‌گیری شدت برخورد همان محور
-      let axisImpact = 0;
-      if (minX <= minY) {
-        axisImpact = Math.abs(this.vx);
-        if (penLeft < penRight) {
-          this.x -= penLeft;
-          res.nx = -1; res.ny = 0;
-          res.impactX = c.x;                 // وجه چپ مانع
-          res.impactY = Math.max(c.y, Math.min(c.y + c.h, this.y));
-        } else {
-          this.x += penRight;
-          res.nx = 1; res.ny = 0;
-          res.impactX = c.x + c.w;           // وجه راست مانع
-          res.impactY = Math.max(c.y, Math.min(c.y + c.h, this.y));
-        }
-      } else {
-        axisImpact = Math.abs(this.vy);
-        if (penTop < penBottom) {
-          this.y -= penTop;
-          res.nx = 0; res.ny = -1;
-          res.impactX = Math.max(c.x, Math.min(c.x + c.w, this.x));
-          res.impactY = c.y;                 // وجه بالای مانع
-        } else {
-          this.y += penBottom;
-          res.nx = 0; res.ny = 1;
-          res.impactX = Math.max(c.x, Math.min(c.x + c.w, this.x));
-          res.impactY = c.y + c.h;           // وجه پایین مانع
-        }
-      }
+      // جداسازی کامل بازیکن در جهت کم‌عمق‌ترین محور (لغزش روی دیوار حفظ می‌شود)
+      this.x += mtv.x * mtv.depth;
+      this.y += mtv.y * mtv.depth;
+
+      // شدت برخورد = مؤلفه سرعت روی محور برخورد
+      const axisImpact = Math.abs(velX * mtv.x + velY * mtv.y);
+      res.nx = mtv.x;
+      res.ny = mtv.y;
+
+      // نقطه تماس تقریبی: گوشه ماشین در جهت نرمال (برای ذرات/خرابی)
+      const alongF = mtv.x * playerBox.ax + mtv.y * playerBox.ay;
+      const alongR = mtv.x * playerBox.bx + mtv.y * playerBox.by;
+      const pushF = Math.abs(alongF) >= Math.abs(alongR) ? Math.sign(alongF) * playerBox.ha : 0;
+      const pushR = pushF === 0 ? Math.sign(alongR) * playerBox.hb : 0;
+      res.impactX = this.x + playerBox.ax * pushF + playerBox.bx * pushR;
+      res.impactY = this.y + playerBox.ay * pushF + playerBox.by * pushR;
 
       // آسیب داینامیک با جهت برخورد (جلو/عقب — فاز BIG-IR)
       // فقط برخورد واقعی (سرعت > آستانه نرم) آسیب می‌زند — ساییدنِ ایستانه صفر
@@ -238,12 +231,5 @@ export class Vehicle {
   private dmgFor(impact: number): number {
     const raw = (DAMAGE.worldHitBase + impact * DAMAGE.worldHitScale) * this.tune.armorMul;
     return Math.min(DAMAGE.worldHitMax, raw);
-  }
-
-  private overlaps(c: Collider): boolean {
-    const hw = this.hitW / 2;
-    const hh = this.hitH / 2;
-    return this.x + hw > c.x && this.x - hw < c.x + c.w
-      && this.y + hh > c.y && this.y - hh < c.y + c.h;
   }
 }

@@ -16,13 +16,13 @@ import type { AssetManager } from '../core/AssetManager';
 import type { Camera } from '../core/Camera';
 import type { Vehicle } from '../entities/Vehicle';
 import type { TrafficCar } from '../entities/TrafficCar';
-import type { World, WorldProp } from '../world/World';
+import type { World } from '../world/World';
 import type { EventCat, EventCone } from '../managers/RandomEventManager';
 import type { Pothole } from '../managers/MissionManager';
 import type { Pedestrian } from '../managers/PedestrianManager';
 import { faNum } from '../managers/MissionManager';
 import { RENDER3D, MISSIONS as M, RANDOM_EVENTS as RE, PEDESTRIANS as PEDS, DEBRIS, TRAFFIC_LIGHTS } from '../data/balance';
-import { WORLD as WR, WORLD_SIZE, roadCenter } from '../world/World';
+import { WORLD as WR, roadCenter, type ChunkData, type WorldProp, type ParkedCar, type Coin } from '../world/World';
 import { buildCar3D, variantFromAssetId, applyDamageVisual, detachBumper, spinWheels, steerWheels, type CarModel3D, type CarVariant } from './CarFactory3D';
 import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin } from './GlbModels';
 
@@ -149,6 +149,20 @@ function dequantizeGeoNew(src: THREE.BufferGeometry): THREE.BufferGeometry | nul
   return out;
 }
 
+/** رکورد رندر یک قطعه — برای dispose مرتب هنگام خروج از برد */
+interface ChunkRender {
+  group: THREE.Group;
+  coins?: { mesh: THREE.InstancedMesh; seeds: number[]; data: Coin[] };
+  lights?: { lamps: THREE.InstancedMesh[]; i: number; j: number; ns: number; ew: number };
+  repair?: THREE.Group;
+  /** هندسه‌های اختصاصی این قطعه (merge/ساختمان) — هنگام خروج dispose */
+  disposeGeos: THREE.BufferGeometry[];
+  /** متریال‌های کلون‌شده (نمای GLB ساختمان‌ها) */
+  disposeMats: THREE.Material[];
+  /** شکستنی‌های این قطعه — برای پاک‌سازی نقشه‌های sync */
+  breakables: WorldProp[];
+}
+
 export class WorldRenderer3D {
   private r3: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -167,8 +181,6 @@ export class WorldRenderer3D {
   // پویاها
   private playerModel: CarModel3D;
   private trafficModels = new Map<TrafficCar, CarModel3D>();
-  private coinMesh: THREE.InstancedMesh;
-  private coinSeeds: number[] = [];
   private conePool: THREE.Mesh[] = [];
   private catGroup: THREE.Group;
   private potholeMeshes: THREE.Mesh[] = [];
@@ -190,22 +202,27 @@ export class WorldRenderer3D {
   /** صحنه‌های GLB آماده‌شده (واریانت → گروه) */
   private glbCars = new Map<string, THREE.Group>();
   private glbCars1 = new Map<string, THREE.Group>();
-  /** نمونه‌های دوبله‌پارکی: هر (kind، رنگ) یک InstancedMesh */
-  private parkedInstanced: THREE.Object3D[] = [];
-  /** فاز FPS-1: شهرک‌های اسکایلاین — برای culling فاصله‌ای هر فریم */
-  private skylineTowns: THREE.Object3D[] = [];
-  /** فاز FPS-1: merge گروهی — متریال مشترک vertexColors (ساختمان/پشت‌بام/شهرک) */
+  /** فاز INFINITE-IR: استریم قطعه‌های شهر — هر قطعه یک Group با dispose مرتب */
+  private chunkRenders = new Map<string, ChunkRender>();
+  /** زمین پایه بی‌پایان — دنبال بازیکن */
+  private baseGround!: THREE.Mesh;
+  /** قالب‌های مشترک پراپ‌های کوچک (یک‌بار ساخته می‌شوند — بین قطعه‌ها مشترک) */
+  private propTemplates: Record<string, THREE.BufferGeometry> | null = null;
+  /** هندسه‌های کیت شهری GLB (gtree/gtreeSmall) — پس از لود async */
+  private kitGeoms: Map<string, THREE.BufferGeometry> | null = null;
+  private kitMat: THREE.Material | null = null;
+  /** سکه/چراغ/سرعت‌گیر — هندسه و متریال مشترک سراسری */
+  private coinGeoShared!: THREE.BufferGeometry;
+  private coinMatShared!: THREE.Material;
+  private lightPoleGeoShared!: THREE.BufferGeometry;
+  private lightLampGeoShared!: THREE.BufferGeometry;
+  private lightLampMatsShared: THREE.MeshBasicMaterial[] = [];
+  /** فاز FPS-1: merge گروهی — متریال مشترک vertexColors (ساختمان/پشت‌بام) */
   private vcMergeMat: THREE.MeshLambertMaterial | null = null;
   /** نگاشت شکستنی‌ها به نمونه (prop → instanced mesh + شماره نمونه) */
   private breakableInst = new Map<WorldProp, { mesh: THREE.InstancedMesh; idx: number }>();
   /** وضعیت رندر قبلی شکستنی‌ها (فقط تغییرها sync شوند) */
   private breakableDirty = true;
-  /** نمونه‌سازی درخت‌ها و پراپ‌های کوچک */
-  private propInstanced = new Map<string, THREE.InstancedMesh>();
-  /** چراغ راهنما: تیرها + ۳ لامپ Instanced (قرمز/زرد/سبز) */
-  private lightPoleMesh: THREE.InstancedMesh | null = null;
-  private lightLamps: THREE.InstancedMesh[] = [];
-  private lightStateCache: Uint8Array | null = null;
   /** فاصله سوییچ LOD خودرو */
   private lodDist = 1500;
   /** نرمال‌سازی فرمان/ترمز/رول بازیکن */
@@ -284,27 +301,39 @@ export class WorldRenderer3D {
     this.sun.shadow.bias = -0.0006;
     this.scene.add(this.sun, this.sun.target);
 
-    // دنیا
-    this.buildStaticWorld();
+    // ---------- فاز INFINITE-IR: دنیای بی‌پایان (زمین پایه + استریم قطعه‌ها) ----------
+    this.initStreamingWorld();
 
     // ---------- فاز OVERHAUL: پیش‌بارگذاری GLB خودروها (fallback: procedural) ----------
     this.preloadCars();
-    // ---------- چراغ‌های راهنما ----------
-    this.buildTrafficLights();
+    // ---------- قالب‌های مشترک پراپ‌ها + کیت شهری GLB ----------
+    this.propTemplates = this.makePropTemplates();
+    void this.loadCityKit();
 
     // ماشین بازیکن (ابعاد منطقی پیش‌فرض؛ نسبت 4:7 مثل Asset) — رنگ گاراژ (فاز ۶)
     const pw = 112;
     this.playerModel = buildCar3D('player', pw, Math.round(pw * 1.75), { paint: this.playerPaint });
     this.scene.add(this.playerModel.group);
 
-    // سکه‌ها
+    // سکه/چراغ — هندسه و متریال مشترک (هر قطعه InstancedMesh خودش را می‌سازد)
     const coinGeo = new THREE.CylinderGeometry(17, 17, 6, 18);
     coinGeo.rotateX(Math.PI / 2);
-    const coinMat = new THREE.MeshLambertMaterial({ color: '#F2B705', emissive: '#5c4200' });
-    this.coinMesh = new THREE.InstancedMesh(coinGeo, coinMat, Math.max(1, this.world.coins.length));
-    this.coinMesh.count = this.world.coins.length;
-    this.scene.add(this.coinMesh);
-    this.coinSeeds = this.world.coins.map((c) => c.seed);
+    this.coinGeoShared = coinGeo;
+    this.coinMatShared = new THREE.MeshLambertMaterial({ color: '#F2B705', emissive: '#5c4200' });
+    {
+      const half = WR.roadW / 2;
+      const poleParts = [
+        { g: (() => { const g = new THREE.CylinderGeometry(6, 8, 210, 8); g.translate(0, 105, 0); return g; })(), color: '#3c4440' },
+        { g: (() => { const g = new THREE.BoxGeometry(half + 40, 8, 8); g.translate(-half / 2 - 10, 205, 0); return g; })(), color: '#3c4440' },
+        { g: (() => { const g = new THREE.BoxGeometry(28, 78, 6); g.translate(-half + 10, 168, 0); return g; })(), color: '#23211f' },
+        { g: (() => { const g = new THREE.BoxGeometry(6, 78, 28); g.translate(half + 30, 168, -half - 20); return g; })(), color: '#23211f' },
+      ];
+      this.lightPoleGeoShared = this.mergeColored(poleParts);
+      this.lightLampGeoShared = new THREE.SphereGeometry(8, 8, 6);
+      this.lightLampMatsShared = ['#ff3b30', '#ffcc00', '#2ecc71'].map(
+        (c) => new THREE.MeshBasicMaterial({ color: c }),
+      );
+    }
 
     // Pool مخروط‌های رویداد
     const coneGeo = new THREE.ConeGeometry(22, 52, 10);
@@ -368,368 +397,381 @@ export class WorldRenderer3D {
   }
 
   // ============ دنیای ثابت ============
-  private buildStaticWorld(): void {
-    const S = WORLD_SIZE;
+  // ============ فاز INFINITE-IR — شهر بی‌پایان (استریم قطعه‌ها) ============
 
-    // زمین پایه (شن)
+  private roadMatShared!: THREE.MeshLambertMaterial;
+  private crossMatShared!: THREE.MeshLambertMaterial;
+  private sidewalkMatShared!: THREE.MeshLambertMaterial;
+  private grassMatShared!: THREE.MeshLambertMaterial;
+  private yardMatShared!: THREE.MeshLambertMaterial;
+
+  /** زمین بی‌پایان + متریال‌های مشترک؛ خود قطعه‌ها در draw3D با syncChunks ساخته/آزاد می‌شوند */
+  private initStreamingWorld(): void {
+    // زمین پایه بی‌پایان (شن) — هر فریم دنبال بازیکن (رنگ ساده = بدون جابجایی بافت)
     const base = new THREE.Mesh(
-      new THREE.PlaneGeometry(S + 2600, S + 2600),
+      new THREE.PlaneGeometry(16000, 16000),
       new THREE.MeshLambertMaterial({ color: '#C9B98A' }),
     );
     base.rotation.x = -Math.PI / 2;
-    base.position.set(S / 2, 0, S / 2);
+    base.position.set(0, -0.2, 0);
     base.receiveShadow = true;
     this.scene.add(base);
+    this.baseGround = base;
 
-    // ---------- جاده‌های دوطرفه پهن — MERGE به ۲ مش (فاز OVERHAUL: کاهش Draw Call) ----------
+    // متریال‌های مشترک جاده/پیاده‌رو/چمن — بافت کش‌شده سراسری
     const roadTex = getRoadStraightTexture();
-    roadTex.repeat.set(1, S / 560);
     roadTex.wrapT = THREE.RepeatWrapping;
+    roadTex.wrapS = THREE.RepeatWrapping;
+    roadTex.repeat.set(1, 1);
     roadTex.colorSpace = THREE.SRGBColorSpace;
-    const roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
-    const roadGeo = new THREE.PlaneGeometry(WR.roadW, S);
-    roadGeo.rotateX(-Math.PI / 2);
-    const nRoads = WR.roadCount + 1;
-    const roadPartsV: THREE.BufferGeometry[] = [];
-    const roadPartsH: THREE.BufferGeometry[] = [];
-    for (let i = 0; i < nRoads; i++) {
-      const cx = roadCenter(i);
-      const gv = roadGeo.clone();
-      gv.translate(cx, 1, S / 2);
-      roadPartsV.push(gv);
-      const gh = roadGeo.clone();
-      gh.rotateY(Math.PI / 2);
-      gh.translate(S / 2, 1, cx);
-      roadPartsH.push(gh);
-    }
-    const roadsMerged = mergeGeometries([...roadPartsV, ...roadPartsH], false);
-    if (roadsMerged) {
-      const m = new THREE.Mesh(roadsMerged, roadMat);
-      m.receiveShadow = true;
-      this.scene.add(m);
-    }
+    this.roadMatShared = new THREE.MeshLambertMaterial({ map: roadTex });
+    this.crossMatShared = new THREE.MeshLambertMaterial({ map: getCrossroadTexture() });
+    this.sidewalkMatShared = new THREE.MeshLambertMaterial({ map: getSidewalkTexture() });
+    this.grassMatShared = new THREE.MeshLambertMaterial({ map: getGrassTexture() });
+    this.yardMatShared = new THREE.MeshLambertMaterial({ color: '#d4c49a' });
+  }
 
-    // تقاطع‌ها — MERGE به ۱ مش (زیبرا + خط توقف سبک ایران)
-    const asMat = new THREE.MeshLambertMaterial({ map: getCrossroadTexture() });
-    const crossGeo = new THREE.PlaneGeometry(WR.roadW, WR.roadW);
-    crossGeo.rotateX(-Math.PI / 2);
-    const crossParts: THREE.BufferGeometry[] = [];
-    for (let i = 0; i < nRoads; i++) {
-      for (let j = 0; j < nRoads; j++) {
-        const g = crossGeo.clone();
-        g.translate(roadCenter(i), 1.6, roadCenter(j));
-        crossParts.push(g);
-      }
+  /** هر فریم — قطعه‌های تازه را می‌سازد (سقف ۲ در فریم = بدون هنگ) و دوری‌ها را آزاد */
+  private syncChunks(px: number, pz: number): void {
+    // آزادسازی قطعه‌هایی که از برد خارج شده‌اند (dispose هندسه‌های اختصاصی)
+    for (const [key, rec] of [...this.chunkRenders]) {
+      if (!this.world.chunks.has(key)) this.disposeChunk(key, rec);
     }
-    const crossMerged = mergeGeometries(crossParts, false);
-    if (crossMerged) {
-      const m = new THREE.Mesh(crossMerged, asMat);
-      m.receiveShadow = true;
-      this.scene.add(m);
+    // ساخت قطعه‌های نزدیک‌تر اول
+    let built = 0;
+    const pending: Array<{ key: string; cd: ChunkData; d: number }> = [];
+    for (const [key, cd] of this.world.chunks) {
+      if (this.chunkRenders.has(key)) continue;
+      const ci = cd.i * WR.pitch + WR.roadW / 2;
+      const cj = cd.j * WR.pitch + WR.roadW / 2;
+      pending.push({ key, cd, d: (ci - px) * (ci - px) + (cj - pz) * (cj - pz) });
     }
+    pending.sort((a, b) => a.d - b.d);
+    for (const p of pending) {
+      this.buildChunk(p.key, p.cd);
+      if (++built >= 2) break;
+    }
+  }
 
-    // ---------- بلوک‌ها: پیاده‌رو + مرکز — MERGE به ۳ مش ----------
-    const swMat = new THREE.MeshLambertMaterial({ map: getSidewalkTexture() });
-    const grassMat = new THREE.MeshLambertMaterial({ map: getGrassTexture() });
-    const yardMat = new THREE.MeshLambertMaterial({ color: '#d4c49a' });
-    const blockS = WR.pitch - WR.roadW; // 840
-    const swGeo = new THREE.PlaneGeometry(blockS, blockS);
-    swGeo.rotateX(-Math.PI / 2);
-    const innerGeo = new THREE.PlaneGeometry(blockS - 200, blockS - 200);
-    innerGeo.rotateX(-Math.PI / 2);
-    const swParts: THREE.BufferGeometry[] = [];
-    const grassParts: THREE.BufferGeometry[] = [];
-    const yardParts: THREE.BufferGeometry[] = [];
-    for (let i = 0; i < WR.roadCount; i++) {
-      for (let j = 0; j < WR.roadCount; j++) {
-        const bx = i * WR.pitch + WR.roadW;
-        const by = j * WR.pitch + WR.roadW;
-        const gs = swGeo.clone();
-        gs.translate(bx + blockS / 2, 0.8, by + blockS / 2);
-        swParts.push(gs);
-        const gi = innerGeo.clone();
-        gi.translate(bx + blockS / 2, 1.2, by + blockS / 2);
-        if (i === 2 && j === 2 || i === 4 && j === 2) grassParts.push(gi);
-        else yardParts.push(gi);
-      }
+  private disposeChunk(key: string, rec: ChunkRender): void {
+    this.scene.remove(rec.group);
+    // بافرهای instance هر InstancedMesh آزاد شود (هندسه/متریال مشترک دست نمی‌خورد)
+    rec.group.traverse((o) => {
+      const im = o as THREE.InstancedMesh;
+      if (im.isInstancedMesh) im.dispose();
+    });
+    for (const g of rec.disposeGeos) g.dispose();
+    for (const m of rec.disposeMats) m.dispose();
+    for (const p of rec.breakables) {
+      this.breakableInst.delete(p);
+      this.propGroups.delete(p);
     }
-    const addMerged = (parts: THREE.BufferGeometry[], mat: THREE.Material): void => {
-      const merged = mergeGeometries(parts, false);
-      if (!merged) return;
-      const m = new THREE.Mesh(merged, mat);
+    this.chunkRenders.delete(key);
+  }
+
+  /** ساخت رندر یک قطعه — جاده + بلوک + ساختمان + پراپ + پارکی + سکه + چراغ + سرعت‌گیر */
+  private buildChunk(key: string, cd: ChunkData): void {
+    const group = new THREE.Group();
+    const rec: ChunkRender = { group, disposeGeos: [], disposeMats: [], breakables: [] };
+
+    const P = WR.pitch;
+    const W = WR.roadW;
+    const i = cd.i;
+    const j = cd.j;
+    const blockS = P - W; // 840
+    const bx = i * P + W;
+    const by = j * P + W;
+    const vcx = roadCenter(i);
+    const hcy = roadCenter(j);
+
+    // ---------- جاده‌ها (UV پیوسته جهانی — درز بین قطعه‌ها دیده نمی‌شود) ----------
+    const addRoadGeo = (vertical: boolean): void => {
+      const g = new THREE.PlaneGeometry(W, P);
+      g.rotateX(-Math.PI / 2);
+      if (!vertical) g.rotateY(Math.PI / 2);
+      // v جهانی = (v0×P + off)/W — همان تابع پیوسته برای همه قطعه‌ها
+      const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+      const off = -((vertical ? j : i) + 1) * P;
+      for (let k = 0; k < uv.count; k++) {
+        uv.setY(k, (uv.getY(k) * P + off) / W);
+      }
+      uv.needsUpdate = true;
+      if (vertical) g.translate(vcx, 1, j * P + P / 2);
+      else g.translate(i * P + P / 2, 1, hcy);
+      rec.disposeGeos.push(g);
+      const m = new THREE.Mesh(g, this.roadMatShared);
       m.receiveShadow = true;
-      this.scene.add(m);
+      group.add(m);
     };
-    addMerged(swParts, swMat);
-    addMerged(grassParts, grassMat);
-    addMerged(yardParts, yardMat);
+    addRoadGeo(true);
+    addRoadGeo(false);
 
-    // ساختمان‌ها و پراپ‌ها از داده World
-    for (const p of this.world.props) {
-      if (p.kind === 'building') this.buildBuilding(p);
+    // تقاطع (زیبرا + خط توقف)
+    {
+      const g = new THREE.PlaneGeometry(W, W);
+      g.rotateX(-Math.PI / 2);
+      g.translate(vcx, 1.6, hcy);
+      rec.disposeGeos.push(g);
+      const m = new THREE.Mesh(g, this.crossMatShared);
+      m.receiveShadow = true;
+      group.add(m);
     }
-    // پراپ‌های کوچک: Instanced (درخت/سطل/مخروط/جعبه/تیر/موتور/کیسه)
-    this.buildPropInstanced();
-    // کیت شهری GLB (فاز CITY-KIT) — بعد از لود async ساخته می‌شود
-    void this.buildCityKitProps();
 
-    // دوبله‌پارکی‌ها (GLB واقعی هر خودرو) و سرعت‌گیرها (زندگی خیابانی ایران)
-    this.buildParkedAsync();
-    for (const sb of this.world.speedBumps) {
+    // ---------- پیاده‌رو + حیاط/چمن بلوک ----------
+    const isPark = cd.props.some((p) => p.kind === 'fountain');
+    {
+      const sw = new THREE.PlaneGeometry(blockS, blockS);
+      sw.rotateX(-Math.PI / 2);
+      sw.translate(bx + blockS / 2, 0.8, by + blockS / 2);
+      rec.disposeGeos.push(sw);
+      const m = new THREE.Mesh(sw, this.sidewalkMatShared);
+      m.receiveShadow = true;
+      group.add(m);
+
+      const inner = new THREE.PlaneGeometry(blockS - 200, blockS - 200);
+      inner.rotateX(-Math.PI / 2);
+      inner.translate(bx + blockS / 2, 1.2, by + blockS / 2);
+      rec.disposeGeos.push(inner);
+      const mi = new THREE.Mesh(inner, isPark ? this.grassMatShared : this.yardMatShared);
+      mi.receiveShadow = true;
+      group.add(mi);
+    }
+
+    // ---------- ساختمان‌ها + پراپ‌های ویژه (تابلو/نیمکت/فواره/لندمارک) ----------
+    for (const p of cd.props) {
+      if (p.kind === 'building') {
+        this.buildBuilding(p, key, group, rec);
+      } else if (
+        p.kind === 'busstop' || p.kind === 'vendor' || p.kind === 'billboard' || p.kind === 'streetSign'
+        || p.kind === 'azadiTower' || p.kind === 'miladTower' || p.kind === 'fountain'
+        || p.kind === 'bench' || p.kind === 'flowers'
+      ) {
+        this.buildProp(p, group);
+      }
+    }
+
+    // ---------- پراپ‌های کوچک Instanced (درخت/سطل/مخروط/جعبه/تیر/موتور/کیسه) ----------
+    this.buildChunkPropsInstanced(cd, group, rec);
+
+    // ---------- دوبله‌پارکی‌های این قطعه (GLB واقعی) ----------
+    this.buildChunkParked(key, cd, group, rec);
+
+    // ---------- سرعت‌گیرها ----------
+    for (const sb of cd.speedBumps) {
       const bump = buildSpeedBump(500);
       bump.position.set(sb.x, 0, sb.y);
       bump.rotation.y = sb.horiz ? Math.PI / 2 : 0;
-      this.scene.add(bump);
+      group.add(bump);
     }
 
-    // ---------- زون‌های تعمیرگاه: حلقه سبز پالس‌دار ----------
-    for (const z of this.world.repairZones) {
+    // ---------- زون تعمیرگاه (حلقه سبز پالس‌دار) ----------
+    if (cd.repairZones.length > 0) {
       const ringG = new THREE.Group();
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(z.r * 0.9, 7, 8, 44).rotateX(Math.PI / 2),
-        new THREE.MeshBasicMaterial({ color: '#2A9D8F', transparent: true, opacity: 0.75 }),
-      );
-      ring.position.y = 8;
-      const disc = new THREE.Mesh(
-        new THREE.CircleGeometry(z.r * 0.88, 36).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial({ color: '#2A9D8F', transparent: true, opacity: 0.12, depthWrite: false }),
-      );
-      disc.position.y = 5;
-      ringG.add(ring, disc);
-      ringG.position.set(z.x, 0, z.y);
-      this.scene.add(ringG);
-      this.repairRings.push(ringG);
-    }
-
-    // ---------- فاز OPEN-WORLD: دیوار شهر حذف شد — شهرک‌های اسکایلاین همه قابل ورود!
-    // زمین بزرگ برای کل جهان + شهرک‌ها (شهرک تا ۵۱۰۰ بیرون مرز)
-    const outer = S + 12000;
-    const bigBase = new THREE.Mesh(
-      new THREE.PlaneGeometry(outer, outer),
-      new THREE.MeshLambertMaterial({ color: '#C9B98A' }),
-    );
-    bigBase.rotation.x = -Math.PI / 2;
-    bigBase.position.set(S / 2, -0.2, S / 2);
-    bigBase.receiveShadow = true;
-    this.scene.add(bigBase);
-
-    // ---------- اسکایلاین شهر (مدل شهر کاربر — ۶ شهرکِ قابل ورود دور دنیا) ----------
-    void this.buildSkyline();
-  }
-
-  /** شهرک‌های دور: city_scene کاربر — ۶ کپی باکیفیت، همه قابل ورود با برخورد + جاده دسترسی + دروازه
-   *  فاز FPS-1: هر شهرک = merge کل مش‌ها per (متریال × امضای اتریبیوت) → به‌جای ~۹۰ مش،
-   *  فقط چند مش — Draw Call شهرک‌ها ~۹۰×۷=۶۳۰ → ~۲۵. کولایدرها از کلون کامل محاسبه می‌شوند. */
-  private async buildSkyline(): Promise<void> {
-    // همه شهرک‌ها با نسخه باکیفیت (درخواست کاربر: «مثل فایل اولی با کیفیت‌تر») — fallback: سبک
-    const townScene = await this.glb.load('city/skyline_town.glb');
-    const scene = townScene ?? await this.glb.load('city/skyline.glb');
-    if (!scene) return;
-    scene.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) { m.castShadow = false; m.receiveShadow = false; }
-    });
-    // ---------- merge قالب per (متریال × امضای اتریبیوت) ----------
-    scene.updateMatrixWorld(true);
-    const byKey = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>();
-    scene.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      // 🔑 دی‌کوانتیز: همه اتریبیوت‌ها Float32 یکدست می‌شوند — هم NaN رد می‌شود
-      // هم «array types mismatch» در mergeGeometries (خطای کنسول) ریشه‌کن می‌شود
-      const g = dequantizeGeoNew(m.geometry);
-      if (!g) return; // مش معیوب (NaN/اتریبوت ناهم‌راستا) → رد بی‌صدا
-      g.applyMatrix4(m.matrixWorld);
-      g.computeBoundingBox(); // هندسه تمیز — بدون warning
-      const bb = g.boundingBox;
-      if (!bb || !Number.isFinite(bb.min.x)) return; // مش معیوب → رد
-      const mats = Array.isArray(m.material) ? m.material : [m.material];
-      const mat = (mats[0] ?? this.vcToonMat()) as THREE.Material;
-      const sig = Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '|n');
-      const key = `${mat.uuid}##${sig}`;
-      const e = byKey.get(key);
-      if (e) e.geos.push(g);
-      else byKey.set(key, { mat, geos: [g] });
-    });
-    const template = new THREE.Group();
-    template.name = 'skyline_merged';
-    for (const { mat, geos } of byKey.values()) {
-      const merged = mergeGeometries(geos, false);
-      if (!merged) continue;
-      merged.computeBoundingBox();
-      merged.computeBoundingSphere();
-      const mesh = new THREE.Mesh(merged, mat);
-      mesh.castShadow = false;
-      mesh.receiveShadow = false;
-      template.add(mesh);
-    }
-    // اگر merge به هر دلیل ممکن نشد → مسیر قبلی (کلون کامل)
-    const useMerged = template.children.length > 0;
-    const S = WORLD_SIZE;
-    const half = 2550; // عمق نرمال‌شده مدل (±۲۶۰۰)
-    const edge = -(half + 60); // ۶۰ واحد بیرونِ لبه — هیچ‌گاه داخل نقشه نفوذ نمی‌کند
-    // ۶ شهرک + نام دروازه هرکدام (فاز OPEN-WORLD — همه قابل ورود)
-    // ⚠️ همه ورودی‌ها روی امتداد جاده‌های واقعی شهر — جاده دسترسی ادامه جاده است
-    const placements: Array<[number, number, number, string]> = [
-      [roadCenter(1), edge, 0, 'شهرک گلستان'], [roadCenter(4), edge, 0, 'شهرک نور'], // شمال
-      [S - edge, roadCenter(3), -Math.PI / 2, 'شهرک غرب'],                            // شرق
-      [roadCenter(4), S - edge, Math.PI, 'شهرک یاس'], [roadCenter(1), S - edge, Math.PI, 'شهرک بهار'], // جنوب
-      [edge, roadCenter(4), Math.PI / 2, 'شهرک زیتون'], [edge, roadCenter(1), Math.PI / 2, 'شهرک الغدیر'], // غرب
-    ];
-    let idx = 0;
-    for (const [x, z, ry, name] of placements) {
-      // کولایدرها: از کلون کامل (مش‌های per-building) — منطق گرید سلولی دست‌نخورده
-      const colliderProbe = useMerged ? scene.clone(true) : null;
-      const g = useMerged ? template.clone(true) : scene.clone(true);
-      g.position.set(x, 0, z);
-      g.rotation.y = ry;
-      this.scene.add(g);
-      if (colliderProbe) {
-        // پروب موقت فقط برای کولایدر — بعد از محاسبه دور انداخته می‌شود
-        colliderProbe.position.set(x, 0, z);
-        colliderProbe.rotation.y = ry;
-        colliderProbe.updateMatrixWorld(true);
-        this.addCityBuildingColliders(colliderProbe, S, x, z, ry);
-      } else {
-        // همه شهرک‌ها: برخورد ساختمان‌های بزرگ → شهرک واقعیِ قابل رانندگی
-        g.updateMatrixWorld(true);
-        this.addCityBuildingColliders(g, S, x, z, ry);
+      for (const z of cd.repairZones) {
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(z.r * 0.9, 7, 8, 44).rotateX(Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: '#2A9D8F', transparent: true, opacity: 0.75 }),
+        );
+        ring.position.y = 8;
+        const disc = new THREE.Mesh(
+          new THREE.CircleGeometry(z.r * 0.88, 36).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial({ color: '#2A9D8F', transparent: true, opacity: 0.12, depthWrite: false }),
+        );
+        disc.position.y = 5;
+        ringG.add(ring, disc);
+        ringG.position.set(z.x, 0, z.y);
       }
-      // جاده دسترسی + دروازه + بیلبورد نام
-      this.buildAccessRoad(x, z, ry);
-      this.buildGateArch(x, z, ry, name, idx === 2);
-      this.skylineTowns.push(g);
-      idx++;
+      group.add(ringG);
+      rec.repair = ringG;
     }
-  }
 
-  /** جاده دسترسی از لبه شهر تا شهرک — در امتداد ورودی شهرک */
-  private buildAccessRoad(x: number, z: number, ry: number): void {
-    const S = WORLD_SIZE;
-    const accLen = 2600;
-    const vertical = ry === 0 || ry === Math.PI; // شمال/جنوب: جاده در راستای Z
-    const geo = new THREE.PlaneGeometry(WR.roadW, accLen);
-    geo.rotateX(-Math.PI / 2);
-    if (!vertical) geo.rotateY(Math.PI / 2);
-    let rx: number, rz: number;
-    if (ry === 0) { rx = x; rz = -accLen / 2 + 60; }
-    else if (ry === Math.PI) { rx = x; rz = S + accLen / 2 - 60; }
-    else if (ry === -Math.PI / 2) { rx = S + accLen / 2 - 60; rz = z; }
-    else { rx = -accLen / 2 + 60; rz = z; }
-    geo.translate(rx, 1.1, rz);
-    const tex = getRoadStraightTexture().clone();
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, accLen / 560);
-    tex.needsUpdate = true;
-    const road = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
-    road.receiveShadow = true;
-    this.scene.add(road);
-  }
-
-  /** دروازه شهرک — دو پایه بلند + تیر تابلو + ستون نور دیدنی از دور (هر ۶ ورودی) */
-  private buildGateArch(x: number, z: number, ry: number, name: string, _labeled: boolean): void {
-    const g = new THREE.Group();
-    const vertical = ry === 0 || ry === Math.PI; // ورود شمال/جنوب: پایه‌ها در راستای X
-    // نقطه دروازه روی لبه شهر
-    const ex = vertical ? x : (ry === -Math.PI / 2 ? WORLD_SIZE - 40 : 40);
-    const ez = vertical ? (ry === 0 ? 40 : WORLD_SIZE - 40) : z;
-    g.position.set(ex, 0, ez);
-    const pylonMat = new THREE.MeshLambertMaterial({ color: '#2a7fb8' });
-    const pylonGeo = new THREE.BoxGeometry(64, 560, 64);
-    for (const d of [-470, 470]) {
-      const p = new THREE.Mesh(pylonGeo, pylonMat);
-      p.position.set(vertical ? d : 0, 280, vertical ? 0 : d);
-      p.castShadow = true;
-      g.add(p);
-      const cap = new THREE.Mesh(new THREE.BoxGeometry(84, 46, 84), new THREE.MeshLambertMaterial({ color: '#F2B705' }));
-      cap.position.set(vertical ? d : 0, 580, vertical ? 0 : d);
-      g.add(cap);
+    // ---------- سکه‌های این قطعه ----------
+    if (cd.coins.length > 0) {
+      const mesh = new THREE.InstancedMesh(this.coinGeoShared, this.coinMatShared, cd.coins.length);
+      mesh.count = cd.coins.length;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      group.add(mesh);
+      rec.coins = { mesh, seeds: cd.coins.map((c) => c.seed), data: cd.coins };
     }
-    // تیر بالا با تابلو — عمود بر جاده ورودی
-    const beam = new THREE.Mesh(
-      vertical ? new THREE.BoxGeometry(830, 130, 70) : new THREE.BoxGeometry(70, 130, 830),
-      new THREE.MeshLambertMaterial({ color: '#fff6e3' }),
-    );
-    beam.position.set(0, 520, 0);
-    beam.castShadow = true;
-    g.add(beam);
-    const signMat = new THREE.MeshBasicMaterial({
-      map: getBillboardTexture(name, 'خوش آمدید!', '#2a7fb8'), side: THREE.DoubleSide,
-    });
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(700, 100), signMat);
-    sign.position.set(0, 520, vertical ? -32 : -32);
-    sign.rotation.y = vertical ? (ry === 0 ? 0 : Math.PI) : -Math.PI / 2;
-    g.add(sign);
-    const sign2 = sign.clone();
-    sign2.position.set(0, 520, 32);
-    sign2.rotation.y = (sign.rotation.y ?? 0) + Math.PI;
-    g.add(sign2);
-    // ستون نور طلایی — از دور دیده می‌شود (سینمایی) — سمت بیرون شهر
-    const outX = vertical ? 0 : (ry === -Math.PI / 2 ? 100 : -100);
-    const outZ = vertical ? (ry === 0 ? -100 : 100) : 0;
-    const beamLight = new THREE.Mesh(
-      new THREE.CylinderGeometry(55, 90, 1900, 12, 1, true),
-      new THREE.MeshBasicMaterial({
-        color: '#ffd98a', transparent: true, opacity: 0.16,
-        blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
-      }),
-    );
-    beamLight.position.set(outX, 950, outZ);
-    g.add(beamLight);
-    this.scene.add(g);
+
+    // ---------- چراغ راهنمای تقاطع این قطعه ----------
+    {
+      const half = W / 2;
+      const pole = new THREE.InstancedMesh(this.lightPoleGeoShared, this.vcToonMat(), 1);
+      pole.castShadow = true;
+      this.tmpM.compose(
+        this.tmpV.set(vcx + half + 26, 0, hcy + half + 26),
+        new THREE.Quaternion(),
+        this.tmpS.setScalar(1),
+      );
+      pole.setMatrixAt(0, this.tmpM);
+      pole.instanceMatrix.needsUpdate = true;
+      group.add(pole);
+      const lamps: THREE.InstancedMesh[] = [];
+      for (let k = 0; k < 3; k++) {
+        const lm = new THREE.InstancedMesh(this.lightLampGeoShared, this.lightLampMatsShared[k], 4);
+        lm.count = 4;
+        group.add(lm);
+        lamps.push(lm);
+      }
+      rec.lights = { lamps, i, j, ns: 255, ew: 255 };
+    }
+
+    this.scene.add(group);
+    this.chunkRenders.set(key, rec);
+    this.breakableDirty = true;
   }
 
-  /** برخورد ساختمان‌های شهرک — فاز OPEN-WORLD
-   *  مدل شهرک meshهای «ادغام‌شده ناحیه‌ای» دارد (۲–۳ هزار واحدی!) — کولایدر per-mesh
-   *  ممکن نیست. راه‌حل: گرید ۴۶۰تایی روی پلن مدل؛ هر سلول که مرکزش داخل bbox
-   *  یکی از مش‌های ساختمانی است = کولایدر ۳۸۰×۳۸۰. راهرو ورودی (بلوار) آزاد می‌ماند. */
-  private addCityBuildingColliders(district: THREE.Object3D, S: number, copyX: number, copyZ: number, ry: number): void {
-    // ۱) bbox همه مش‌های ساختمانی مدل (بدون زمین/جاده/درخت ریز)
-    const boxes: THREE.Box3[] = [];
-    district.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      const box = new THREE.Box3().setFromObject(m);
-      if (!Number.isFinite(box.min.x) || !Number.isFinite(box.max.x) || !Number.isFinite(box.max.y)) return;
-      const size = box.getSize(new THREE.Vector3());
-      const foot = Math.max(size.x, size.z);
-      if (foot > 3600 || foot < 60 || size.y < 120) return; // زمین عظیم/ریزخردها حذف
-      boxes.push(box);
-    });
-    if (boxes.length === 0) return;
-    district.updateMatrixWorld(true);
-    const gb = new THREE.Box3().setFromObject(district);
-    if (!Number.isFinite(gb.min.x)) return;
-    // ۲) راهرو ورودی: هم‌راستا با جاده دسترسی
-    const vertical = ry === 0 || ry === Math.PI;
-    const entryX = vertical ? copyX : (ry === -Math.PI / 2 ? S : 0);
-    const entryZ = vertical ? (ry === 0 ? 0 : S) : copyZ;
-    const corHalf = 560;
-    // ۳) گرید سلول‌ها
-    const CELL = 460;
-    const COL = 380; // کولایدر کمی کوچک‌تر از سلول — کوچه‌های نفس‌دار
-    const x0 = Math.ceil((gb.min.x + 60) / CELL) * CELL;
-    const z0 = Math.ceil((gb.min.z + 60) / CELL) * CELL;
-    let added = 0;
-    for (let gx = x0; gx <= gb.max.x - 60; gx += CELL) {
-      for (let gz = z0; gz <= gb.max.z - 60; gz += CELL) {
-        if (added >= 90) return;
-        // راهرو ورودی آزاد
-        const perp = vertical ? Math.abs(gx - entryX) : Math.abs(gz - entryZ);
-        if (perp < corHalf) continue;
-        // فقط سلول‌هایی که توده ساختمان بخش عمده‌شان را پوشش می‌دهد
-        let inside = false;
-        for (const b of boxes) {
-          if (gx + 150 > b.min.x + 40 && gx - 150 < b.max.x - 40 && gz + 150 > b.min.z + 40 && gz - 150 < b.max.z - 40) { inside = true; break; }
+  /** پراپ‌های کوچک یک قطعه — هر (نوع) یک InstancedMesh با قالب مشترک */
+  private buildChunkPropsInstanced(cd: ChunkData, parent: THREE.Object3D, rec: ChunkRender): void {
+    if (!this.propTemplates) this.propTemplates = this.makePropTemplates();
+    const templates = this.propTemplates;
+    const mat = this.vcToonMat();
+    const tmpQ = new THREE.Quaternion();
+    const tmpE = new THREE.Euler();
+    const r = (seed: number): number => {
+      const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+      return x - Math.floor(x);
+    };
+
+    // گروه‌بندی بر اساس kind — ویژه‌ها اینجا نیستند (در buildChunk ساخته می‌شوند)
+    const groups = new Map<string, WorldProp[]>();
+    for (const p of cd.props) {
+      if (p.kind === 'building') continue;
+      if (p.kind === 'busstop' || p.kind === 'vendor' || p.kind === 'billboard' || p.kind === 'streetSign'
+        || p.kind === 'azadiTower' || p.kind === 'miladTower' || p.kind === 'fountain'
+        || p.kind === 'bench' || p.kind === 'flowers') continue;
+      const key = (p.kind === 'gtree' || p.kind === 'gtreeSmall')
+        ? (this.kitGeoms?.has(p.kind) ? p.kind : 'tree') // کیت شهری اگر آماده باشد — وگرنه درخت procedural
+        : p.kind;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(p);
+    }
+
+    for (const [kind, props] of groups) {
+      const geo = this.kitGeoms?.get(kind) ?? templates[kind];
+      if (!geo) continue;
+      const isKit = this.kitGeoms?.has(kind) ?? false;
+      const useMat = isKit ? (this.kitMat ?? mat) : mat;
+      const mesh = new THREE.InstancedMesh(geo, useMat, props.length);
+      mesh.castShadow = true;
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(props.length * 3).fill(1), 3);
+      const span = isKit ? this.kitSpan(kind) : 60;
+      props.forEach((p, idx) => {
+        const cx = p.x + p.w / 2;
+        const cz = p.y + p.h / 2;
+        if (p.kind === 'tree') {
+          const s = Math.min(p.w, p.h) / 120;
+          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.identity(), this.tmpS.set(s, s, s));
+        } else if (p.kind === 'pole') {
+          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.identity(), this.tmpS.setScalar(1));
+        } else if (p.kind === 'moto') {
+          const cc = new THREE.Color(['#c0392b', '#2e6da4', '#3a3a3a'][Math.abs(Math.round(cx + cz)) % 3]);
+          mesh.setColorAt(idx, cc);
+          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.setFromEuler(tmpE.set(0, r(cx) * Math.PI * 2, 0)), this.tmpS.setScalar(1));
+        } else if (isKit) {
+          const sc = Math.max(0.5, Math.min(1.6, Math.min(p.w, p.h) / span));
+          tmpQ.setFromEuler(tmpE.set(0, p.rot ?? 0, 0));
+          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ, this.tmpS.setScalar(sc));
+        } else {
+          const s = Math.max(0.7, Math.min(1.4, Math.min(p.w, p.h) / span));
+          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.setFromEuler(tmpE.set(0, r(cx * 3 + cz) * 0.6, 0)), this.tmpS.set(s, s, s));
         }
-        if (!inside) continue;
-        this.world.colliders.push({ x: gx - COL / 2, y: gz - COL / 2, w: COL, h: COL });
-        added++;
-      }
+        mesh.setMatrixAt(idx, this.tmpM);
+        if (p.breakable) {
+          this.breakableInst.set(p, { mesh, idx });
+          rec.breakables.push(p);
+        }
+      });
+      mesh.count = props.length;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      parent.add(mesh);
     }
   }
 
-  /** پیش‌بارگذاری GLB همه واریانت‌ها + تعویض بازیکن/ترافیک پس از آماده‌شدن */
+  /** پهنای پایه قالب کیت — برای فیت در کولایدر */
+  private kitSpan(kind: string): number {
+    const geo = this.kitGeoms?.get(kind);
+    if (!geo) return 60;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const s = geo.boundingBox!.getSize(new THREE.Vector3());
+    return Math.max(s.x, s.z, 1);
+  }
+
+  /** قالب‌های مشترک پراپ‌های کوچک — یک‌بار ساخته می‌شوند (بین همه قطعه‌ها مشترک) */
+  private makePropTemplates(): Record<string, THREE.BufferGeometry> {
+    const t: Record<string, THREE.BufferGeometry> = {};
+    // درخت
+    const trunk = new THREE.CylinderGeometry(9, 12, 66, 8); trunk.translate(0, 33, 0);
+    const blob = new THREE.IcosahedronGeometry(55, 0); blob.translate(0, 92, 0);
+    const blob2 = new THREE.IcosahedronGeometry(33, 0); blob2.translate(18, 118, -12);
+    t.tree = this.mergeColored([{ g: trunk, color: '#8a5a33' }, { g: blob, color: '#5FA84B' }, { g: blob2, color: '#8AC926' }]);
+    // سطل زباله
+    const bin = new THREE.CylinderGeometry(24, 20, 45, 10); bin.translate(0, 22, 0);
+    const lid = new THREE.CylinderGeometry(26, 26, 6, 10); lid.translate(2, 47, 0);
+    t.trash = this.mergeColored([{ g: bin, color: '#4F772D' }, { g: lid, color: '#3d5c22' }]);
+    // تیر چراغ
+    const pole = new THREE.CylinderGeometry(3.2, 3.7, 125, 8); pole.translate(0, 62, 0);
+    const lamp = new THREE.SphereGeometry(8, 10, 8); lamp.translate(0, 129, 0);
+    t.pole = this.mergeColored([{ g: pole, color: '#8D99AE' }, { g: lamp, color: '#EF476F' }]);
+    // مخروط
+    const cone = new THREE.ConeGeometry(20, 46, 10); cone.translate(0, 23, 0);
+    const band = new THREE.CylinderGeometry(12.5, 15, 8, 10); band.translate(0, 30, 0);
+    t.cone = this.mergeColored([{ g: cone, color: '#F4A261' }, { g: band, color: '#FFFFFF' }]);
+    // جعبه
+    const crate = new THREE.BoxGeometry(62, 62, 62); crate.translate(0, 31, 0);
+    const slat = new THREE.BoxGeometry(64, 10, 64); slat.translate(0, 31, 0);
+    t.crate = this.mergeColored([{ g: crate, color: '#b07b3f' }, { g: slat, color: '#8d6231' }]);
+    // کیسه زباله
+    const b1 = new THREE.SphereGeometry(20, 8, 6); b1.translate(-14, 16, 0);
+    const b2 = new THREE.SphereGeometry(17, 8, 6); b2.translate(12, 14, 6);
+    const b3 = new THREE.SphereGeometry(15, 8, 6); b3.translate(0, 12, -12);
+    t.bags = this.mergeColored([{ g: b1, color: '#3a3f3a' }, { g: b2, color: '#454a45' }, { g: b3, color: '#333833' }]);
+    // موتور
+    const mb = new THREE.BoxGeometry(22, 18, 74); mb.translate(0, 26, 0);
+    const seat = new THREE.BoxGeometry(18, 8, 26); seat.translate(0, 38, 8);
+    const wf = new THREE.TorusGeometry(13, 5, 8, 12); wf.rotateY(Math.PI / 2); wf.translate(0, 14, -28);
+    const wr2 = new THREE.TorusGeometry(13, 5, 8, 12); wr2.rotateY(Math.PI / 2); wr2.translate(0, 14, 28);
+    const hb = new THREE.BoxGeometry(34, 4, 4); hb.translate(0, 44, -22);
+    t.moto = this.mergeColored([
+      { g: mb, color: '#8f8f8f' }, { g: seat, color: '#23211f' },
+      { g: wf, color: '#23211f' }, { g: wr2, color: '#23211f' }, { g: hb, color: '#3a3a3a' },
+    ]);
+    return t;
+  }
+
+  /**
+   * کیت شهری GLB — درخت‌های استخراجی از پک مودولار کاربر (gtree/gtreeSmall)
+   * پس از لود: قطعه‌های ساخته‌شده یک‌بار رفرش می‌شوند تا همه درخت GLB شوند
+   */
+  private async loadCityKit(): Promise<void> {
+    const scene = await this.glb.load('city/props.glb');
+    if (!scene) return;
+    const geoms = new Map<string, THREE.BufferGeometry>();
+    scene.updateMatrixWorld(true);
+    scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.name.startsWith('prop_')) {
+        // 🔑 فیکس «لکه‌های سیاه»: vertex color دو بار گاما خورده — بازیابی pow(c, 1/2.2)
+        const col = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+        if (col && !m.geometry.userData.vcFixed) {
+          const arr = col.array as Float32Array;
+          for (let i2 = 0; i2 < arr.length; i2++) arr[i2] = Math.pow(arr[i2], 1 / 2.2);
+          col.needsUpdate = true;
+          m.geometry.userData.vcFixed = true;
+        }
+        geoms.set(m.name.slice(5), m.geometry);
+      }
+    });
+    if (geoms.size === 0) return;
+    const mat = this.vcToonMat();
+    mat.side = THREE.DoubleSide; // مش‌های باز کیت از داخل هم دیده شوند
+    this.kitGeoms = geoms;
+    this.kitMat = mat;
+    // رفرش قطعه‌های قبلی (درخت procedural → GLB)
+    for (const [key, rec] of [...this.chunkRenders]) this.disposeChunk(key, rec);
+  }
   private preloadCars(): void {
     const variants: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police'];
     for (const v of variants) {
@@ -844,41 +886,50 @@ export class WorldRenderer3D {
    * هر kind = چند مش merge‌شده (per material) → چند Draw Call برای ده‌ها ماشین
    * اگر GLB نرسید/شکست خورد → همان نسخه procedural قبلی
    */
-  private buildParkedAsync(): void {
-    const kinds: Array<{ kind: VehicleVariant; target: number }> = [
-      { kind: 'peugeot405', target: 196 },
-      { kind: 'samand', target: 206 },
-      { kind: 'renault4', target: 176 },
-      { kind: 'vintage', target: 197 },
-    ];
+  /** دوبله‌پارکی‌های یک قطعه — GLB واقعی هر kind، merge شده داخل همان قطعه */
+  private buildChunkParked(key: string, cd: ChunkData, parent: THREE.Object3D, rec: ChunkRender): void {
+    if (cd.parkedCars.length === 0) return;
     void (async () => {
-      for (const entry of kinds) {
-        const cars = this.world.parkedCars.filter((pc) => pc.kind === entry.kind);
-        if (cars.length === 0) continue;
-        // 🔑 فیکس «توده‌های سیاه» (فاز CITY-FULL): lod1 واحدهای خام + نوداسکیل دارد و
-        // در merge قطعه‌ای بهم می‌ریزد — حالا از GLB کامل (همیشه در کش و سالم) استفاده می‌کنیم
-        let scene = await this.glb.loadCar(entry.kind, false);
-        if (!scene) scene = await this.glb.loadCar(entry.kind, true);
+      const byKind = new Map<VehicleVariant, ParkedCar[]>();
+      for (const pc of cd.parkedCars) {
+        const k = pc.kind as VehicleVariant;
+        if (!byKind.has(k)) byKind.set(k, []);
+        byKind.get(k)!.push(pc);
+      }
+      for (const [kind, cars] of byKind) {
+        // 🔑 فیکس «توده‌های سیاه» (فاز CITY-FULL): از GLB کامل استفاده می‌کنیم (lod1 نوداسکیل دارد)
+        let scene = await this.glb.loadCar(kind, false);
+        if (!scene) scene = await this.glb.loadCar(kind, true);
         if (!scene) {
-          this.buildParkedProceduralKind(entry.kind, cars);
+          this.buildParkedProceduralKind(kind, cars, parent);
           continue;
         }
-        this.buildParkedGLBKind(entry.kind, entry.target, scene, cars);
+        // قطعه ممکن است وسط await آزاد شده باشد → رها کن
+        if (!this.chunkRenders.has(key)) return;
+        this.buildParkedGLBKind(kind, cars, scene, parent, rec);
       }
     })();
   }
 
-  /** یک kind دوبله‌پارکی از GLB — merge به‌ازای (متریال × قطعه نقشه × امضای اتریبیوت) */
+  /** مقیاس هدف هر مدل پارکی (طول منطقی — مثل قبل) */
+  private static readonly PARKED_TARGET: Partial<Record<VehicleVariant, number>> = {
+    peugeot405: 196,
+    samand: 206,
+    renault4: 176,
+    vintage: 197,
+  };
+
+  /** یک kind دوبله‌پارکی از GLB — merge به‌ازای (متریال × امضای اتریبیوت) در همین قطعه */
   private buildParkedGLBKind(
     kind: VehicleVariant,
-    target: number,
-    src: THREE.Group,
     cars: Array<{ x: number; y: number; angle: number }>,
+    src: THREE.Group,
+    parent: THREE.Object3D,
+    rec: ChunkRender,
   ): void {
     void kind;
     // 🔑 فیکس NaN (فاز PARKED-NAN-2): دی‌کوانتیز «قبل از» هر setFromObject/
     // computeBoundingBox انجام می‌شود تا هندسه NaN هرگز به three.js نرسد
-    // (دیگر هیچ warning از computeBoundingBox/computeBoundingSphere صادر نمی‌شود)
     const tmpl = src.clone(true); // هندسه‌ها مشترک — فقط گره‌ها کپی می‌شوند
     const broken: THREE.Object3D[] = [];
     tmpl.traverse((o) => {
@@ -893,18 +944,14 @@ export class WorldRenderer3D {
     const size = box.getSize(new THREE.Vector3());
     // 🔒 اگر bbox منبع سالم نیست (GLB خراب/خالی) → همان نسخه procedural
     if (!Number.isFinite(box.min.x) || !Number.isFinite(box.min.y) || !Number.isFinite(size.x)) {
-      this.buildParkedProceduralKind(kind, cars);
+      this.buildParkedProceduralKind(kind, cars, parent);
       return;
     }
     const rawLen = Math.max(size.x, size.z, 1);
-    const s = target / rawLen;
-    const CHUNK = 2240; // ۴×۴ قطعه در نقشه ۸۹۶۰ — هر قطعه فقط وقتی در دید است رندر می‌شود
-    const chunkOf = (pc: { x: number; y: number }): string =>
-      `${Math.floor(Math.min(Math.max(pc.x, 0), WORLD_SIZE + 2400) / CHUNK)}_${Math.floor(Math.min(Math.max(pc.y, 0), WORLD_SIZE - 1) / CHUNK)}`;
-    // (قطعه × متریال × امضای اتریبیوت) → هندسه‌ها — mergeGeometries مجموعه اتریبیوت یکسان می‌خواهد
+    const s = (WorldRenderer3D.PARKED_TARGET[kind] ?? 190) / rawLen;
+    // (متریال × امضای اتریبیوت) → هندسه‌ها — mergeGeometries مجموعه اتریبیوت یکسان می‌خواهد
     const byKey = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>();
     for (const pc of cars) {
-      const ck = chunkOf(pc);
       const clone = tmpl.clone(true); // هندسه‌ها مشترک — فقط گره‌ها کپی می‌شوند
       clone.scale.setScalar(s);
       clone.position.set(pc.x, -box.min.y * s, pc.y);
@@ -923,8 +970,7 @@ export class WorldRenderer3D {
         // هندسه قالب تمیز است → کپی per-car فقط برای بیک‌کردن ترنسفورم
         const g = m.geometry.clone();
         g.applyMatrix4(m.matrixWorld);
-        // 🔒 فیکس «توده‌های سیاه/آبی غول‌پیکر»: هندسه خراب (NaN یا پراکندگی وحشتناک)
-        // را قبل از merge دور بریز — یک خودروی خراب کل قطعه را خراب می‌کرد
+        // 🔒 فیکس «توده‌های سیاه/آبی غول‌پیکر»: هندسه خراب را قبل از merge دور بریز
         g.computeBoundingBox();
         const bb = g.boundingBox!;
         if (!Number.isFinite(bb.min.x) || !Number.isFinite(bb.max.z)) return;
@@ -934,10 +980,10 @@ export class WorldRenderer3D {
         const mat = (mats[0] ?? this.vcToonMat()) as THREE.Material;
         // امضای اتریبیوت‌ها — GLBهای کاربر مجموعه‌های متفاوت دارند (با/بدون uv+tangent)
         const sig = Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '|n');
-        const key = `${ck}##${mat.uuid}##${sig}`;
-        const entry = byKey.get(key);
+        const key2 = `${mat.uuid}##${sig}`;
+        const entry = byKey.get(key2);
         if (entry) entry.geos.push(g);
-        else byKey.set(key, { mat, geos: [g] });
+        else byKey.set(key2, { mat, geos: [g] });
       });
     }
     for (const { mat, geos } of byKey.values()) {
@@ -947,18 +993,19 @@ export class WorldRenderer3D {
       merged.computeBoundingBox();
       merged.computeBoundingSphere();
       const mesh = new THREE.Mesh(merged, mat);
-      // سایه‌اندازی پارکی‌ها = رندر دوباره ~۱M مثلث در shadow map — فیکس FPS
+      // سایه‌اندازی پارکی‌ها = رندر دوباره در shadow map — فیکس FPS
       mesh.castShadow = false;
       mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      this.parkedInstanced.push(mesh);
+      parent.add(mesh);
+      rec.disposeGeos.push(merged);
     }
   }
 
-  /** fallback procedural برای یک kind (نسخه قبلی Instanced) */
+  /** fallback procedural برای یک kind (Instanced داخل قطعه) */
   private buildParkedProceduralKind(
     kind: VehicleVariant,
     cars: Array<{ x: number; y: number; angle: number }>,
+    parent: THREE.Object3D,
   ): void {
     const palette: Record<string, string[]> = {
       peugeot405: ['#f7f7f2', '#5d6d7e'],
@@ -987,173 +1034,51 @@ export class WorldRenderer3D {
     mesh.count = count;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    this.scene.add(mesh);
-    this.parkedInstanced.push(mesh);
+    parent.add(mesh);
   }
-
-  /** درخت/سطل/مخروط/جعبه/تیر/موتور/کیسه — هر نوع یک InstancedMesh */
-  private buildPropInstanced(): void {
-    const r = (seed: number): number => {
-      const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
-      return x - Math.floor(x);
-    };
-    const mkTemplates = (): Record<string, THREE.BufferGeometry> => {
-      const t: Record<string, THREE.BufferGeometry> = {};
-      // درخت
-      const trunk = new THREE.CylinderGeometry(9, 12, 66, 8); trunk.translate(0, 33, 0);
-      const blob = new THREE.IcosahedronGeometry(55, 0); blob.translate(0, 92, 0);
-      const blob2 = new THREE.IcosahedronGeometry(33, 0); blob2.translate(18, 118, -12);
-      t.tree = this.mergeColored([{ g: trunk, color: '#8a5a33' }, { g: blob, color: '#5FA84B' }, { g: blob2, color: '#8AC926' }]);
-      // سطل زباله
-      const bin = new THREE.CylinderGeometry(24, 20, 45, 10); bin.translate(0, 22, 0);
-      const lid = new THREE.CylinderGeometry(26, 26, 6, 10); lid.translate(2, 47, 0);
-      t.trash = this.mergeColored([{ g: bin, color: '#4F772D' }, { g: lid, color: '#3d5c22' }]);
-      // تیر چراغ
-      const pole = new THREE.CylinderGeometry(3.2, 3.7, 125, 8); pole.translate(0, 62, 0);
-      const lamp = new THREE.SphereGeometry(8, 10, 8); lamp.translate(0, 129, 0);
-      t.pole = this.mergeColored([{ g: pole, color: '#8D99AE' }, { g: lamp, color: '#EF476F' }]);
-      // مخروط
-      const cone = new THREE.ConeGeometry(20, 46, 10); cone.translate(0, 23, 0);
-      const band = new THREE.CylinderGeometry(12.5, 15, 8, 10); band.translate(0, 30, 0);
-      t.cone = this.mergeColored([{ g: cone, color: '#F4A261' }, { g: band, color: '#FFFFFF' }]);
-      // جعبه
-      const crate = new THREE.BoxGeometry(62, 62, 62); crate.translate(0, 31, 0);
-      const slat = new THREE.BoxGeometry(64, 10, 64); slat.translate(0, 31, 0);
-      t.crate = this.mergeColored([{ g: crate, color: '#b07b3f' }, { g: slat, color: '#8d6231' }]);
-      // کیسه زباله
-      const b1 = new THREE.SphereGeometry(20, 8, 6); b1.translate(-14, 16, 0);
-      const b2 = new THREE.SphereGeometry(17, 8, 6); b2.translate(12, 14, 6);
-      const b3 = new THREE.SphereGeometry(15, 8, 6); b3.translate(0, 12, -12);
-      t.bags = this.mergeColored([{ g: b1, color: '#3a3f3a' }, { g: b2, color: '#454a45' }, { g: b3, color: '#333833' }]);
-      // موتور (ساده: بدنه + زین + ۲ چرخ + فرمان)
-      const mb = new THREE.BoxGeometry(22, 18, 74); mb.translate(0, 26, 0);
-      const seat = new THREE.BoxGeometry(18, 8, 26); seat.translate(0, 38, 8);
-      const wf = new THREE.TorusGeometry(13, 5, 8, 12); wf.rotateY(Math.PI / 2); wf.translate(0, 14, -28);
-      const wr2 = new THREE.TorusGeometry(13, 5, 8, 12); wr2.rotateY(Math.PI / 2); wr2.translate(0, 14, 28);
-      const hb = new THREE.BoxGeometry(34, 4, 4); hb.translate(0, 44, -22);
-      t.moto = this.mergeColored([
-        { g: mb, color: '#8f8f8f' }, { g: seat, color: '#23211f' },
-        { g: wf, color: '#23211f' }, { g: wr2, color: '#23211f' }, { g: hb, color: '#3a3a3a' },
-      ]);
-      return t;
-    };
-    const templates = mkTemplates();
-    const mat = this.vcToonMat();
+  /** به‌روزرسانی لامپ‌های چراغ تقاطع‌ها — فقط قطعه‌های نزدیک بازیکن (هر فریم، فقط تغییرها) */
+  private updateChunkTrafficLights(px: number, pz: number): void {
+    const half = WR.roadW / 2;
+    const R2 = 3600 * 3600;
     const tmpQ = new THREE.Quaternion();
-    const tmpE = new THREE.Euler();
-
-    // گروه‌بندی پراپ‌ها بر اساس kind
-    const groups = new Map<string, WorldProp[]>();
-    for (const p of this.world.props) {
-      if (p.kind === 'building') continue;
-      // فاز CITY-FULL: فواره/نیمکت/گلکاری هم مدل دارند — نباید نامرئی بمانند!
-      if (p.kind === 'busstop' || p.kind === 'vendor' || p.kind === 'billboard' || p.kind === 'streetSign'
-        || p.kind === 'azadiTower' || p.kind === 'miladTower' || p.kind === 'fountain'
-        || p.kind === 'bench' || p.kind === 'flowers') {
-        // غیر Instanced: مثل قبل گروه جدا (تابلوها بافت یگانه دارند)
-        this.buildProp(p);
-        continue;
-      }
-      const key = p.kind === 'moto' ? 'moto' : p.kind;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(p);
-    }
-
-    for (const [kind, props] of groups) {
-      const geo = templates[kind];
-      if (!geo) continue;
-      const mesh = new THREE.InstancedMesh(geo, mat, props.length);
-      mesh.castShadow = true;
-      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(props.length * 3).fill(1), 3);
-      props.forEach((p, i) => {
-        const cx = p.x + p.w / 2;
-        const cz = p.y + p.h / 2;
-        const scale = Math.min(p.w, p.h) / 60; // مقیاس نسبی از اندازه کولایدر
-        if (p.kind === 'tree') {
-          const s = Math.min(p.w, p.h) / 120;
-          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.identity(), this.tmpS.set(s, s, s));
-        } else if (p.kind === 'pole') {
-          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.identity(), this.tmpS.setScalar(1));
-        } else if (p.kind === 'moto') {
-          // رنگ موتور از hash مختصات (مثل قبل ۳ رنگ)
-          const cc = new THREE.Color(['#c0392b', '#2e6da4', '#3a3a3a'][Math.abs(Math.round(cx + cz)) % 3]);
-          mesh.setColorAt(i, cc);
-          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.setFromEuler(tmpE.set(0, r(cx) * Math.PI * 2, 0)), this.tmpS.setScalar(1));
-        } else {
-          const s = Math.max(0.7, Math.min(1.4, scale));
-          this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.setFromEuler(tmpE.set(0, r(cx * 3 + cz) * 0.6, 0)), this.tmpS.set(s, s, s));
+    for (const rec of this.chunkRenders.values()) {
+      const lt = rec.lights;
+      if (!lt) continue;
+      const cxL = roadCenter(lt.i);
+      const czL = roadCenter(lt.j);
+      const dx = cxL - px;
+      const dz = czL - pz;
+      if (dx * dx + dz * dz > R2) continue; // دور = بدون سوییچ لامپ (در مه دیده نمی‌شود)
+      const ns = this.lights.stateNS(lt.i, lt.j);
+      const ew = this.lights.stateEW(lt.i, lt.j);
+      const nsCode = ns === 'green' ? 2 : ns === 'yellow' ? 1 : 0;
+      const ewCode = ew === 'green' ? 2 : ew === 'yellow' ? 1 : 0;
+      if (lt.ns === nsCode && lt.ew === ewCode) continue;
+      lt.ns = nsCode;
+      lt.ew = ewCode;
+      // همان چیدمان قبلی: NS روی بازو (±Z)، EW کنار تیر (±X) — بالا قرمز، وسط زرد، پایین سبز
+      const lx = cxL + half + 26 - half + 10;
+      const lz = czL + half + 26;
+      const ex = cxL + half + 26 + half + 30;
+      const ez = czL + half + 26 - half - 20;
+      for (let k = 0; k < 3; k++) {
+        const lamp = lt.lamps[k];
+        for (let side = 0; side < 2; side++) {
+          this.tmpM.compose(
+            this.tmpV.set(lx, 196 - k * 24, lz + (side === 0 ? 7 : -7)),
+            tmpQ,
+            this.tmpS.setScalar(nsCode === k ? 1 : 0.0001),
+          );
+          lamp.setMatrixAt(side, this.tmpM);
+          this.tmpM.compose(
+            this.tmpV.set(ex + (side === 0 ? 7 : -7), 196 - k * 24, ez),
+            tmpQ,
+            this.tmpS.setScalar(ewCode === k ? 1 : 0.0001),
+          );
+          lamp.setMatrixAt(2 + side, this.tmpM);
         }
-        mesh.setMatrixAt(i, this.tmpM);
-        // شکستنی‌ها: نگاشت برای مخفی/ظاهر شدن
-        if (p.breakable) this.breakableInst.set(p, { mesh, idx: i });
-      });
-      mesh.count = props.length;
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      this.scene.add(mesh);
-      this.propInstanced.set(kind, mesh);
-    }
-  }
-
-  /**
-   * کیت شهری GLB (فاز CITY-KIT) — پراپ‌های استخراجی از پک مودولار کاربر
-   * (باریکه/مخروط/استوانه/پایه/درخت‌ک) — بعد از لود async، هر نوع یک InstancedMesh
-   * همه تزئینی‌اند (بدون کلاژر جدید)؛ شکستنی‌ها فقط بصری می‌شکنند.
-   */
-  private async buildCityKitProps(): Promise<void> {
-    const scene = await this.glb.load('city/props.glb');
-    if (!scene) return;
-    const geoms = new Map<string, THREE.BufferGeometry>();
-    scene.updateMatrixWorld(true);
-    scene.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh && m.name.startsWith('prop_')) {
-        // 🔑 فیکس «لکه‌های سیاه»: رنگ‌های vertex کیت در اکسپورت دو بار گاما خورده‌اند
-        // (سبز درخت ۰٫۴۰ → ۰٫۱۳ ذخیره شده!) — بازیابی: pow(c, 1/2.2)
-        const col = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
-        if (col && !m.geometry.userData.vcFixed) {
-          const arr = col.array as Float32Array;
-          for (let i = 0; i < arr.length; i++) arr[i] = Math.pow(arr[i], 1 / 2.2);
-          col.needsUpdate = true;
-          m.geometry.userData.vcFixed = true;
-        }
-        geoms.set(m.name.slice(5), m.geometry);
+        lamp.instanceMatrix.needsUpdate = true;
       }
-    });
-    if (geoms.size === 0) return;
-    // متریال تون DoubleSide — مش‌های باز کیت (بدون درپوش) از داخل هم دیده شوند
-    const mat = this.vcToonMat();
-    mat.side = THREE.DoubleSide;
-    const tmpQ = new THREE.Quaternion();
-    const tmpE = new THREE.Euler();
-    // فاز CITY-FULL: مقیاس هر پراپ به اندازه کولایدرش (درخت GLB ۳۴۲ بود ولی کولایدر ۱۳۰!)
-    const spanOf = new Map<string, number>();
-    for (const [kind, geo] of geoms) {
-      if (!geo.boundingBox) geo.computeBoundingBox();
-      const s = geo.boundingBox!.getSize(new THREE.Vector3());
-      spanOf.set(kind, Math.max(s.x, s.z, 1));
-    }
-    for (const [kind, geo] of geoms) {
-      const props = this.world.props.filter((p) => p.kind === kind);
-      if (props.length === 0) continue;
-      const mesh = new THREE.InstancedMesh(geo, mat, props.length);
-      mesh.castShadow = true;
-      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(props.length * 3).fill(1), 3);
-      const span = spanOf.get(kind) ?? 1;
-      props.forEach((p, i) => {
-        const cx = p.x + p.w / 2;
-        const cz = p.y + p.h / 2;
-        const sc = Math.max(0.5, Math.min(1.6, Math.min(p.w, p.h) / span)); // فیت در پلن + کف مقیاس برای درخت‌ها
-        tmpQ.setFromEuler(tmpE.set(0, p.rot ?? 0, 0));
-        this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ, this.tmpS.setScalar(sc));
-        mesh.setMatrixAt(i, this.tmpM);
-        if (p.breakable) this.breakableInst.set(p, { mesh, idx: i });
-      });
-      mesh.count = props.length;
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      this.scene.add(mesh);
-      this.propInstanced.set('glb_' + kind, mesh);
     }
   }
 
@@ -1179,111 +1104,26 @@ export class WorldRenderer3D {
     this.breakableDirty = true;
   }
 
-  // ============ چراغ راهنما (فاز OVERHAUL) ============
-
-  private buildTrafficLights(): void {
-    const n = WR.roadCount + 1;
-    const half = WR.roadW / 2;
-    // تیر: میله + بازوی افقی + ۲ پنل سر چراغ دوردیفه (NS: نازک در Z | EW: نازک در X)
-    const poleParts = [
-      { g: (() => { const g = new THREE.CylinderGeometry(6, 8, 210, 8); g.translate(0, 105, 0); return g; })(), color: '#3c4440' },
-      { g: (() => { const g = new THREE.BoxGeometry(half + 40, 8, 8); g.translate(-half / 2 - 10, 205, 0); return g; })(), color: '#3c4440' },
-      // پنل NS روی بازو (وجه ±Z رو به راننده شمال/جنوب)
-      { g: (() => { const g = new THREE.BoxGeometry(28, 78, 6); g.translate(-half + 10, 168, 0); return g; })(), color: '#23211f' },
-      // پنل EW کنار تیر (وجه ±X رو به راننده شرق/غرب)
-      { g: (() => { const g = new THREE.BoxGeometry(6, 78, 28); g.translate(half + 30, 168, -half - 20); return g; })(), color: '#23211f' },
-    ];
-    const poleGeo = this.mergeColored(poleParts);
-    this.lightPoleMesh = new THREE.InstancedMesh(poleGeo, this.vcToonMat(), n * n);
-    this.lightPoleMesh.castShadow = true;
-    let idx = 0;
-    const tmpQ = new THREE.Quaternion();
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        this.tmpM.compose(this.tmpV.set(roadCenter(i) + half + 26, 0, roadCenter(j) + half + 26), tmpQ.identity(), this.tmpS.setScalar(1));
-        this.lightPoleMesh.setMatrixAt(idx++, this.tmpM);
-      }
-    }
-    this.lightPoleMesh.instanceMatrix.needsUpdate = true;
-    this.scene.add(this.lightPoleMesh);
-
-    // لامپ‌ها: ۳ InstancedMesh (قرمز/زرد/سبز) — هر تقاطع ۴ نمونه (NS ±Z | EW ±X)
-    const lampGeo = new THREE.SphereGeometry(8, 8, 6);
-    const mkLampMat = (color: string): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({ color });
-    const lampColors = ['#ff3b30', '#ffcc00', '#2ecc71'];
-    for (let k = 0; k < 3; k++) {
-      const mesh = new THREE.InstancedMesh(lampGeo, mkLampMat(lampColors[k]), n * n * 4);
-      mesh.count = n * n * 4;
-      this.scene.add(mesh);
-      this.lightLamps.push(mesh);
-    }
-    this.lightStateCache = new Uint8Array(n * n * 2).fill(255); // 255 = نیاز به sync
-  }
-
-  /** به‌روزرسانی لامپ‌ها (هر فریم — فقط تغییرها) */
-  private updateTrafficLightLamps(): void {
-    const n = WR.roadCount + 1;
-    const half = WR.roadW / 2;
-    if (!this.lightStateCache || this.lightLamps.length !== 3) return;
-    const tmpQ = new THREE.Quaternion();
-    let idx = 0;
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        const ns = this.lights.stateNS(i, j);
-        const ew = this.lights.stateEW(i, j);
-        const nsCode = ns === 'green' ? 2 : ns === 'yellow' ? 1 : 0;
-        const ewCode = ew === 'green' ? 2 : ew === 'yellow' ? 1 : 0;
-        if (this.lightStateCache[idx] === nsCode && this.lightStateCache[idx + 1] === ewCode) { idx += 2; continue; }
-        this.lightStateCache[idx] = nsCode;
-        this.lightStateCache[idx + 1] = ewCode;
-        // لامپ NS روی بازوی جلو (-X)، لامپ EW روی بازوی کنار (+X جعبه کنار جاده)
-        const lx = roadCenter(i) + half + 26 - half + 10; // مرکز جعبه NS
-        const lz = roadCenter(j) + half + 26;
-        const ex = roadCenter(i) + half + 26 + half + 30;
-        const ez = roadCenter(j) + half + 26 - half - 20;
-        for (let k = 0; k < 3; k++) {
-          // NS: لامپ دو‌رو (±Z) | EW: لامپ دو‌رو (±X) — بالا قرمز k=0، وسط زرد، پایین سبز
-          // روشن وقتی کد حالت = رنگ (قرمز=0، زرد=1، سبز=2)
-          const lampNS = this.lightLamps[k];
-          const qIdx = idx * 4; // ۴ نمونه در هر تقاطع برای هر رنگ
-          for (let side = 0; side < 2; side++) {
-            this.tmpM.compose(
-              this.tmpV.set(lx, 196 - k * 24, lz + (side === 0 ? 7 : -7)),
-              tmpQ.identity(),
-              this.tmpS.setScalar(nsCode === k ? 1 : 0.0001),
-            );
-            lampNS.setMatrixAt(qIdx + side, this.tmpM);
-          }
-          const lampEW = this.lightLamps[k];
-          for (let side = 0; side < 2; side++) {
-            this.tmpM.compose(
-              this.tmpV.set(ex + (side === 0 ? 7 : -7), 196 - k * 24, ez),
-              tmpQ.identity(),
-              this.tmpS.setScalar(ewCode === k ? 1 : 0.0001),
-            );
-            lampEW.setMatrixAt(qIdx + 2 + side, this.tmpM);
-          }
-        }
-        idx += 1; // هر تقاطع یک واحد منطقی (×۲ در شماره لامپ)
-      }
-    }
-    for (const l of this.lightLamps) l.instanceMatrix.needsUpdate = true;
-  }
-
-
-  private buildBuilding(p: { x: number; y: number; w: number; h: number; assetId?: string; landmark?: boolean }): void {
+  private buildBuilding(
+    p: { x: number; y: number; w: number; h: number; assetId?: string; landmark?: boolean; label?: string },
+    chunkKey: string,
+    parent: THREE.Object3D,
+    rec: ChunkRender,
+  ): void {
     const cx = p.x + p.w / 2;
     const cz = p.y + p.h / 2;
 
     if (p.landmark) {
-      // پمپ بنزین: مغازه + سقف سایبان + ستون‌ها + پمپ‌ها
+      // پمپ بنزین: مغازه + سقف سایبان + ستون‌ها + پمپ‌ها — تابلو: پمپ بنزین
       const shopH = RENDER3D.gasStationShopHeight;
-      const shopTex = getFacadeTextures('env_building_shop_01');
+      const shopTex = getFacadeTextures('env_building_shop_01', 'پمپ بنزین');
       const shopMats = shopTex.map((t) => new THREE.MeshLambertMaterial({ map: t }));
+      rec.disposeMats.push(...shopMats);
       const shop = new THREE.Mesh(new THREE.BoxGeometry(360, shopH, 320), shopMats);
       shop.position.set(cx + p.w * 0.2, shopH / 2, cz - p.h * 0.18);
       shop.castShadow = true; shop.receiveShadow = true;
-      this.scene.add(shop);
+      parent.add(shop);
+      rec.disposeGeos.push(shop.geometry as THREE.BufferGeometry);
 
       const canopy = new THREE.Mesh(
         new THREE.BoxGeometry(p.w * 0.82, 26, p.h * 0.66),
@@ -1291,30 +1131,36 @@ export class WorldRenderer3D {
       );
       canopy.position.set(cx - p.w * 0.08, 178, cz + p.h * 0.16);
       canopy.castShadow = true;
-      this.scene.add(canopy);
+      parent.add(canopy);
+      rec.disposeGeos.push(canopy.geometry as THREE.BufferGeometry);
       const poleGeo = new THREE.CylinderGeometry(12, 12, 168, 8);
+      rec.disposeGeos.push(poleGeo);
       const poleMat = new THREE.MeshLambertMaterial({ color: '#8f8f8a' });
+      rec.disposeMats.push(poleMat);
       for (const dx of [-p.w * 0.36, p.w * 0.2]) {
         for (const dz of [-p.h * 0.14, p.h * 0.44]) {
           const pole = new THREE.Mesh(poleGeo, poleMat);
           pole.position.set(cx - p.w * 0.08 + dx, 84, cz + p.h * 0.16 + dz);
           pole.castShadow = true;
-          this.scene.add(pole);
+          parent.add(pole);
         }
       }
       const pumpGeo = new THREE.BoxGeometry(34, 66, 22);
+      rec.disposeGeos.push(pumpGeo);
       const pumpMat = new THREE.MeshLambertMaterial({ color: '#d8d3c8' });
+      rec.disposeMats.push(pumpMat);
       for (const dx of [-p.w * 0.2, p.w * 0.04]) {
         const pump = new THREE.Mesh(pumpGeo, pumpMat);
         pump.position.set(cx - p.w * 0.08 + dx, 33, cz + p.h * 0.16);
         pump.castShadow = true;
-        this.scene.add(pump);
+        parent.add(pump);
       }
       return;
     }
 
     const hBase = RENDER3D.buildingHeights[p.assetId as keyof typeof RENDER3D.buildingHeights] ?? 340;
-    const tex = getFacadeTextures(p.assetId ?? 'env_building_home_01');
+    // فاز IR-SIGNS: تابلوی متنوع مغازه (بغالی/سوپر گوشت/پیرایش/دکان/حجره/...) از داده World
+    const tex = getFacadeTextures(p.assetId ?? 'env_building_home_01', p.label);
     // فاز CITY-BEAUTY: پالت اشباع ایرانی + تنوع ارتفاع واقعی (آسمان‌خط بهتر)
     const hash = Math.abs(Math.round(cx * 7 + cz * 13));
     const tint = BUILDING_TINTS[hash % BUILDING_TINTS.length];
@@ -1326,18 +1172,24 @@ export class WorldRenderer3D {
       mm.color.multiply(tintC);
       return mm;
     });
+    rec.disposeMats.push(...mats);
     const box = new THREE.Mesh(new THREE.BoxGeometry(p.w, h, p.h), mats);
     box.position.set(cx, h / 2, cz);
     box.castShadow = true;
     box.receiveShadow = true;
-    this.scene.add(box);
+    parent.add(box);
+    rec.disposeGeos.push(box.geometry as THREE.BufferGeometry);
     // خوشه پشت‌بام ایرانی: ظرف ماهواره + منبع آب + آنتن چتری + کولر آبی
     // فاز FPS-1: ~۷ مش → «یک» مش merge‌شده (رنگ‌ها بیک می‌شوند)
     const roof = buildRooftopCluster(p.w, p.h, Math.round(cx * 7 + cz * 13));
     roof.position.set(cx, h, cz);
     const roofMesh = this.mergeGroupToVertexMesh(roof);
-    if (roofMesh) this.scene.add(roofMesh);
-    else this.scene.add(roof);
+    if (roofMesh) {
+      parent.add(roofMesh);
+      rec.disposeGeos.push(roofMesh.geometry as THREE.BufferGeometry);
+    } else {
+      parent.add(roof);
+    }
 
     // ---------- فاز OVERHAUL: ارتقا به GLB (با پشت‌بام baked) — fallback بالا می‌ماند ----------
     const type = p.assetId?.includes('apartment') ? 'apartment'
@@ -1380,6 +1232,8 @@ export class WorldRenderer3D {
         m.material = Array.isArray(srcMats)
           ? (srcMats as THREE.Material[]).map(convert)
           : convert(srcMats as THREE.Material);
+        const outMats = Array.isArray(m.material) ? m.material : [m.material];
+        rec.disposeMats.push(...outMats);
       });
       // GLB: مرکز پلن + پایه روی زمین + بدون چرخش (پلن مستطیلی تراز می‌ماند)
       g.position.set(cx, -gb.min.y * sy, cz);
@@ -1388,11 +1242,21 @@ export class WorldRenderer3D {
       if (type === 'shop' || type === 'garage') {
         this.decorateShopFront(g, variance);
       }
+      // قطعه ممکن است وسط await آزاد شده باشد → رها کن (متریال‌های کلون dispose)
+      if (!this.chunkRenders.has(chunkKey)) {
+        g.traverse((o) => {
+          const mm = o as THREE.Mesh;
+          if (!mm.isMesh) return;
+          const mmArr = Array.isArray(mm.material) ? mm.material : [mm.material];
+          for (const mx of mmArr) mx.dispose();
+        });
+        return;
+      }
       // فاز FPS-1: هر دو نسخه placeholder (باکس و خوشه پشت‌بام merge‌شده) برداشته می‌شوند
-      this.scene.remove(box);
-      if (roofMesh) this.scene.remove(roofMesh);
-      else this.scene.remove(roof);
-      this.scene.add(g);
+      parent.remove(box);
+      if (roofMesh) parent.remove(roofMesh);
+      else parent.remove(roof);
+      parent.add(g);
     });
   }
 
@@ -1449,7 +1313,7 @@ export class WorldRenderer3D {
   }
 
   /** همه پراپ‌ها داخل گروه wrapper — شکستنی‌ها با hide/show کنترل می‌شوند */
-  private buildProp(p: WorldProp): void {
+  private buildProp(p: WorldProp, parent?: THREE.Object3D): void {
     const wrap = new THREE.Group();
     const cx = p.x + p.w / 2;
     const cz = p.y + p.h / 2;
@@ -1599,7 +1463,7 @@ export class WorldRenderer3D {
     }
 
     wrap.position.set(cx, 0, cz);
-    this.scene.add(wrap);
+    (parent ?? this.scene).add(wrap);
     if (p.breakable) this.propGroups.set(p, wrap);
   }
 
@@ -1970,6 +1834,10 @@ export class WorldRenderer3D {
     const t = performance.now() / 1000;
     const car = opts.car;
 
+    // ---------- فاز INFINITE-IR: استریم قطعه‌های شهر + زمین بی‌پایان ----------
+    this.syncChunks(car.x, car.y);
+    this.baseGround.position.set(car.x, -0.2, car.y);
+
     // ---------- ماشین بازیکن ----------
     this.playerModel.group.position.set(car.x, 0, car.y);
     this.playerModel.group.rotation.y = -car.angle;
@@ -2085,8 +1953,8 @@ export class WorldRenderer3D {
     // ---------- شکستنی‌ها: همگام با وضعیت World (Instanced) ----------
     this.syncBreakableInstances();
 
-    // ---------- چراغ راهنما ----------
-    this.updateTrafficLightLamps();
+    // ---------- چراغ راهنما (per chunk) ----------
+    this.updateChunkTrafficLights(car.x, car.y);
 
     // ---------- عابرهای پیاده (با انیمیشن پرتاب/افتادن — فاز SMASH) ----------
     for (let i = 0; i < opts.peds.length; i++) {
@@ -2134,22 +2002,20 @@ export class WorldRenderer3D {
       }
     }
 
-    // ---------- سکه‌ها ----------
-    const coins = this.world.coins;
-    for (let i = 0; i < coins.length; i++) {
-      const c = coins[i];
-      const bob = Math.sin(t * 3 + this.coinSeeds[i]) * 5;
-      if (c.taken) {
-        this.tmpS.setScalar(0.0001);
-      } else {
-        this.tmpS.setScalar(1);
+    // ---------- سکه‌ها (per chunk) ----------
+    for (const rec of this.chunkRenders.values()) {
+      const cc = rec.coins;
+      if (!cc) continue;
+      for (let i = 0; i < cc.data.length; i++) {
+        const c = cc.data[i];
+        const bob = Math.sin(t * 3 + cc.seeds[i]) * 5;
+        this.tmpS.setScalar(c.taken ? 0.0001 : 1);
+        this.tmpQ.setFromEuler(this.eul.set(0, t * 2.6 + cc.seeds[i], 0));
+        this.tmpM.compose(this.tmpV.set(c.x, 26 + bob, c.y), this.tmpQ, this.tmpS);
+        cc.mesh.setMatrixAt(i, this.tmpM);
       }
-      this.tmpQ.setFromEuler(this.eul.set(0, t * 2.6 + this.coinSeeds[i], 0));
-      this.tmpM.compose(this.tmpV.set(c.x, 26 + bob, c.y), this.tmpQ, this.tmpS);
-      this.coinMesh.setMatrixAt(i, this.tmpM);
+      cc.mesh.instanceMatrix.needsUpdate = true;
     }
-    this.coinMesh.instanceMatrix.needsUpdate = true;
-    this.coinMesh.visible = coins.length > 0;
 
     // ---------- مخروط‌های رویداد ----------
     for (let i = 0; i < this.conePool.length; i++) {
@@ -2205,20 +2071,13 @@ export class WorldRenderer3D {
       this.beacon.visible = false;
     }
 
-    // ---------- حلقه‌های زون تعمیرگاه — پالس آرام ----------
+    // ---------- حلقه‌های زون تعمیرگاه — پالس آرام (per chunk) ----------
     const rPulse = 0.5 + 0.5 * Math.sin(t * 2.4);
-    for (const rz of this.repairRings) {
+    for (const rec of this.chunkRenders.values()) {
+      const rz = rec.repair;
+      if (!rz) continue;
       rz.children[0].scale.setScalar(0.94 + rPulse * 0.1);
       ((rz.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.55 + rPulse * 0.35;
-    }
-
-    // ---------- فاز FPS-1: culling فاصله‌ای شهرک‌های اسکایلاین ----------
-    // شهرک‌ها در مه کامل (فاصله > ۳۳۰۰) نامرئی‌اند — رندرشان هدر دادن GPU است.
-    // هر شهرک فقط وقتی نزدیک است visible می‌شود (هیچ تغییری بصری ندارد).
-    for (const tg of this.skylineTowns) {
-      const dx = tg.position.x - car.x;
-      const dz = tg.position.z - car.y;
-      tg.visible = (dx * dx + dz * dz) < (RENDER3D.townVisRange * RENDER3D.townVisRange);
     }
 
     // ---------- رد لاستیک (Instanced sync) ----------
@@ -2429,8 +2288,14 @@ export class WorldRenderer3D {
     // فاز CITY-KIT: مینی‌مپ از وسط به گوشه راست رفت (درخواست کاربر — متن‌ها دیگر زیرش نمی‌روند)
     const x0 = this.overlayW - size - 12;
     const y0 = 10;
-    const k = size / WORLD_SIZE;
+    // فاز INFINITE-IR: مینی‌مپ «محلی» دور بازیکن است — شهر بی‌پایان وسط نقشه ندارد
+    const VIEW = 3600; // نیم‌برد دید مینی‌مپ
+    const k = size / (VIEW * 2);
     this.minimapRect = { x: x0, y: y0, w: size, h: size };
+    const cx0 = x0 + size / 2;
+    const cy0 = y0 + size / 2;
+    const toX = (wx: number): number => cx0 + (wx - opts.car.x) * k;
+    const toY = (wy: number): number => cy0 + (wy - opts.car.y) * k;
 
     ctx.save();
     // قاب گرد نیمه‌شفاف
@@ -2451,29 +2316,37 @@ export class WorldRenderer3D {
     ctx.stroke();
     ctx.clip(); // نقشه از قاب بیرون نزند
 
-    // جاده‌ها (۷ خط سفید دوطرفه — پهن‌تر از قبل)
-    ctx.fillStyle = 'rgba(255,255,255,0.78)';
-    const nRoads = WR.roadCount + 1;
-    for (let i = 0; i < nRoads; i++) {
-      const c = roadCenter(i) * k;
-      ctx.fillRect(x0 + c - 3, y0, 6, size);
-      ctx.fillRect(x0, y0 + c - 3, size, 6);
+    // پس‌زمینه زمین
+    ctx.fillStyle = 'rgba(201,185,138,0.30)';
+    ctx.fillRect(x0, y0, size, size);
+
+    // جاده‌ها — شبکه بی‌پایان دور بازیکن (نوار سفید به پهنای جاده)
+    ctx.fillStyle = 'rgba(255,255,255,0.72)';
+    const roadHalfPx = Math.max(3, (WR.roadW / 2) * k);
+    const i0 = Math.floor((opts.car.x - VIEW - WR.roadW / 2) / WR.pitch);
+    const i1 = Math.ceil((opts.car.x + VIEW - WR.roadW / 2) / WR.pitch);
+    for (let i = i0; i <= i1; i++) {
+      const rx = toX(roadCenter(i));
+      ctx.fillRect(rx - roadHalfPx, y0, roadHalfPx * 2, size);
+    }
+    const j0 = Math.floor((opts.car.y - VIEW - WR.roadW / 2) / WR.pitch);
+    const j1 = Math.ceil((opts.car.y + VIEW - WR.roadW / 2) / WR.pitch);
+    for (let j = j0; j <= j1; j++) {
+      const ry = toY(roadCenter(j));
+      ctx.fillRect(x0, ry - roadHalfPx, size, roadHalfPx * 2);
     }
 
-    // پارک‌ها (زمین سبز)
-    ctx.fillStyle = 'rgba(138,201,38,0.35)';
-    for (const [pi, pj] of [[2, 2], [4, 2]]) {
-      const bx = (pi * WR.pitch + WR.roadW) * k;
-      const by = (pj * WR.pitch + WR.roadW) * k;
-      ctx.fillRect(x0 + bx, y0 + by, (WR.pitch - WR.roadW) * k, (WR.pitch - WR.roadW) * k);
+    // پارک‌ها (زمین سبز) + لندمارک‌ها از قطعه‌های فعال
+    ctx.fillStyle = 'rgba(138,201,38,0.4)';
+    for (const p of this.world.props) {
+      if (p.kind !== 'fountain') continue;
+      ctx.fillRect(toX(p.x - 300), toY(p.y - 300), 600 * k, 600 * k);
     }
-
-    // لندمارک‌ها (نقاط برج‌ها — امضای نقشه تهران)
     ctx.fillStyle = '#e8e2d5';
     for (const p of this.world.props) {
       if (p.kind === 'azadiTower' || p.kind === 'miladTower') {
         ctx.beginPath();
-        ctx.arc(x0 + (p.x + p.w / 2) * k, y0 + (p.y + p.h / 2) * k, 4.5, 0, Math.PI * 2);
+        ctx.arc(toX(p.x + p.w / 2), toY(p.y + p.h / 2), 4.5, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -2482,57 +2355,23 @@ export class WorldRenderer3D {
     ctx.fillStyle = '#2A9D8F';
     for (const z of this.world.repairZones) {
       ctx.beginPath();
-      ctx.arc(x0 + z.x * k, y0 + z.y * k, 4, 0, Math.PI * 2);
+      ctx.arc(toX(z.x), toY(z.y), 4, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // ---------- فاز OPEN-WORLD: ۶ شهرک دور نقشه — همه ورودی‌ها همیشه پیدا ----------
-    const SW = WORLD_SIZE;
-    const half = 2550;
-    const edge = -(half - 140);
-    const entries: Array<[number, number, number, string]> = [
-      [roadCenter(1), edge, 0, ''], [roadCenter(4), edge, 0, ''],
-      [SW - edge, roadCenter(3), -Math.PI / 2, 'شهرک غرب ←'],
-      [roadCenter(4), SW - edge, Math.PI, ''], [roadCenter(1), SW - edge, Math.PI, ''],
-      [edge, roadCenter(4), Math.PI / 2, ''], [edge, roadCenter(1), Math.PI / 2, ''],
-    ];
-    const gPulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-    for (const [ex2, ez2, ry2, lbl] of entries) {
-      // نوار شهرک (کادر بژ بیرون مرز)
-      ctx.fillStyle = 'rgba(196,168,120,0.9)';
-      if (ry2 === 0) ctx.fillRect(x0 + ex2 * k - 10, y0, 20, 10);
-      else if (ry2 === Math.PI) ctx.fillRect(x0 + ex2 * k - 10, y0 + size - 10, 20, 10);
-      else if (ry2 === -Math.PI / 2) ctx.fillRect(x0 + size - 10, y0 + ez2 * k - 10, 10, 20);
-      else ctx.fillRect(x0, y0 + ez2 * k - 10, 10, 20);
-      // دروازه: نقطه طلایی پالس‌دار
-      const gx = x0 + Math.min(Math.max(ex2, -300), SW + 300) * k;
-      const gy = y0 + Math.min(Math.max(ez2, -300), SW + 300) * k;
-      ctx.fillStyle = `rgba(242,183,5,${0.45 + gPulse * 0.5})`;
-      ctx.beginPath();
-      ctx.arc(gx, gy, 4.5 + gPulse * 1.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#3a2e2a';
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-      if (lbl) {
-        ctx.font = `700 ${Math.max(9, size * 0.075)}px Vazirmatn, Tahoma, sans-serif`;
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'bottom';
-        ctx.fillStyle = 'rgba(255,249,236,0.95)';
-        ctx.strokeStyle = 'rgba(30,22,18,0.8)';
-        ctx.lineWidth = 2.4;
-        ctx.strokeText(lbl, gx - 10, gy - 8);
-        ctx.fillText(lbl, gx - 10, gy - 8);
-      }
-    }
-
-    // هدف مأموریت (لکه زرد پالس‌دار)
+    // هدف مأموریت (لکه زرد پالس‌دار) — با فلش لبه اگر بیرون برد است
     if (opts.target) {
       const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 220);
       ctx.fillStyle = '#F2B705';
       ctx.globalAlpha = pulse;
+      let tx = toX(opts.target.x);
+      let ty = toY(opts.target.y);
+      const m = 10;
+      const clamped = tx < x0 + m || tx > x0 + size - m || ty < y0 + m || ty > y0 + size - m;
+      tx = Math.max(x0 + m, Math.min(x0 + size - m, tx));
+      ty = Math.max(y0 + m, Math.min(y0 + size - m, ty));
       ctx.beginPath();
-      ctx.arc(x0 + opts.target.x * k, y0 + opts.target.y * k, 6.5, 0, Math.PI * 2);
+      ctx.arc(tx, ty, clamped ? 4.5 : 6.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -2541,18 +2380,13 @@ export class WorldRenderer3D {
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     for (const c of opts.traffic) {
       ctx.beginPath();
-      ctx.arc(x0 + c.x * k, y0 + c.y * k, 2.2, 0, Math.PI * 2);
+      ctx.arc(toX(c.x), toY(c.y), 2.2, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // بازیکن: فلش سفید با حاشیه تیره (چرخان با زاویه ماشین) — داخل شهرک = طلایی
+    // بازیکن: فلش سفید وسط نقشه (چرخان با زاویه ماشین)
     // ⚠️ جهت صحیح: heading دنیا = (sin a, -cos a) → چرخش بوم باید +angle باشد
-    // (قبلاً -angle بود → فلش وقتی ماشین شرق/غرب می‌رفت برعکس اشاره می‌کرد!)
-    // فاز OPEN-WORLD: مارکر بیرون مرز (شهرک‌ها) هم با هشدار لبه نمایش داده می‌شود
-    const OUT = 2600;
-    const px = x0 + Math.min(Math.max(opts.car.x, -OUT), WORLD_SIZE + OUT) * k;
-    const py = y0 + Math.min(Math.max(opts.car.y, -OUT), WORLD_SIZE + OUT) * k;
-    ctx.translate(px, py);
+    ctx.translate(cx0, cy0);
     ctx.rotate(opts.car.angle);
     ctx.beginPath();
     ctx.moveTo(0, -8);
@@ -2560,7 +2394,7 @@ export class WorldRenderer3D {
     ctx.lineTo(0, 3);
     ctx.lineTo(-5.5, 6);
     ctx.closePath();
-    ctx.fillStyle = opts.car.x > WORLD_SIZE - 100 ? '#F2B705' : '#FFF9EC';
+    ctx.fillStyle = '#FFF9EC';
     ctx.fill();
     ctx.lineWidth = 1.6;
     ctx.strokeStyle = '#3a2e2a';

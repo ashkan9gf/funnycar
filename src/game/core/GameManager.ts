@@ -27,7 +27,8 @@ import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLIS
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
-import { roadCenter, WORLD as WR } from '../world/World';
+import { roadCenter, WORLD as WR, nearestRoadIndex } from '../world/World';
+import { obbFromAngle, satOverlapMTV } from '../entities/obb';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
 
@@ -235,7 +236,10 @@ export class GameManager {
     // عابرهای پیاده (فاز BIG-IR) — ترس از ماشین سریع
     this.peds = new PedestrianManager({
       onScare: (x, y) => this.onPedScare(x, y),
-    });
+    }, (() => {
+      const s = this.world.playerSpawn();
+      return { x: s.x, y: s.y };
+    })());
     // مأموریت‌ها (فاز 4 + فاز ۵)
     this.mission = new MissionManager(this.world, {
       onPothole: (x, y) => this.onPotholeHit(x, y),
@@ -643,38 +647,38 @@ export class GameManager {
     }
   }
 
-  /** برخورد بازیکن با خودروی ترافیک — هر دو جدا می‌شوند، ترافیک بر اساس شدت ضربه پرت می‌شود (فاز APK-FIX) */
+  /** برخورد بازیکن با خودروی ترافیک — OBB دقیق (SAT): جدا می‌شوند، ترافیک بر اساس شدت ضربه پرت می‌شود (فاز HITBOX-EXACT) */
   private resolveTrafficCollisions(dt: number): void {
     const v = this.vehicle;
     this.crashCooldown = Math.max(0, this.crashCooldown - dt);
+    const pv = obbFromAngle(v.x, v.y, v.angle, v.hitH / 2, v.hitW / 2);
     for (const c of this.traffic.cars) {
-      const hw = v.hitW / 2 + c.hitW / 2;
-      const hh = v.hitH / 2 + c.hitH / 2;
-      const dx = v.x - c.x;
-      const dy = v.y - c.y;
-      const penX = hw - Math.abs(dx);
-      const penY = hh - Math.abs(dy);
-      if (penX <= 0 || penY <= 0) continue;
+      // ترافیک روی جاده‌های axis-aligned حرکت می‌کند → جعبه‌اش axis-aligned است
+      const cv = obbFromAngle(c.x, c.y, c.angle, c.hitH / 2, c.hitW / 2);
+      // رد سریع دورها
+      const ddx = c.x - v.x;
+      const ddy = c.y - v.y;
+      const rr = (v.hitH + c.hitH) / 2 + 60;
+      if (ddx * ddx + ddy * ddy > rr * rr) continue;
+      const mtv = satOverlapMTV(pv, cv);
+      if (!mtv) continue;
 
       // شدت ضربه = سرعت «نسبی» بازیکن نسبت به ماشین ترافیک
       const relVx = v.vx - DIR_INFO[c.dir].x * c.speed;
       const relVy = v.vy - DIR_INFO[c.dir].y * c.speed;
       const impact = Math.hypot(relVx, relVy);
 
-      // جداسازی نصفه‌نیمه: بازیکن یک نصفه عقب، ترافیک یک نصفه جلوتر
-      if (penX < penY) {
-        const s = dx >= 0 ? penX : -penX;
-        v.x += s * 0.5;
-        c.x -= s * 0.5;
-      } else {
-        const s = dy >= 0 ? penY : -penY;
-        v.y += s * 0.5;
-        c.y -= s * 0.5;
-      }
+      // جداسازی نصفه‌نیمه در جهت MT: بازیکن یک نصفه عقب، ترافیک یک نصفه جلوتر
+      v.x += mtv.x * mtv.depth * 0.5;
+      v.y += mtv.y * mtv.depth * 0.5;
+      c.x -= mtv.x * mtv.depth * 0.5;
+      c.y -= mtv.y * mtv.depth * 0.5;
 
-      // پرتاب ترافیک: جهت ضربه = بردار سرعت بازیکن (در سایشِ آرام: محور جداسازی)
-      const kdx = impact > 40 ? relVx : -dx;
-      const kdy = impact > 40 ? relVy : -dy;
+      // پرتاب ترافیک: جهت ضربه = بردار سرعت بازیکن (در سایشِ آرام: جهت جداسازی)
+      const dx = v.x - c.x;
+      const dy = v.y - c.y;
+      const kdx = impact > 40 ? relVx : dx;
+      const kdy = impact > 40 ? relVy : dy;
       c.knock(kdx, kdy, impact);
 
       // بازیکن فقط در ضربه واقعی کند می‌شود — ساییدنِ آرام دیگر حالت قفل ندارد
@@ -840,26 +844,27 @@ export class GameManager {
 
   private parkedCd = 0;
 
-  /** دوبله‌پارکی‌ها حالا مانع‌اند: بیرون‌اندازی + ضربه + آسیب (فاز SMASH) */
+  /** دوبله‌پارکی‌ها مانع‌اند — برخورد OBB دقیق (فاز HITBOX-EXACT): نچسبیدن = بدون تصادف */
   private resolveParkedCollisions(dt: number): void {
     this.parkedCd = Math.max(0, this.parkedCd - dt);
     const v = this.vehicle;
+    const pv = obbFromAngle(v.x, v.y, v.angle, v.hitH / 2, v.hitW / 2);
     const cars = this.world.parkedCars;
     for (const pc of cars) {
-      const r = PARKED_HIT.radius[pc.kind] ?? 90;
-      const rr = r + v.hitW * 0.45;
-      const dx = v.x - pc.x;
-      const dy = v.y - pc.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > rr * rr) continue;
-      const d = Math.sqrt(d2) || 1;
-      const nx = dx / d;
-      const ny = dy / d;
+      // رد سریع دورها (دایره محاطی)
+      const ddx = pc.x - v.x;
+      const ddy = pc.y - v.y;
+      const rQuick = (v.hitH + 200) / 2 + 40;
+      if (ddx * ddx + ddy * ddy > rQuick * rQuick) continue;
+      // جعبه دقیق مدل پارکی (زاویه پارکی هم پشتیبانی می‌شود)
+      const box = PARKED_HIT.box[pc.kind] ?? { hw: PARKED_HIT.radius[pc.kind] ?? 90, hh: PARKED_HIT.radius[pc.kind] ?? 90 };
+      const pcv = obbFromAngle(pc.x, pc.y, pc.angle, box.hh, box.hw);
+      const mtv = satOverlapMTV(pv, pcv);
+      if (!mtv) continue;
 
       // بیرون‌اندازی کامل بازیکن (پارکی ثابت است)
-      const pen = rr - d;
-      v.x += nx * pen;
-      v.y += ny * pen;
+      v.x += mtv.x * mtv.depth;
+      v.y += mtv.y * mtv.depth;
 
       const impact = Math.abs(v.speed);
       if (impact < PARKED_HIT.softSpeed) {
@@ -1020,6 +1025,9 @@ export class GameManager {
     if (this.vehicle.dead) {
       input = { ...input, gas: false };
     }
+
+    // ---------- شهر بی‌پایان: قطعه‌های دور بازیکن را زنده نگه دار (فقط با تغییر قطعه کار می‌کند) ----------
+    this.world.updateStreaming(this.vehicle.x, this.vehicle.y);
 
     const result = this.vehicle.update(dt, input, this.world.colliders);
     const nowMs = performance.now();
@@ -1207,20 +1215,11 @@ export class GameManager {
     if (this.redRunnerCooldown > 0) return;
     const v = this.vehicle;
     if (Math.abs(v.speed) < TRAFFIC_LIGHTS.redRunnerSpeed) return;
-    // نزدیک‌ترین جاده عمودی/افقی
-    const n = WR.roadCount + 1;
-    let bi = 0;
-    let di = Infinity;
-    for (let i = 0; i < n; i++) {
-      const d = Math.abs(v.x - roadCenter(i));
-      if (d < di) { di = d; bi = i; }
-    }
-    let bj = 0;
-    let dj = Infinity;
-    for (let j = 0; j < n; j++) {
-      const d = Math.abs(v.y - roadCenter(j));
-      if (d < dj) { dj = d; bj = j; }
-    }
+    // نزدیک‌ترین جاده عمودی/افقی — شهر بی‌پایان (اندیس آزاد، حتی منفی)
+    const bi = nearestRoadIndex(v.x);
+    const bj = nearestRoadIndex(v.y);
+    const di = Math.abs(v.x - roadCenter(bi));
+    const dj = Math.abs(v.y - roadCenter(bj));
     // باید داخل محدوده تقاطع باشد (هر دو فاصله کمتر از نصف عرض جاده)
     if (di > WR.roadW / 2 || dj > WR.roadW / 2) return;
     // محور حرکت از زاویه: ۰=شمال؛ سینوس غالب = شرق/غرب

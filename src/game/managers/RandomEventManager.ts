@@ -10,7 +10,7 @@
  */
 
 import { RANDOM_EVENTS as RE, RENDER } from '../data/balance';
-import { WORLD, WORLD_SIZE } from '../world/World';
+import { WORLD } from '../world/World';
 import { TRAFFIC } from '../data/balance';
 
 export type RandomEventKind = 'cat' | 'cones' | 'taxi';
@@ -55,7 +55,7 @@ export class RandomEventManager {
       c.x += c.vx * dt;
       c.y += c.vy * dt;
       c.ttl -= dt;
-      if (c.ttl <= 0 || c.x < 0 || c.y < 0 || c.x > WORLD_SIZE || c.y > WORLD_SIZE) this.cat = null;
+      if (c.ttl <= 0) this.cat = null;
     }
 
     // ---------- مخروط‌ها ----------
@@ -95,11 +95,11 @@ export class RandomEventManager {
   /** گربه: از جاده نزدیک بازیکن عرضی رد می‌شود */
   private spawnCat(player: PlayerPos): void {
     for (let t = 0; t < 16; t++) {
-      // نقطه‌ای روی جاده در فاصله 180..420 از بازیکن
+      // نقطه‌ای روی جاده در فاصله 180..420 از بازیکن (شهر بی‌پایان — بدون کلمپ)
       const a = Math.random() * Math.PI * 2;
       const d = 180 + Math.random() * 240;
-      const x = Math.max(60, Math.min(WORLD_SIZE - 60, player.x + Math.cos(a) * d));
-      const y = Math.max(60, Math.min(WORLD_SIZE - 60, player.y + Math.sin(a) * d));
+      const x = player.x + Math.cos(a) * d;
+      const y = player.y + Math.sin(a) * d;
       if (!this.isRoad(x, y)) continue;
 
       // جهت عبور: عمود بر جاده زیر پا
@@ -133,7 +133,6 @@ export class RandomEventManager {
       const dist = 220 + Math.random() * 200;
       const cx = player.x + fx * dist;
       const cy = player.y + fy * dist;
-      if (cx < 60 || cy < 60 || cx > WORLD_SIZE - 60 || cy > WORLD_SIZE - 60) continue;
       if (!this.isRoad(cx, cy)) continue;
 
       // ردیف مخروط عمود بر جهت جاده (حدوداً عمود بر جهت بازیکن)
