@@ -260,6 +260,19 @@ export class WorldRenderer3D {
   private lastScaleTune = 0;
   private pixelW = 2;
   private pixelH = 2;
+  // ---------- فاز PERF-2: سایه دوره‌ای + مه تطبیقی + آمار برای هوک E2E ----------
+  private shadowTick = 1;
+  /** برد فعلی مه — دستگاه ضعیف خودش را تا ۲۱۰۰ پایین می‌آورد، قوی تا ۳۳۰۰ بالا */
+  private fogFarCur = 2700;
+  /** مجموعه «ترافیک این فریم» — بدون new در هر فریم */
+  private seenSet = new Set<TrafficCar>();
+  /** خروجی پرفورمنس — همان آبجکت همیشه به‌روز می‌شود (بدون فشار GC) */
+  private perfOut = { calls: 0, tris: 0, scale: 1, visChunks: 0, fogFar: 2700 };
+  // ---------- فاز OPT-8: کش مینی‌مپ — بازترسیم فقط هر ۳۳ms ----------
+  private mmCanvas: HTMLCanvasElement | null = null;
+  private mmCtx: CanvasRenderingContext2D | null = null;
+  private mmSize = 0;
+  private mmLast = -1;
 
   constructor(
     glCanvas: HTMLCanvasElement,
@@ -275,6 +288,18 @@ export class WorldRenderer3D {
     this.r3.shadowMap.enabled = true;
     // PCFSoftShadowMap در three r186 حذف شده — PCF استاندارد
     this.r3.shadowMap.type = THREE.PCFShadowMap;
+    // ---------- فاز PERF-2 (ضد lag): سایه آپدیت دوره‌ای — shadow pass نصف/یک‌سوم ----------
+    // خورشید تقریباً ثابت است و حرکت ماشین بین دو آپدیت ~۱۰px جابجایی نامحسوس می‌دهد
+    this.r3.shadowMap.autoUpdate = false;
+    this.r3.shadowMap.needsUpdate = true;
+    // شمارنده فریم سایه — در draw3D هر ۲ (یا ۳ در فریم ضعیف) یک‌بار needsUpdate
+    this.shadowTick = 1;
+    // هوک پرفورمنس برای تست E2E — بدون هزینه (آبجکت دوباره‌استفاده)
+    (window as unknown as { __fcPerf?: unknown }).__fcPerf = this.perfOut;
+    // فاز OPT-4: موبایل از ۰٫۷۵ شروع کند — تا اولین تنظیم EMA لگ اولیه نگیرد
+    if (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches) {
+      this.renderScale = 0.75;
+    }
     // فاز OVERHAUL: مدیریت رنگ صریح (خروجی sRGB)
     this.r3.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -284,7 +309,8 @@ export class WorldRenderer3D {
 
     // ---------- فاز CINEMATIC: گنبد آسمان + مه گرم غبار افق تهران ----------
     // فاز LUX: رنگ مه دقیقاً با افق گنبد آسمان هم‌خوان — مرز افق نامرئی می‌شود
-    this.scene.fog = new THREE.Fog('#e8ddb5', 1300, RENDER3D.fogFar);
+    // فاز PERF-2: پایه ۲۷۰۰ (تطبیقی ۲۱۰۰..۳۳۰۰) — برد کمتر = قطعه مرئی کمتر = DrawCall کمتر
+    this.scene.fog = new THREE.Fog('#e8ddb5', 950, this.fogFarCur);
     this.buildSkyDome();
     this.buildClouds();
 
@@ -452,7 +478,8 @@ export class WorldRenderer3D {
   /** هر فریم — قطعه‌های تازه را می‌سازد (سقف ۲ در فریم = بدون هنگ) و دوری‌ها را آزاد */
   private syncChunks(px: number, pz: number): void {
     // آزادسازی قطعه‌هایی که از برد خارج شده‌اند (dispose هندسه‌های اختصاصی)
-    for (const [key, rec] of [...this.chunkRenders]) {
+    // فاز PERF-2: بدون spread هر فریم — حذف آیتم جاری حین پیمایش Map امن است
+    for (const [key, rec] of this.chunkRenders) {
       if (!this.world.chunks.has(key)) this.disposeChunk(key, rec);
     }
     // ساخت قطعه‌های نزدیک‌تر اول
@@ -1066,7 +1093,7 @@ export class WorldRenderer3D {
   private updateChunkTrafficLights(px: number, pz: number): void {
     const half = WR.roadW / 2;
     const R2 = 3600 * 3600;
-    const tmpQ = new THREE.Quaternion();
+    const tmpQ = this.tmpQ.identity(); // فاز PERF-2: بدون new هر فریم
     for (const rec of this.chunkRenders.values()) {
       const lt = rec.lights;
       if (!lt) continue;
@@ -1233,34 +1260,77 @@ export class WorldRenderer3D {
       const gs = gb.getSize(new THREE.Vector3());
       const fit = Math.min(p.w / Math.max(gs.x, 1), p.h / Math.max(gs.z, 1));
       const sy = h / Math.max(gs.y, 1); // ارتفاع هدف از buildingHeights × hVar
+      // 🔑🔑 فیکس «بلوک‌های خالی + برخورد نامرئی» (فاز VIS-BUILDING):
+      // کد قبلی متریالِ تکی را هم داخل آرایه می‌پیچید ([mat]) در حالی که
+      // geometry.groups خالی است → three.js برای متریال آرایه‌ای فقط از روی
+      // groups رندر می‌کند → صفر Draw Call = ساختمان کاملاً نامرئی!
+      // ---------- فاز PERF-2: merge کل مش‌های GLB به‌ازای (متریال × امضا) ----------
+      // قبل: هر مش GLB = ۱ کلون متریال + ۱ DrawCall (۱۰~۳۰ در هر ساختمان!)
+      // حالا: هندسه‌ها با ماتریس جهانیِ گره بیک و per-(متریال×امضا) merge می‌شوند
+      // → ۲~۶ مش برای هر ساختمان، همان ظاهر، یک‌سوم تا یک‌دهم DrawCall
+      const convert = (mm: THREE.Material): THREE.Material => {
+        const c = mm.clone();
+        const std = c as THREE.MeshStandardMaterial;
+        if (std.isMeshStandardMaterial) { std.metalness = 0; std.roughness = 1; }
+        const cm = c as THREE.MeshLambertMaterial;
+        if (cm.color) {
+          if (cm.map) cm.color.multiply(tintCG);
+          else cm.color.set(tintGlb); // فاز CITY-FULL: اشباع کامل
+        }
+        return c;
+      };
+      const byKey = new Map<string, { srcMat: THREE.Material; geos: THREE.BufferGeometry[] }>();
+      g.updateMatrixWorld(true);
       g.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
-        m.castShadow = true; m.receiveShadow = true;
-        // رنگ نما per building — کلون متریال تا ساختمان‌ها رنگ‌های متفاوت بگیرند
-        // 🔑🔑 فیکس «بلوک‌های خالی + برخورد نامرئی» (فاز VIS-BUILDING):
-        // کد قبلی متریالِ تکی را هم داخل آرایه می‌پیچید ([mat]) در حالی که
-        // geometry.groups خالی است → three.js برای متریال آرایه‌ای فقط از روی
-        // groups رندر می‌کند → صفر Draw Call = ساختمان کاملاً نامرئی!
-        // اکنون: متریال تکی → تکی می‌ماند. Standard (GLB) → Lambert تون‌شهر.
-        const srcMats = m.material;
-        const convert = (mm: THREE.Material): THREE.Material => {
-          const c = mm.clone();
-          const std = c as THREE.MeshStandardMaterial;
-          if (std.isMeshStandardMaterial) { std.metalness = 0; std.roughness = 1; }
-          const cm = c as THREE.MeshLambertMaterial;
-          if (cm.color) {
-            if (cm.map) cm.color.multiply(tintCG);
-            else cm.color.set(tintGlb); // فاز CITY-FULL: اشباع کامل
-          }
-          return c;
-        };
-        m.material = Array.isArray(srcMats)
-          ? (srcMats as THREE.Material[]).map(convert)
-          : convert(srcMats as THREE.Material);
-        const outMats = Array.isArray(m.material) ? m.material : [m.material];
-        rec.disposeMats.push(...outMats);
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        const srcMat = mats[0];
+        if (!srcMat) return;
+        const gg = m.geometry.clone();
+        gg.applyMatrix4(m.matrixWorld); // بیک ترنسفورم گره — ریشه g هنوز identity است
+        gg.computeBoundingBox();
+        const bbG = gg.boundingBox!;
+        if (!Number.isFinite(bbG.min.x) || !Number.isFinite(bbG.max.y)) { gg.dispose(); return; }
+        // امضای اتریبیوت‌ها — merge فقط روی مجموعه اتریبیوت یکسان معتبر است
+        const sig = Object.keys(gg.attributes).sort().join(',') + (gg.index ? '|i' : '|n');
+        const key2 = `${srcMat.uuid}##${sig}`;
+        const entry = byKey.get(key2);
+        if (entry) entry.geos.push(gg);
+        else byKey.set(key2, { srcMat, geos: [gg] });
       });
+      if (byKey.size === 0) return; // GLB بی‌مش سالم — placeholder سر جایش می‌ماند
+      g.clear();
+      for (const { srcMat, geos } of byKey.values()) {
+        if (geos.length === 1) {
+          const mesh = new THREE.Mesh(geos[0], convert(srcMat));
+          mesh.castShadow = true; mesh.receiveShadow = true;
+          g.add(mesh);
+          rec.disposeGeos.push(geos[0]);
+          rec.disposeMats.push(mesh.material as THREE.Material);
+          continue;
+        }
+        const merged = mergeGeometries(geos, false);
+        if (!merged) {
+          // fallback: merge ناموفق (اتریبیوت ناهم‌سنخ) — تک‌مش مثل قبل
+          for (const gg of geos) {
+            const mesh = new THREE.Mesh(gg, convert(srcMat));
+            mesh.castShadow = true; mesh.receiveShadow = true;
+            g.add(mesh);
+            rec.disposeGeos.push(gg);
+            rec.disposeMats.push(mesh.material as THREE.Material);
+          }
+          continue;
+        }
+        merged.computeBoundingBox();
+        merged.computeBoundingSphere();
+        for (const gg of geos) gg.dispose(); // هندسه‌های منبع بعد از merge
+        const mesh = new THREE.Mesh(merged, convert(srcMat));
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        g.add(mesh);
+        rec.disposeGeos.push(merged);
+        rec.disposeMats.push(mesh.material as THREE.Material);
+      }
       // GLB: مرکز پلن + پایه روی زمین + بدون چرخش (پلن مستطیلی تراز می‌ماند)
       g.position.set(cx, -gb.min.y * sy, cz);
       g.scale.set(fit, sy, fit);
@@ -1273,6 +1343,8 @@ export class WorldRenderer3D {
         g.traverse((o) => {
           const mm = o as THREE.Mesh;
           if (!mm.isMesh) return;
+          // فاز PERF-2: هندسه‌ها هم کلون بیک‌شده‌اند → اینجا باید آزاد شوند
+          (mm.geometry as THREE.BufferGeometry).dispose();
           const mmArr = Array.isArray(mm.material) ? mm.material : [mm.material];
           for (const mx of mmArr) mx.dispose();
         });
@@ -1865,16 +1937,19 @@ export class WorldRenderer3D {
     this.baseGround.position.set(car.x, -0.2, car.y);
 
     // ---------- فاز OPT-2: کالای فاصله‌ای قطعه‌ها — آن‌سوی مه کامل رندر نشود ----------
-    // مه در fogFar=۳۳۰۰ صددرصد است؛ قطعه‌ای که کلش فراتر از مه است هیچ پیکسلی نمی‌دهد.
-    // مرکز قطعه دورتر از fogFar + نیم‌قطر (~۱۰۰۰) → group.visible=false (صرفه: ۹~۱۲ قطعه از ۴۹)
+    // فاز PERF-2: cullD بر اساس مهِ تطبیقی — هر ۳۰۰+ مرکز قطعه خارج مه، یک کل Group خاموش
     {
-      const cullD = RENDER3D.fogFar + 1000;
+      const cullD = this.fogFarCur + 650;
       const cullD2 = cullD * cullD;
+      let vis = 0;
       for (const rec of this.chunkRenders.values()) {
         const dx = rec.ci - car.x;
         const dz = rec.cj - car.y;
-        rec.group.visible = dx * dx + dz * dz <= cullD2;
+        const v = dx * dx + dz * dz <= cullD2;
+        rec.group.visible = v;
+        if (v) vis++;
       }
+      this.perfOut.visChunks = vis;
     }
 
     // ---------- ماشین بازیکن ----------
@@ -1907,7 +1982,8 @@ export class WorldRenderer3D {
     pmodel.group.rotation.x = this.pitchVis;
 
     // ---------- ترافیک (GLB با fallback procedural + LOD + چراغ ترمز) ----------
-    const seen = new Set<TrafficCar>();
+    const seen = this.seenSet; // فاز PERF-2: بدون new هر فریم
+    seen.clear();
     for (const c of opts.traffic) {
       seen.add(c);
       let model = this.trafficModels.get(c);
@@ -2144,16 +2220,28 @@ export class WorldRenderer3D {
     this.updateChaseCamera(car, dt, t);
 
     // ---------- فاز OPT-1: تنظیم رزولوشن تطبیقی (هر ۱٫۴ ثانیه یک بار) ----------
+    // فاز PERF-2: آستانه‌ها سخت‌گیرانه‌تر — ۱۹ms پایین (گام بزرگ)، ۱۳٫۵ms بالا (گام کوچک)
     this.frameEMA = this.frameEMA * 0.92 + dt * 1000 * 0.08;
     if (nowMs - this.lastScaleTune > 1400) {
       this.lastScaleTune = nowMs;
-      if (this.frameEMA > 23 && this.renderScale > 0.62) {
-        this.renderScale = Math.max(0.62, this.renderScale - 0.08);
+      if (this.frameEMA > 19 && this.renderScale > 0.5) {
+        this.renderScale = Math.max(0.5, this.renderScale - 0.1);
         this.applyRenderSize();
-      } else if (this.frameEMA < 14.5 && this.renderScale < 1) {
-        this.renderScale = Math.min(1, this.renderScale + 0.05);
+      } else if (this.frameEMA < 13.5 && this.renderScale < 1) {
+        this.renderScale = Math.min(1, this.renderScale + 0.04);
         this.applyRenderSize();
       }
+      // ---------- فاز PERF-2: مه تطبیقی — دستگاه ضعیف برد را هم کم می‌کند ----------
+      // رزولوشن که سالم بود و هنوز فریم سبک است → برد دید بیشتر (تا ۳۳۰۰ مثل قبل)
+      const fogNow = this.scene.fog as THREE.Fog;
+      if (this.frameEMA > 21 && this.fogFarCur > 2100) {
+        this.fogFarCur = Math.max(2100, this.fogFarCur - 300);
+        fogNow.far = this.fogFarCur;
+      } else if (this.frameEMA < 13.5 && this.renderScale >= 1 && this.fogFarCur < RENDER3D.fogFar) {
+        this.fogFarCur = Math.min(RENDER3D.fogFar, this.fogFarCur + 300);
+        fogNow.far = this.fogFarCur;
+      }
+      this.perfOut.fogFar = this.fogFarCur;
     }
 
     // ---------- نور خورشید دنبال بازیکن — زاویه پایین‌تر = سایه‌های بلند سینمایی ----------
@@ -2185,8 +2273,18 @@ export class WorldRenderer3D {
       );
     }
 
+    // ---------- فاز PERF-2: سایه فقط هر ۲ فریم بازسازی شود (فریم ضعیف: هر ۳) ----------
+    // autoUpdate=false در سازه — اینجا فقط پرچم needsUpdate قبل از render
+    this.shadowTick++;
+    this.r3.shadowMap.needsUpdate = this.shadowTick % (this.frameEMA > 26 ? 3 : 2) === 0;
+
     // ---------- رندر ----------
     this.r3.render(this.scene, this.cam3);
+
+    // ---------- فاز PERF-2: آمار زنده برای هوک E2E/دباگ ----------
+    this.perfOut.calls = this.r3.info.render.calls;
+    this.perfOut.tris = this.r3.info.render.triangles;
+    this.perfOut.scale = this.renderScale;
 
     // ---------- اورلی (حباب‌ها + فلش هدف) ----------
     this.drawOverlay(opts, t);
@@ -2334,16 +2432,45 @@ export class WorldRenderer3D {
   /** مستطیل مینی‌مپ در فضای اورلی — برای جلوگیری از افتادن حباب متن روی نقشه */
   private minimapRect: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: 0, h: 0 };
 
-  /** مینی‌مپ کل تهران بزرگ — بالای صفحه (تا ماشین را نپوشاند) */
+  /** مینی‌مپ کل تهران بزرگ — بالای صفحه (تا ماشین را نپوشاند)
+   *  فاز OPT-8: بازترسیم فقط هر ۳۳ms روی کانواس کش — هر فریم فقط drawImage بلیت می‌شود */
   private drawMinimap(ctx: CanvasRenderingContext2D, opts: Draw3DOptions): void {
     const size = Math.min(RENDER3D.minimapSize, this.overlayW * 0.24);
     // فاز CITY-KIT: مینی‌مپ از وسط به گوشه راست رفت (درخواست کاربر — متن‌ها دیگر زیرش نمی‌روند)
     const x0 = this.overlayW - size - 12;
     const y0 = 10;
+    this.minimapRect = { x: x0, y: y0, w: size, h: size };
+
+    // کانواس کش — با تغییر اندازه/دپ‌آر بازسازیده می‌شود
+    if (!this.mmCanvas || this.mmSize !== size) {
+      const c = document.createElement('canvas');
+      c.width = Math.max(2, Math.round(size * this.dpr));
+      c.height = c.width;
+      this.mmCanvas = c;
+      this.mmCtx = c.getContext('2d');
+      this.mmSize = size;
+      this.mmLast = -1; // اجبار به بازترسیم اول
+    }
+    const nowMs = performance.now();
+    if (this.mmCtx && (this.mmLast < 0 || nowMs - this.mmLast > 33)) {
+      this.mmLast = nowMs;
+      const c = this.mmCtx;
+      c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      c.clearRect(0, 0, size, size);
+      c.save();
+      c.translate(-x0, -y0); // همه مختصات داخل همان فضای اورلی می‌ماند
+      this.paintMinimap(c, opts, x0, y0, size);
+      c.restore();
+    }
+    if (this.mmCanvas) ctx.drawImage(this.mmCanvas, x0, y0, size, size);
+  }
+
+  /** بدنه رسم مینی‌مپ — روی کانواس کش (کامل همان ظاهر قبلی) */
+  private paintMinimap(c: CanvasRenderingContext2D, opts: Draw3DOptions, x0: number, y0: number, size: number): void {
+    const ctx = c;
     // فاز INFINITE-IR: مینی‌مپ «محلی» دور بازیکن است — شهر بی‌پایان وسط نقشه ندارد
     const VIEW = 3600; // نیم‌برد دید مینی‌مپ
     const k = size / (VIEW * 2);
-    this.minimapRect = { x: x0, y: y0, w: size, h: size };
     const cx0 = x0 + size / 2;
     const cy0 = y0 + size / 2;
     const toX = (wx: number): number => cx0 + (wx - opts.car.x) * k;
