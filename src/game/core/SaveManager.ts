@@ -16,6 +16,8 @@ export interface GameSettings {
   sfx: number;
   voice: number;
   vibration: boolean;
+  /** فاز QUALITY (v0.2.22): سطح گرافیک — ۰=کم (بدون سایه، رزولوشن کامل) ۱=متوسط ۲=زیاد */
+  gfx: number;
 }
 
 export interface SaveData {
@@ -47,7 +49,14 @@ function defaultSave(): SaveData {
     unlockedVehicles: ['veh_player_01'],
     selectedVehicle: 'veh_player_01',
     completedMissions: [],
-    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true },
+    // فاز QUALITY: پیش‌فرض هوشمند — موبایل «کم» (بدون سایه = روان مثل v0.2.13)، دسکتاپ «زیاد»
+    settings: {
+      music: 0.7,
+      sfx: 0.9,
+      voice: 1.0,
+      vibration: true,
+      gfx: typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches ? 0 : 2,
+    },
     progress: { tutorialDone: false, firstRunDone: false },
     upgrades: defaultUpgrades(),
     ownedPaints: [DEFAULT_PAINT_ID],
@@ -81,7 +90,7 @@ function migrate(raw: unknown): SaveData {
       : base.unlockedVehicles,
     selectedVehicle: typeof data.selectedVehicle === 'string' ? data.selectedVehicle : base.selectedVehicle,
     completedMissions: Array.isArray(data.completedMissions) ? data.completedMissions : [],
-    settings: { ...base.settings, ...(typeof data.settings === 'object' && data.settings !== null ? data.settings : {}) },
+    settings: migrateSettings(data.settings, base.settings),
     progress: { ...base.progress, ...(typeof data.progress === 'object' && data.progress !== null ? data.progress : {}) },
     upgrades: migrateUpgrades(data.upgrades),
     ownedPaints: migratePaints(data.ownedPaints),
@@ -91,6 +100,15 @@ function migrate(raw: unknown): SaveData {
       ? data.horn
       : DEFAULT_HORN_ID,
   };
+}
+
+/** اعتبارسنجی تنظیمات — gfx باید ۰~۲ باشد؛ سیو قدیمی بدون gfx → پیش‌فرض هوشمند دستگاه */
+function migrateSettings(raw: unknown, base: GameSettings): GameSettings {
+  const merged = { ...base, ...(typeof raw === 'object' && raw !== null ? raw : {}) } as GameSettings;
+  merged.gfx = typeof merged.gfx === 'number' && Number.isFinite(merged.gfx)
+    ? Math.max(0, Math.min(2, Math.floor(merged.gfx)))
+    : base.gfx;
+  return merged;
 }
 
 /** اعتبارسنجی بوق‌ها — بوق استاندارد همیشه هست تا فروشگاه خراب نشود */

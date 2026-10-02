@@ -34,8 +34,8 @@ export interface GameInstance {
   setVirtualGas: (v: boolean) => void;
   setVirtualBrake: (v: boolean) => void;
   pressHorn: () => void;
-  setSetting: <K extends 'music' | 'sfx' | 'voice'>(k: K, v: number) => void;
-  getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean };
+  setSetting: <K extends 'music' | 'sfx' | 'voice' | 'gfx'>(k: K, v: number) => void;
+  getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean; gfx: number };
   getSave: () => { coins: number; reputation: number };
   toggleDebugFps: () => void;
   /** فاز 4: مأموریت‌ها (فاز ۵: با فیلتر دسته — park/taxi/challenge) */

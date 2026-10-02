@@ -202,7 +202,7 @@ export class GameManager {
       const overlay = document.createElement('canvas');
       overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;';
       canvas.parentElement?.appendChild(overlay);
-      this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera, this.lights);
+      this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera, this.lights, this.save.get().settings.gfx);
       this.fx = this.renderer3d;
     } else {
       this.is3D = false;
@@ -502,8 +502,13 @@ export class GameManager {
       this.fx.pushBubble(this.pickLine(ev), car.x, car.y, 'char_driver_01_idle', 2.6);
     }
   }
-  setSetting<K extends 'music' | 'sfx' | 'voice'>(k: K, v: number): void {
+  setSetting(k: 'music' | 'sfx' | 'voice' | 'gfx', v: number): void {
     this.save.mutate((d) => { d.settings[k] = v; });
+    // فاز QUALITY: تغییر سطح گرافیک — بلافاصله روی رندرر اعمال می‌شود (سایه/مه/رزولوشن)
+    if (k === 'gfx') {
+      this.renderer3d?.setQuality(v);
+      return;
+    }
     this.audio.setVolumes(this.save.get().settings);
   }
   getSettings() { return this.save.get().settings; }

@@ -266,6 +266,18 @@ export class WorldRenderer3D {
   private slowCount = 0;
   private frameCount = 0;
   private slowRatio = 0;
+  // ---------- فاز QUALITY (v0.2.22): سه سطح گرافیک کم/متوسط/زیاد ----------
+  // 🔑 درس باستان‌شناسی: v0.2.13 روان بود چون «هیچ pass سایه‌ای» نداشت —
+  // LUX (v0.2.16) سایهٔ بلادرنگ آورد و گوشی ضعیف دیگر نمی‌توانست رزولوشن کامل نگه دارد → تار.
+  // سطح «کم» = دقیقاً بار رندر v0.2.13 (بدون سایهٔ خورشید) + سایهٔ لکه‌ای ارزان زیر خودروها.
+  private gfxCur: 0 | 1 | 2 = 2;
+  /** کف مجاز رزولوشن در هر سطح — کم: ۰٫۸۵ (تقریباً همیشه ۱ می‌ماند = شفاف) */
+  private scaleFloor = 0.68;
+  /** سقف مه در هر سطح — کم/متوسط نزدیک‌تر = قطعه مرئی کمتر */
+  private fogCap = 2700;
+  /** سایهٔ لکه‌ای زیر خودروها (فقط وقتی سایهٔ خورشید خاموش است) */
+  private blobMesh: THREE.InstancedMesh | null = null;
+  private blobCount = 0;
   // ---------- فاز PERF-2: سایه دوره‌ای + مه تطبیقی + آمار برای هوک E2E ----------
   private shadowTick = 1;
   /** برد فعلی مه — فاز PERF-3: تطبیقی ۲۲۰۰..۲۷۰۰ (کف بالاتر = ضد تار) */
@@ -273,7 +285,7 @@ export class WorldRenderer3D {
   /** مجموعه «ترافیک این فریم» — بدون new در هر فریم */
   private seenSet = new Set<TrafficCar>();
   /** خروجی پرفورمنس — همان آبجکت همیشه به‌روز می‌شود (بدون فشار GC) */
-  private perfOut = { calls: 0, tris: 0, scale: 1, visChunks: 0, fogFar: 2700, slow: 0 };
+  private perfOut = { calls: 0, tris: 0, scale: 1, visChunks: 0, fogFar: 2700, slow: 0, gfx: 2 };
   // ---------- فاز OPT-8: کش مینی‌مپ — بازترسیم فقط هر ۵۰ms (PERF-3: از ۳۳) ----------
   private mmCanvas: HTMLCanvasElement | null = null;
   private mmCtx: CanvasRenderingContext2D | null = null;
@@ -289,6 +301,8 @@ export class WorldRenderer3D {
     private camera: Camera,
     /** چراغ‌های تقاطع (فاز OVERHAUL) — برای رندر لامپ‌ها */
     private lights: TrafficLights,
+    /** فاز QUALITY (v0.2.22): سطح گرافیک ذخیره‌شده — ۰=کم ۱=متوسط ۲=زیاد */
+    gfx: number = 2,
   ) {
     this.r3 = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl as WebGL2RenderingContext, antialias: true });
     this.r3.shadowMap.enabled = true;
@@ -302,11 +316,9 @@ export class WorldRenderer3D {
     this.shadowTick = 1;
     // هوک پرفورمنس برای تست E2E — بدون هزینه (آبجکت دوباره‌استفاده)
     (window as unknown as { __fcPerf?: unknown }).__fcPerf = this.perfOut;
-    // فاز PERF-3: موبایل از ۰٫۸۵ شروع کند — شروع تارِ واضح ممنوع؛ اگر دستگاه ضعیف باشد خودش پایین می‌آید
-    if (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches) {
-      this.renderScale = 0.85;
-    }
-    // فاز OVERHAUL: مدیریت رنگ صریح (خروجی sRGB)
+    // فاز QUALITY: سطح گرافیک — شروع رزولوشن/کف/مه/سایه همه از همین سطح
+    // (قبلاً موبایل همیشه ۰٫۸۵ شروع می‌کرد — حالا سطح «کم» از ۱ شروع می‌کند = شفاف)
+    this.setQuality(gfx);
     this.r3.outputColorSpace = THREE.SRGBColorSpace;
 
     const octx = overlay.getContext('2d');
@@ -353,6 +365,8 @@ export class WorldRenderer3D {
     const fill = new THREE.DirectionalLight('#bcd2ea', 0.5);
     fill.position.set(-420, 380, -260);
     this.scene.add(fill);
+    // فاز QUALITY: حالا که خورشید/مه ساخته شدند، سطح گرافیک به‌طور کامل اعمال شود
+    this.applyGfx();
 
     // ---------- فاز INFINITE-IR: دنیای بی‌پایان (زمین پایه + استریم قطعه‌ها) ----------
     this.initStreamingWorld();
@@ -1995,6 +2009,16 @@ export class WorldRenderer3D {
     // ---------- ماشین بازیکن ----------
     this.playerModel.group.position.set(car.x, 0, car.y);
     this.playerModel.group.rotation.y = -car.angle;
+    // فاز QUALITY: سایهٔ لکه‌ای بازیکن — فقط وقتی سایهٔ خورشید خاموش است (سطح «کم»)
+    this.blobCount = 0;
+    if (this.blobMesh?.visible) {
+      this.tmpM.compose(
+        this.tmpV.set(car.x, 1.8, car.y),
+        this.tmpQ.setFromEuler(this.eul.set(0, -car.angle, 0)),
+        this.tmpS.set(car.drawW * 1.5, 1, car.drawH * 1.3),
+      );
+      this.blobMesh.setMatrixAt(this.blobCount++, this.tmpM);
+    }
     const wheelR = car.drawH * 0.135;
     const spin = (car.speed / wheelR) * this.drawDt();
     spinWheels(this.playerModel, spin);
@@ -2070,6 +2094,19 @@ export class WorldRenderer3D {
         model.lightBar.red.visible = on;
         model.lightBar.blue.visible = !on;
       }
+      // فاز QUALITY: سایهٔ لکه‌ای ترافیک نزدیک (فقط سطح «کم»)
+      if (this.blobMesh?.visible && this.blobCount < 24) {
+        this.tmpM.compose(
+          this.tmpV.set(c.x, 1.8, c.y),
+          this.tmpQ.setFromEuler(this.eul.set(0, -c.angle, 0)),
+          this.tmpS.set(c.drawW * 1.5, 1, c.drawH * 1.3),
+        );
+        this.blobMesh.setMatrixAt(this.blobCount++, this.tmpM);
+      }
+    }
+    if (this.blobMesh?.visible) {
+      this.blobMesh.count = this.blobCount;
+      this.blobMesh.instanceMatrix.needsUpdate = true;
     }
     for (const [tc, model] of this.trafficModels) {
       if (!seen.has(tc)) {
@@ -2279,8 +2316,9 @@ export class WorldRenderer3D {
       this.slowCount = 0;
       this.frameCount = 0;
       // پایین: فقط وقتی واقعاً فریم‌های کند زیادند (گام ملایم ۰٫۰۶ — ضد پرش تاری)
-      if (this.slowRatio > 0.22 && this.renderScale > 0.68) {
-        this.renderScale = Math.max(0.68, this.renderScale - 0.06);
+      // فاز QUALITY: کف رزولوشن از سطح گرافیک می‌آید — «کم» عمداً بالاست (۰٫۸۵) تا شفاف بماند
+      if (this.slowRatio > 0.22 && this.renderScale > this.scaleFloor) {
+        this.renderScale = Math.max(this.scaleFloor, this.renderScale - 0.06);
         this.applyRenderSize();
       } else if (this.slowRatio < 0.03 && this.frameEMA < 21 && this.renderScale < 1) {
         // بالا: ۶۰Hz سالم (16.7ms) و ۱۲۰Hz سالم (8.3ms) هر دو می‌توانند بالا بروند
@@ -2293,8 +2331,8 @@ export class WorldRenderer3D {
       if (this.slowRatio > 0.3 && this.renderScale <= 0.74 && this.fogFarCur > 2200) {
         this.fogFarCur = Math.max(2200, this.fogFarCur - 300);
         fogNow.far = this.fogFarCur;
-      } else if (this.slowRatio < 0.03 && this.renderScale >= 1 && this.fogFarCur < RENDER3D.fogFar) {
-        this.fogFarCur = Math.min(RENDER3D.fogFar, this.fogFarCur + 300);
+      } else if (this.slowRatio < 0.03 && this.renderScale >= 1 && this.fogFarCur < this.fogCap) {
+        this.fogFarCur = Math.min(this.fogCap, this.fogFarCur + 300);
         fogNow.far = this.fogFarCur;
       }
       this.perfOut.fogFar = this.fogFarCur;
@@ -2330,10 +2368,13 @@ export class WorldRenderer3D {
       );
     }
 
-    // ---------- فاز PERF-2 + PERF-3: سایه هر ۳ فریم بازسازی شود (فریم ضعیف: هر ۴) ----------
+    // ---------- فاز PERF-2 + QUALITY: سایه هر ۳ فریم بازسازی شود (متوسط: هر ۴ — کم: خاموش) ----------
     // autoUpdate=false در سازه — اینجا فقط پرچم needsUpdate قبل از render
     this.shadowTick++;
-    this.r3.shadowMap.needsUpdate = this.shadowTick % (this.frameEMA > 24 ? 4 : 3) === 0;
+    if (this.r3.shadowMap.enabled) {
+      const every = this.gfxCur === 1 ? 4 : this.frameEMA > 24 ? 4 : 3;
+      this.r3.shadowMap.needsUpdate = this.shadowTick % every === 0;
+    }
 
     // ---------- رندر ----------
     const tR = performance.now();
@@ -2845,6 +2886,81 @@ export class WorldRenderer3D {
     this.cam3.fov = this.fovBase;
     this.cam3.aspect = aspect;
     this.cam3.updateProjectionMatrix();
+  }
+
+  /** فاز QUALITY (v0.2.22): تغییر سطح گرافیک — از منو (زنده) یا سازه.
+   *  کم=۰: بدون pass سایه (همان بار v0.2.13) + مه ۲۴۰۰ + کف رزولوشن ۰٫۸۵ (عمداً تا ۱ می‌ماند)
+   *  متوسط=۱: سایه ۱۰۲۴ هر ۴ فریم + مه ۲۵۰۰ + کف ۰٫۸
+   *  زیاد=۲: کامل LUX + مه ۲۷۰۰ */
+  setQuality(q: number): void {
+    this.gfxCur = q === 0 || q === 1 || q === 2 ? (q as 0 | 1 | 2) : 2;
+    if (this.gfxCur === 0) {
+      this.scaleFloor = 0.85;
+      this.fogCap = 2400;
+      this.renderScale = 1; // شروع از رزولوشن کامل — «تار» ممنوع
+    } else if (this.gfxCur === 1) {
+      this.scaleFloor = 0.8;
+      this.fogCap = 2500;
+      this.renderScale = Math.max(this.renderScale, 0.9);
+    } else {
+      this.scaleFloor = 0.68;
+      this.fogCap = RENDER3D.fogFar;
+      this.renderScale = 1; // کاربر «زیاد» را خواست = رزولوشن کامل، تطبیقی خودش مواظب است
+    }
+    this.applyGfx();
+  }
+
+  /** اعمال سطح گرافیک روی سایه/مه/لکه — در سازه و بعد از هر تغییر زنده صدا زده می‌شود */
+  private applyGfx(): void {
+    const low = this.gfxCur === 0;
+    // 🔑 سنگین‌ترین costِ صحنه = pass سایه (کل صحنه دوباره رندر می‌شود) —
+    // در «کم» کاملاً خاموش می‌شود: همان راز روانی v0.2.13
+    if (this.sun) {
+      this.sun.castShadow = !low;
+      this.r3.shadowMap.enabled = !low;
+      if (!low) this.r3.shadowMap.needsUpdate = true;
+    }
+    // مه: سقف سطح + اعمال فوری (اگر مه ساخته شده باشد)
+    this.fogFarCur = Math.min(this.fogFarCur, this.fogCap);
+    if (this.scene.fog) (this.scene.fog as THREE.Fog).far = this.fogFarCur;
+    this.perfOut.gfx = this.gfxCur;
+    // سایهٔ لکه‌ای زیر خودروها — فقط وقتی سایهٔ خورشید خاموش است
+    if (low && !this.blobMesh) this.buildBlobShadows();
+    if (this.blobMesh) {
+      this.blobMesh.visible = low;
+      if (!low) this.blobMesh.count = 0;
+    }
+  }
+
+  /** سایهٔ لکه‌ای کارتونی: یک InstancedMesh با گرادیان شعاعی — ۱ DrawCall برای همهٔ خودروها */
+  private buildBlobShadows(): void {
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    if (g) {
+      const grad = g.createRadialGradient(32, 32, 4, 32, 32, 31);
+      grad.addColorStop(0, 'rgba(10,8,6,0.52)');
+      grad.addColorStop(0.6, 'rgba(10,8,6,0.34)');
+      grad.addColorStop(1, 'rgba(10,8,6,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 64, 64);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const geo = new THREE.PlaneGeometry(2, 2);
+    geo.rotateX(-Math.PI / 2);
+    this.blobMesh = new THREE.InstancedMesh(
+      geo,
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
+      24, // بازیکن + ۱۶ ترافیک + حاشیه
+    );
+    this.blobMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.blobMesh.count = 0;
+    this.blobMesh.renderOrder = 1;
+    this.blobMesh.frustumCulled = false;
+    this.blobMesh.visible = false;
+    this.scene.add(this.blobMesh);
   }
 
   /** فاز OPT-1: اعمال رزولوشن داخلی با ضریب renderScale (کانواس با CSS کش می‌آید) */
