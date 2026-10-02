@@ -426,8 +426,11 @@ export function getFacadeTextures(assetId: string, signOverride?: string): THREE
     return x / 4294967296;
   };
 
-  // --- وجه طبقات ۵۱۲px: پنجره متنوع + کولر + لبه + جان‌پناه + کثیفی دیوار ---
-  const { c: face, ctx: fx } = makeCanvas(512, 512);
+  // --- وجه طبقات — فاز PERF-4: خروجی ۲۵۶px (قبلاً ۵۱۲) با همان مختصات ترسیم ۵۱۲ —
+  // چهاربرابر سبک‌تر در تولید + چهاربرابر VRAM کمتر (هم‌سطح v0.2.13 روان)؛
+  // در فاصله‌ی معمول دید، تفاوت بصری ناچیز است
+  const { c: face, ctx: fx } = makeCanvas(256, 256);
+  fx.scale(0.5, 0.5);
   fx.fillStyle = wall;
   fx.fillRect(0, 0, 512, 512);
   // واترینگ عمودی: بالا روشن، پایین کثیف‌تر
@@ -545,8 +548,9 @@ export function getFacadeTextures(assetId: string, signOverride?: string): THREE
   fx.fillStyle = 'rgba(30,22,16,0.25)';
   fx.fillRect(0, 486, 512, 26);
 
-  // --- وجه همکف ۵۱۲px ---
-  const { c: groundF, ctx: gx } = makeCanvas(512, 512);
+  // --- وجه همکف — فاز PERF-4: ۲۵۶px مثل طبقات (قبل ۵۱۲) ---
+  const { c: groundF, ctx: gx } = makeCanvas(256, 256);
+  gx.scale(0.5, 0.5);
   gx.fillStyle = wall;
   gx.fillRect(0, 0, 512, 512);
   const gg = gx.createLinearGradient(0, 256, 0, 512);

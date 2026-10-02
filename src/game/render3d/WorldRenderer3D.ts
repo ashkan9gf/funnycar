@@ -1269,7 +1269,10 @@ export class WorldRenderer3D {
       : p.assetId?.includes('shop') ? 'shop'
         : p.assetId?.includes('garage') ? 'garage' : 'home';
     const variance = Math.abs(Math.round(cx * 7 + cz * 13));
+    // فاز PERF-4: ارتقای GLB در صف — هر فریم حداکثر ۲ ساختمان؛ انفجارِ clone/merge وقتی
+    // چند ساختمان یک‌جا لود می‌شوند = هنگ گوشی ضعیف. ظاهر: placeholder چند فریم می‌ماند
     void this.glb.loadBuilding(type, variance).then((scene) => {
+    this.buildingUpgrades.push(() => {
       if (!scene) return;
       const g = scene.clone(true);
       const tintGlb = BUILDING_TINTS[variance % BUILDING_TINTS.length];
@@ -1375,6 +1378,7 @@ export class WorldRenderer3D {
       if (roofMesh) parent.remove(roofMesh);
       else parent.remove(roof);
       parent.add(g);
+    });
     });
   }
 
@@ -1948,12 +1952,28 @@ export class WorldRenderer3D {
     return Math.min(0.05, Math.max(0.001, dt));
   }
 
+  /** فاز PERF-4: صف ارتقای GLB ساختمان‌ها — هر فریم حداکثر ۲ اجرا (ضد burst هنگ) */
+  private buildingUpgrades: Array<() => void> = [];
+
   draw3D(opts: Draw3DOptions): void {
+    // فاز PERF-PROBE: زمان بخش‌های گران رندر (sync/render/overlay)
+    const dp = (window as unknown as { __fcDrawT?: Record<string, number> }).__fcDrawT ??= { sync: 0, syncMax: 0, render: 0, renderMax: 0, overlay: 0, n: 0 };
+    const t0 = performance.now();
     const t = performance.now() / 1000;
     const car = opts.car;
 
     // ---------- فاز INFINITE-IR: استریم قطعه‌های شهر + زمین بی‌پایان ----------
     this.syncChunks(car.x, car.y);
+    dp.sync += performance.now() - t0;
+    if (performance.now() - t0 > dp.syncMax) dp.syncMax = performance.now() - t0;
+
+    // ---------- فاز PERF-4: اجرای حداکثر ۲ ارتقای GLB در هر فریم — burst صفر ----------
+    let upN = 0;
+    while (this.buildingUpgrades.length > 0 && upN < 2) {
+      const job = this.buildingUpgrades.shift();
+      if (job) job();
+      upN++;
+    }
     this.baseGround.position.set(car.x, -0.2, car.y);
 
     // ---------- فاز OPT-2: کالای فاصله‌ای قطعه‌ها — آن‌سوی مه کامل رندر نشود ----------
@@ -2316,7 +2336,11 @@ export class WorldRenderer3D {
     this.r3.shadowMap.needsUpdate = this.shadowTick % (this.frameEMA > 24 ? 4 : 3) === 0;
 
     // ---------- رندر ----------
+    const tR = performance.now();
     this.r3.render(this.scene, this.cam3);
+    dp.render += performance.now() - tR;
+    if (performance.now() - tR > dp.renderMax) dp.renderMax = performance.now() - tR;
+    dp.n++;
 
     // ---------- فاز PERF-2: آمار زنده برای هوک E2E/دباگ ----------
     this.perfOut.calls = this.r3.info.render.calls;

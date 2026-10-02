@@ -239,13 +239,23 @@ export class World {
     if (!force && this.centerKey === centerKey && this.chunks.size >= (2 * this.keepR + 1) ** 2) return;
     this.centerKey = centerKey;
 
-    // ساخت قطعه‌های گم‌شده
+    // فاز PERF-4: ساخت داده قطعه‌های گم‌شده تدریجی — حداکثر ۴ قطعه در هر فریم؛
+    // قبلاً کل ردیف ۷تایی هم‌زمان ساخته می‌شد = spike در عبور از مرز قطعه
+    const missing: Array<{ key: string; i: number; j: number; d: number }> = [];
     for (let dj = -this.keepR; dj <= this.keepR; dj++) {
       for (let di = -this.keepR; di <= this.keepR; di++) {
         const i = ci + di;
         const j = cj + dj;
         const key = `${i}_${j}`;
-        if (!this.chunks.has(key)) this.chunks.set(key, this.genChunk(i, j));
+        if (!this.chunks.has(key)) missing.push({ key, i, j, d: di * di + dj * dj });
+      }
+    }
+    if (missing.length > 0) {
+      missing.sort((a, b) => a.d - b.d);
+      const genN = Math.min(4, missing.length);
+      for (let k = 0; k < genN; k++) {
+        const m = missing[k];
+        this.chunks.set(m.key, this.genChunk(m.i, m.j));
       }
     }
     // آزادسازی قطعه‌های دور
@@ -262,12 +272,13 @@ export class World {
 
   /** آرایه‌های تخت = اجتماع قطعه‌های فعال (فقط وقتی مجموعه قطعه‌ها عوض شود) */
   private rebuildAggregates(): void {
-    this.props = [];
-    this.parkedCars = [];
-    this.speedBumps = [];
-    this.repairZones = [];
-    this.coins = [];
-    this.colliders = [];
+    // فاز PERF-4: بدون تخصیص جدید — طول صفر می‌شود، ظرفیت حفظ می‌ماند (ضد GC در هر عبور مرز)
+    this.props.length = 0;
+    this.parkedCars.length = 0;
+    this.speedBumps.length = 0;
+    this.repairZones.length = 0;
+    this.coins.length = 0;
+    this.colliders.length = 0;
     for (const ch of this.chunks.values()) {
       for (const p of ch.props) this.props.push(p);
       for (const pc of ch.parkedCars) this.parkedCars.push(pc);

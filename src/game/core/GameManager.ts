@@ -1011,6 +1011,9 @@ export class GameManager {
   };
 
   private step(dt: number): void {
+    // فاز PERF-PROBE: زمان‌سنجی زیرسیستم‌ها (جمع + بیشینه — برای یافتن گلوگاه واقعی CPU)
+    const tp = (window as unknown as { __fcStepT?: Record<string, number> }).__fcStepT ??= { world: 0, worldMax: 0, veh: 0, vehMax: 0, traffic: 0, trafficMax: 0, peds: 0, pedsMax: 0, lights: 0, n: 0 };
+    let t0 = performance.now();
     let input = this.input.collect();
     this.lastInput = { gas: input.gas, brake: input.brake, steer: input.steer };
 
@@ -1020,6 +1023,7 @@ export class GameManager {
     // ---------- چراغ‌های راهنما (فاز OVERHAUL) ----------
     this.lights.update(dt);
     this.checkRedLightRunner(dt);
+    tp.lights += performance.now() - t0;
 
     // ---------- موتور خاموش: گاز کار نمی‌کند (فاز BIG-IR) ----------
     if (this.vehicle.dead) {
@@ -1027,9 +1031,15 @@ export class GameManager {
     }
 
     // ---------- شهر بی‌پایان: قطعه‌های دور بازیکن را زنده نگه دار (فقط با تغییر قطعه کار می‌کند) ----------
+    t0 = performance.now();
     this.world.updateStreaming(this.vehicle.x, this.vehicle.y);
+    tp.world += performance.now() - t0;
+    if (performance.now() - t0 > tp.worldMax) tp.worldMax = performance.now() - t0;
 
+    t0 = performance.now();
     const result = this.vehicle.update(dt, input, this.world.colliders);
+    tp.veh += performance.now() - t0;
+    if (performance.now() - t0 > tp.vehMax) tp.vehMax = performance.now() - t0;
     const nowMs = performance.now();
 
     // ---------- برخورد با موانع ثابت ----------
@@ -1108,8 +1118,11 @@ export class GameManager {
     }
 
       // ---------- ترافیک (فاز 2) ----------
+    t0 = performance.now();
     this.traffic.update(dt, this.vehicle);
     this.resolveTrafficCollisions(dt);
+    tp.traffic += performance.now() - t0;
+    if (performance.now() - t0 > tp.trafficMax) tp.trafficMax = performance.now() - t0;
 
     // ---------- برخورد با پارکی‌ها (فاز SMASH) ----------
     this.resolveParkedCollisions(dt);
@@ -1118,8 +1131,11 @@ export class GameManager {
     this.updateBreakables(dt);
 
     // ---------- عابرهای پیاده (فاز BIG-IR + برخورد SMASH) ----------
+    t0 = performance.now();
     this.peds.update(dt, this.vehicle);
     this.resolvePedestrianCollisions(dt);
+    tp.peds += performance.now() - t0;
+    if (performance.now() - t0 > tp.pedsMax) tp.pedsMax = performance.now() - t0;
 
     // ---------- دود ماشین آسیب‌دیده (فاز BIG-IR) ----------
     if (this.vehicle.health < DAMAGE.smokeBelow) {
@@ -1194,6 +1210,7 @@ export class GameManager {
       this.idleTimerSec = IDLE_EVENTS.minIntervalSec + Math.random() * (IDLE_EVENTS.maxIntervalSec - IDLE_EVENTS.minIntervalSec);
       this.voice.trigger('idle_funny', nowMs);
     }
+    tp.n++; // PERF-PROBE
 
     // ---------- دوربین ----------
     if (this.ctx) {
