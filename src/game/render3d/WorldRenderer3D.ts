@@ -260,15 +260,21 @@ export class WorldRenderer3D {
   private lastScaleTune = 0;
   private pixelW = 2;
   private pixelH = 2;
+  // ---------- فاز PERF-3 (ضد «تار»): قضاوت با «نسبت فریم افت» نه فقط EMA —
+  // آستانه قبلی (13.5ms) زیر زمان فریم vsync گوشی ۶۰Hz (16.7ms) بود →
+  // رزولوشن هرگز بالا نمی‌رفت و همیشه تار می‌ماند!
+  private slowCount = 0;
+  private frameCount = 0;
+  private slowRatio = 0;
   // ---------- فاز PERF-2: سایه دوره‌ای + مه تطبیقی + آمار برای هوک E2E ----------
   private shadowTick = 1;
-  /** برد فعلی مه — دستگاه ضعیف خودش را تا ۲۱۰۰ پایین می‌آورد، قوی تا ۳۳۰۰ بالا */
+  /** برد فعلی مه — فاز PERF-3: تطبیقی ۲۲۰۰..۲۷۰۰ (کف بالاتر = ضد تار) */
   private fogFarCur = 2700;
   /** مجموعه «ترافیک این فریم» — بدون new در هر فریم */
   private seenSet = new Set<TrafficCar>();
   /** خروجی پرفورمنس — همان آبجکت همیشه به‌روز می‌شود (بدون فشار GC) */
-  private perfOut = { calls: 0, tris: 0, scale: 1, visChunks: 0, fogFar: 2700 };
-  // ---------- فاز OPT-8: کش مینی‌مپ — بازترسیم فقط هر ۳۳ms ----------
+  private perfOut = { calls: 0, tris: 0, scale: 1, visChunks: 0, fogFar: 2700, slow: 0 };
+  // ---------- فاز OPT-8: کش مینی‌مپ — بازترسیم فقط هر ۵۰ms (PERF-3: از ۳۳) ----------
   private mmCanvas: HTMLCanvasElement | null = null;
   private mmCtx: CanvasRenderingContext2D | null = null;
   private mmSize = 0;
@@ -296,9 +302,9 @@ export class WorldRenderer3D {
     this.shadowTick = 1;
     // هوک پرفورمنس برای تست E2E — بدون هزینه (آبجکت دوباره‌استفاده)
     (window as unknown as { __fcPerf?: unknown }).__fcPerf = this.perfOut;
-    // فاز OPT-4: موبایل از ۰٫۷۵ شروع کند — تا اولین تنظیم EMA لگ اولیه نگیرد
+    // فاز PERF-3: موبایل از ۰٫۸۵ شروع کند — شروع تارِ واضح ممنوع؛ اگر دستگاه ضعیف باشد خودش پایین می‌آید
     if (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches) {
-      this.renderScale = 0.75;
+      this.renderScale = 0.85;
     }
     // فاز OVERHAUL: مدیریت رنگ صریح (خروجی sRGB)
     this.r3.outputColorSpace = THREE.SRGBColorSpace;
@@ -309,8 +315,9 @@ export class WorldRenderer3D {
 
     // ---------- فاز CINEMATIC: گنبد آسمان + مه گرم غبار افق تهران ----------
     // فاز LUX: رنگ مه دقیقاً با افق گنبد آسمان هم‌خوان — مرز افق نامرئی می‌شود
-    // فاز PERF-2: پایه ۲۷۰۰ (تطبیقی ۲۱۰۰..۳۳۰۰) — برد کمتر = قطعه مرئی کمتر = DrawCall کمتر
-    this.scene.fog = new THREE.Fog('#e8ddb5', 950, this.fogFarCur);
+    // فاز PERF-3: نزدیک ۱۲۵۰ (قبل ۹۵۰) — ساختمان‌های میان‌برد دیگر «تار» به‌نظر نمی‌رسند؛
+    // فقط دوردست مه‌آلود است و مرز افق چون همرنگ گنبد است هنوز نامرئی می‌ماند
+    this.scene.fog = new THREE.Fog('#e8ddb5', 1250, this.fogFarCur);
     this.buildSkyDome();
     this.buildClouds();
 
@@ -326,8 +333,10 @@ export class WorldRenderer3D {
     this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight('#ffdfb0', RENDER3D.sunIntensity);
     this.sun.castShadow = true;
-    // فاز LUX: سایه ۲۰۴۸ + normalBias — لبه‌های سایه تمیز، بدون acne روی دیوارها
-    this.sun.shadow.mapSize.set(2048, 2048);
+    // فاز LUX: سایه + normalBias — لبه‌های سایه تمیز، بدون acne روی دیوارها
+    // فاز PERF-3: نقشه ۲۰۴۸→۱۰۲۴ — هزینه pass سایه ~۴ برابر سبک‌تر؛
+    // برد سایه ±۶۲۰ با ۱۰۲۴ همان کیفیت قبلی ±۹۰۰ با ۲۰۴۸ را می‌دهد و لگ گوشی ضعیف را می‌گیرد
+    this.sun.shadow.mapSize.set(1024, 1024);
     // فاز FPS-1: محدوده سایه تنگ‌تر (±۸۲۰ → ±۶۲۰) — رندر سایه ~۲ برابر سبک‌تر
     // و کیفیت سایه نزدیک ماشین بهتر؛ دوردست در مه گم است و سایه‌اش دیده نمی‌شود
     this.sun.shadow.camera.left = -620;
@@ -482,8 +491,16 @@ export class WorldRenderer3D {
     for (const [key, rec] of this.chunkRenders) {
       if (!this.world.chunks.has(key)) this.disposeChunk(key, rec);
     }
-    // ساخت قطعه‌های نزدیک‌تر اول
-    let built = 0;
+    // ساخت قطعه‌های نزدیک‌تر اول — فاز PERF-3: شمارش ارزان بدون تخصیص؛
+    // اکثر فریم‌ها هیچ قطعه‌ای برای ساخت نیست → بدون آرایه/سورت/GC
+    let missing = 0;
+    for (const key of this.world.chunks.keys()) {
+      if (!this.chunkRenders.has(key)) {
+        missing++;
+        if (missing >= 2) break;
+      }
+    }
+    if (missing === 0) return;
     const pending: Array<{ key: string; cd: ChunkData; d: number }> = [];
     for (const [key, cd] of this.world.chunks) {
       if (this.chunkRenders.has(key)) continue;
@@ -492,9 +509,12 @@ export class WorldRenderer3D {
       pending.push({ key, cd, d: (ci - px) * (ci - px) + (cj - pz) * (cj - pz) });
     }
     pending.sort((a, b) => a.d - b.d);
+    // فاز PERF-3: در فریم گران فقط ۱ قطعه بساز (ضد هنگِ هم‌زمانی با رانندگی سریع)
+    const budget = this.frameEMA > 20 ? 1 : 2;
+    let built = 0;
     for (const p of pending) {
       this.buildChunk(p.key, p.cd);
-      if (++built >= 2) break;
+      if (++built >= budget) break;
     }
   }
 
@@ -1995,6 +2015,13 @@ export class WorldRenderer3D {
       }
       model.group.position.set(c.x, 0, c.y);
       model.group.rotation.y = -c.angle;
+      // فاز PERF-3 (ضد lag): ترافیک دورتر از ۲۵۰۰ اصلاً رندر نشود — در مهِ ۲۲۰۰~۲۷۰۰ دیده نمی‌شود؛
+      // ۱۶ خودرو × ۸~۱۲ مش = تا ۱۵۰+ DrawCall که موقع رانندگی بین پیک‌های ترافیک حذف می‌شود
+      const tdx = c.x - car.x;
+      const tdy = c.y - car.y;
+      const tFar = tdx * tdx + tdy * tdy > 6250000; // ۲۵۰۰²
+      model.group.visible = !tFar;
+      if (tFar) continue;
       const wr = c.drawH * 0.135;
       spinWheels(model, (c.speed / wr) * this.drawDt());
       // چراغ ترمز ترافیک: کند شدن ناگهانی
@@ -2219,29 +2246,39 @@ export class WorldRenderer3D {
     this.lastDrawMs = nowMs;
     this.updateChaseCamera(car, dt, t);
 
-    // ---------- فاز OPT-1: تنظیم رزولوشن تطبیقی (هر ۱٫۴ ثانیه یک بار) ----------
-    // فاز PERF-2: آستانه‌ها سخت‌گیرانه‌تر — ۱۹ms پایین (گام بزرگ)، ۱۳٫۵ms بالا (گام کوچک)
+    // ---------- فاز OPT-1 + PERF-3: تنظیم رزولوشن تطبیقی (هر ۱٫۴ ثانیه یک بار) ----------
+    // 🔑 قضات جدید = «نسبت فریم‌های کند» (dt>22ms در پنجره) نه فقط EMA —
+    // چون در گوشی ۶۰Hz حتی فریم کامل هم 16.7ms است و آستانه‌های EMA-محور
+    // (۱۳٫۵ms) هرگز فعال نمی‌شد → رزولوشن قفلِ ۰٫۵~۰٫۷۵ = تار دائمی
     this.frameEMA = this.frameEMA * 0.92 + dt * 1000 * 0.08;
+    if (dt > 0.022) this.slowCount++;
+    this.frameCount++;
     if (nowMs - this.lastScaleTune > 1400) {
       this.lastScaleTune = nowMs;
-      if (this.frameEMA > 19 && this.renderScale > 0.5) {
-        this.renderScale = Math.max(0.5, this.renderScale - 0.1);
+      this.slowRatio = this.frameCount > 0 ? this.slowCount / this.frameCount : 0;
+      this.slowCount = 0;
+      this.frameCount = 0;
+      // پایین: فقط وقتی واقعاً فریم‌های کند زیادند (گام ملایم ۰٫۰۶ — ضد پرش تاری)
+      if (this.slowRatio > 0.22 && this.renderScale > 0.68) {
+        this.renderScale = Math.max(0.68, this.renderScale - 0.06);
         this.applyRenderSize();
-      } else if (this.frameEMA < 13.5 && this.renderScale < 1) {
-        this.renderScale = Math.min(1, this.renderScale + 0.04);
+      } else if (this.slowRatio < 0.03 && this.frameEMA < 21 && this.renderScale < 1) {
+        // بالا: ۶۰Hz سالم (16.7ms) و ۱۲۰Hz سالم (8.3ms) هر دو می‌توانند بالا بروند
+        this.renderScale = Math.min(1, this.renderScale + 0.07);
         this.applyRenderSize();
       }
-      // ---------- فاز PERF-2: مه تطبیقی — دستگاه ضعیف برد را هم کم می‌کند ----------
-      // رزولوشن که سالم بود و هنوز فریم سبک است → برد دید بیشتر (تا ۳۳۰۰ مثل قبل)
+      // ---------- فاز PERF-2/3: مه تطبیقی — «آخرین راه» بعد از کف رزولوشن ----------
+      // فقط وقتی رزولوشن نزدیک کف است و هنوز فریم کند زیاد است، برد کم شود
       const fogNow = this.scene.fog as THREE.Fog;
-      if (this.frameEMA > 21 && this.fogFarCur > 2100) {
-        this.fogFarCur = Math.max(2100, this.fogFarCur - 300);
+      if (this.slowRatio > 0.3 && this.renderScale <= 0.74 && this.fogFarCur > 2200) {
+        this.fogFarCur = Math.max(2200, this.fogFarCur - 300);
         fogNow.far = this.fogFarCur;
-      } else if (this.frameEMA < 13.5 && this.renderScale >= 1 && this.fogFarCur < RENDER3D.fogFar) {
+      } else if (this.slowRatio < 0.03 && this.renderScale >= 1 && this.fogFarCur < RENDER3D.fogFar) {
         this.fogFarCur = Math.min(RENDER3D.fogFar, this.fogFarCur + 300);
         fogNow.far = this.fogFarCur;
       }
       this.perfOut.fogFar = this.fogFarCur;
+      this.perfOut.slow = this.slowRatio;
     }
 
     // ---------- نور خورشید دنبال بازیکن — زاویه پایین‌تر = سایه‌های بلند سینمایی ----------
@@ -2273,10 +2310,10 @@ export class WorldRenderer3D {
       );
     }
 
-    // ---------- فاز PERF-2: سایه فقط هر ۲ فریم بازسازی شود (فریم ضعیف: هر ۳) ----------
+    // ---------- فاز PERF-2 + PERF-3: سایه هر ۳ فریم بازسازی شود (فریم ضعیف: هر ۴) ----------
     // autoUpdate=false در سازه — اینجا فقط پرچم needsUpdate قبل از render
     this.shadowTick++;
-    this.r3.shadowMap.needsUpdate = this.shadowTick % (this.frameEMA > 26 ? 3 : 2) === 0;
+    this.r3.shadowMap.needsUpdate = this.shadowTick % (this.frameEMA > 24 ? 4 : 3) === 0;
 
     // ---------- رندر ----------
     this.r3.render(this.scene, this.cam3);
@@ -2452,7 +2489,7 @@ export class WorldRenderer3D {
       this.mmLast = -1; // اجبار به بازترسیم اول
     }
     const nowMs = performance.now();
-    if (this.mmCtx && (this.mmLast < 0 || nowMs - this.mmLast > 33)) {
+    if (this.mmCtx && (this.mmLast < 0 || nowMs - this.mmLast > 50)) { // فاز PERF-3: ۳۳→۵۰ms
       this.mmLast = nowMs;
       const c = this.mmCtx;
       c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
