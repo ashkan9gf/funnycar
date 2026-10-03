@@ -281,6 +281,11 @@ export class GameManager {
     } catch (err) {
       console.warn('[Game] asset boot error (continuing with placeholders):', err);
     }
+    // فاز GLB-READY (بهینه‌سازی): انتظار برای همهٔ GLBها (ساختمان/خودرو/پارکی/کیت) —
+    // شهر از اولین فریم نسخهٔ «سینمایی» نهایی است و نسخهٔ رنگی placeholder (پازلی)
+    // هرگز به صحنه نمی‌رسد. گارد ۱۲ ثانیه‌ای داخل whenReady — boot هرگز قفل نمی‌شود.
+    // پیش‌بارگذاری‌ها هم‌زمان با assets.loadAll اجرا شده‌اند → فقط مابقی منتظر می‌مانیم.
+    await this.renderer3d?.whenReady();
     // مقیاس رسم ماشین از اندازه Asset واقعی/Placeholder — نسبت ثابت 4:7
     const size = this.assets.getSize('veh_player_01');
     if (size.w > 0) {

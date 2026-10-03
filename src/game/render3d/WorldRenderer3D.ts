@@ -100,6 +100,9 @@ const SKID_LIFE = 3.4;
 /** ویزوال یک قطعهٔ فعال — فاز ENDLESS-1 */
 interface ChunkVisual {
   key: string;
+  /** مختصات قطعه — تخلیهٔ فریم‌به‌فریم بدون split رشته (فاز PERF-2) */
+  ci: number;
+  cj: number;
   /** اشیاء صحنهٔ این قطعه — هنگام تخلیه remove می‌شوند */
   objects: THREE.Object3D[];
   /** هندسه‌های اختصاصی این قطعه — هنگام تخلیه dispose می‌شوند (مشترک‌ها نه!) */
@@ -204,6 +207,17 @@ export class WorldRenderer3D {
   // ---------- فاز GRAPHICS_OVERHAUL ----------
   /** کتابخانه GLB (خودرو/ساختمان) — fallback: procedural */
   private glb = new GlbLibrary();
+  /** فاز GLB-READY: همهٔ پیش‌بارگذاری‌های GLB — boot() منتظرشان می‌ماند تا شهر از
+   *  اولین فریم «سینمایی» ساخته شود و نسخهٔ رنگی placeholder هرگز ساخته نشود */
+  private readyJobs: Promise<unknown>[] = [];
+  /** فاز PERF-2: کش متریال تینت‌شدهٔ ساختمان — کلید: uuid متریال منبع + تینت.
+   *  ساختمان‌های هم‌واریانت/هم‌تینت متریال «مشترک» می‌گیرند؛ کلونِ به‌ازای هر ساختمان حذف
+   *  می‌شود (کاهش فشار GC + سوییچ شیدر کمتر). مشترک است → هرگز dispose نمی‌شود */
+  private bldMatCache = new Map<string, THREE.Material>();
+  /** فاز PERF-2: کش BBox الگوی GLB ساختمان — Box3 کل صحنه به‌ازای هر نمونه حذف می‌شود */
+  private bldBoxCache = new Map<string, THREE.Box3>();
+  /** فاز PERF-2: آرایهٔ خش‌دار تخلیه — بدون آلوکیشن در هر فریم */
+  private evictScratch: string[] = [];
   /** صحنه‌های GLB آماده‌شده (واریانت → گروه) */
   private glbCars = new Map<string, THREE.Group>();
   private glbCars1 = new Map<string, THREE.Group>();
@@ -335,11 +349,11 @@ export class WorldRenderer3D {
 
     // ---------- فاز OVERHAUL: پیش‌بارگذاری GLB خودروها (fallback: procedural) ----------
     this.preloadCars();
-    // ---------- فاز GLB-ONLY: پیش‌بارگذاری ۱۲ ساختمان حین لودینگ — نسخهٔ «پازلی» هرگز دیده نمی‌شود ----------
-    void this.glb.preloadBuildings();
-    // ---------- فاز ENDLESS: قالب‌های async قطعه (پارکی GLB + کیت شهری) ----------
-    void this.preloadParkedTemplates();
-    void this.preloadCityKit();
+    // ---------- فاز GLB-READY: پیش‌بارگذاری ۱۲ ساختمان + قالب‌های async قطعه (پارکی/کیت) —
+    //  همه جمع‌شونده‌اند؛ boot() منتظرشان می‌ماند → نسخهٔ «پازلی» هرگز به صحنه نمی‌رسد ----------
+    this.readyJobs.push(...this.glb.preloadBuildings());
+    this.readyJobs.push(this.preloadParkedTemplates());
+    this.readyJobs.push(this.preloadCityKit());
     // ---------- چراغ‌های راهنما (استخر اسلاتی بی‌پایان) ----------
     this.buildTrafficLights();
 
@@ -507,11 +521,18 @@ export class WorldRenderer3D {
     const M = ENDLESS.unloadMargin;
 
     // ۱) تخلیه ویزوال بیرون radius+margin (هیسترزیس — ضد فلیکر در مرز)
-    for (const [key, vis] of [...this.chunkVis]) {
-      const p = key.split('_');
-      const di = Math.abs(Number(p[0]) - ci);
-      const dj = Math.abs(Number(p[1]) - cj);
-      if (di > R + M || dj > R + M) this.unloadChunkVisual(key, vis);
+    //    فاز PERF-2: بدون آلوکیشن آرایه/رشته در هر فریم — مختصات از vis.ci/cj
+    if (this.chunkVis.size > 0) {
+      this.evictScratch.length = 0;
+      for (const [key, vis] of this.chunkVis) {
+        const di = Math.abs(vis.ci - ci);
+        const dj = Math.abs(vis.cj - cj);
+        if (di > R + M || dj > R + M) this.evictScratch.push(key);
+      }
+      for (let k = 0; k < this.evictScratch.length; k++) {
+        const vis = this.chunkVis.get(this.evictScratch[k]);
+        if (vis) this.unloadChunkVisual(this.evictScratch[k], vis);
+      }
     }
     // ۲) صف: قطعه‌های داخل radius که ساخته نشده‌اند
     for (let di = -R; di <= R; di++) {
@@ -555,7 +576,7 @@ export class WorldRenderer3D {
   private buildChunkVisual(i: number, j: number, key: string): void {
     const ch: WorldChunk | undefined = this.world.chunks.get(key) ?? this.world.chunkFor(i, j);
     if (!ch) return;
-    const vis: ChunkVisual = { key, objects: [], geos: [], mats: [], breakableProps: [], coinMesh: null, dead: false };
+    const vis: ChunkVisual = { key, ci: i, cj: j, objects: [], geos: [], mats: [], breakableProps: [], coinMesh: null, dead: false };
     this.chunkVis.set(key, vis);
     this.visCollector = vis;
 
@@ -701,19 +722,30 @@ export class WorldRenderer3D {
     });
   }
 
+  /** فاز GLB-READY: انتظار برای همهٔ پیش‌بارگذاری‌های GLB (ساختمان/خودرو/پارکی/کیت)
+   *  گارد timeout — با شبکهٔ کند/فایل خراب boot هرگز قفل نمی‌شود (fallback فعال می‌ماند) */
+  whenReady(timeoutMs = 12000): Promise<void> {
+    const done = Promise.all(this.readyJobs).then(() => undefined);
+    return Promise.race([done, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
+  }
+
   /** پیش‌بارگذاری GLB همه واریانت‌ها + تعویض بازیکن/ترافیک پس از آماده‌شدن */
   private preloadCars(): void {
     const variants: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police'];
     for (const v of variants) {
-      void this.glb.loadCar(v, false).then((scene) => {
-        if (!scene) return;
-        this.glbCars.set(v, scene);
-        if (v === 'player') this.upgradePlayerToGLB();
-        else this.upgradeTrafficToGLB(v);
-      });
-      void this.glb.loadCar(v, true).then((scene) => {
-        if (scene) this.glbCars1.set(v, scene);
-      });
+      this.readyJobs.push(
+        this.glb.loadCar(v, false).then((scene) => {
+          if (!scene) return;
+          this.glbCars.set(v, scene);
+          if (v === 'player') this.upgradePlayerToGLB();
+          else this.upgradeTrafficToGLB(v);
+        }),
+      );
+      this.readyJobs.push(
+        this.glb.loadCar(v, true).then((scene) => {
+          if (scene) this.glbCars1.set(v, scene);
+        }),
+      );
     }
   }
 
@@ -1361,8 +1393,15 @@ export class WorldRenderer3D {
     const tintGlb = BUILDING_TINTS[variance % BUILDING_TINTS.length];
     const tintCG = new THREE.Color(tintGlb);
     // فاز CITY-FULL: فیت کردن GLB در پلن دلخواه (بلوک‌های چندساختمانه)
-    g.updateMatrixWorld(true);
-    const gb = new THREE.Box3().setFromObject(g);
+    // فاز PERF-2: BBox الگو یک‌بار محاسبه و کش می‌شود — کلون هم‌هندسهٔ منبع است
+    // (ترنسفورم identity هنگام اندازه‌گیری) پس نتیجه دقیقاً همان اندازه‌گیری قبلی است
+    const fileKey = this.glb.buildingFile(type, variance);
+    let gb = this.bldBoxCache.get(fileKey);
+    if (!gb) {
+      g.updateMatrixWorld(true);
+      gb = new THREE.Box3().setFromObject(g);
+      this.bldBoxCache.set(fileKey, gb);
+    }
     const gs = gb.getSize(new THREE.Vector3());
     const fit = Math.min(p.w / Math.max(gs.x, 1), p.h / Math.max(gs.z, 1));
     const sy = h / Math.max(gs.y, 1); // ارتفاع هدف از buildingHeights × hVar
@@ -1375,6 +1414,10 @@ export class WorldRenderer3D {
       // متریال تکی باید تکی بماند (متریال آرایه‌ای بدون geometry.groups = نامرئی!)
       const srcMats = m.material;
       const convert = (mm: THREE.Material): THREE.Material => {
+        // فاز PERF-2: کش متریال تینت‌شده — کلون به‌ازای هر ساختمان حذف شد
+        const ck = `${mm.uuid}|${tintGlb}`;
+        const hit = this.bldMatCache.get(ck);
+        if (hit) return hit;
         const c = mm.clone();
         const std = c as THREE.MeshStandardMaterial;
         if (std.isMeshStandardMaterial) { std.metalness = 0; std.roughness = 1; }
@@ -1383,6 +1426,7 @@ export class WorldRenderer3D {
           if (cm.map) cm.color.multiply(tintCG);
           else cm.color.set(tintGlb); // فاز CITY-FULL: اشباع کامل
         }
+        this.bldMatCache.set(ck, c);
         return c;
       };
       m.material = Array.isArray(srcMats)
