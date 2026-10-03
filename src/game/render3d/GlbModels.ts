@@ -26,6 +26,8 @@ export function pickBodyColor(variant: CarVariant): string {
 
 export class GlbLibrary {
   private cache = new Map<string, Promise<THREE.Group | null>>();
+  /** 🔑 GLB-ONLY: صحنه‌های رسیده — دسترسی هم‌گام برای ساخت ساختمان بدون placeholder */
+  private ready = new Map<string, THREE.Group>();
   private loader = new GLTFLoader();
 
   constructor(private baseUrl = '/assets/models') {
@@ -44,7 +46,11 @@ export class GlbLibrary {
           return res.arrayBuffer();
         })
         .then((buf) => {
-          this.loader.parse(buf, '', (gltf) => resolve(gltf.scene as THREE.Group), () => resolve(null));
+          this.loader.parse(buf, '', (gltf) => {
+            const scene = gltf.scene as THREE.Group;
+            this.ready.set(relPath, scene); // 🔑 GLB-ONLY: برای getLoadedSync
+            resolve(scene);
+          }, () => resolve(null));
         })
         .catch(() => resolve(null));
     });
@@ -63,6 +69,27 @@ export class GlbLibrary {
   async loadBuilding(type: string, variance: number): Promise<THREE.Group | null> {
     const v = variance % 3;
     return this.load(`buildings/${type}_${v}.glb`);
+  }
+
+  /** 🔑 GLB-ONLY: مسیر فایل ساختمان — جفت با getLoadedSync */
+  buildingFile(type: string, variance: number): string {
+    return `buildings/${type}_${variance % 3}.glb`;
+  }
+
+  /** 🔑 GLB-ONLY: اگر GLB از قبل رسیده باشد صحنهٔ منبع را هم‌گام می‌دهد (بدون await)
+   *  — ساختِ هم‌گام ساختمان = نسخهٔ رنگیِ پازلی هرگز به صحنه نمی‌رسد */
+  getLoadedSync(relPath: string): THREE.Group | null {
+    return this.ready.get(relPath) ?? null;
+  }
+
+  /** 🔑 GLB-ONLY: پیش‌بارگذاری هر ۱۲ ساختمان (۴ نوع × ۳ واریانت ~۲MB) حین صفحهٔ لودینگ
+   *  — تا بازیکن وارد شهر شود همه در کش‌اند؛ شهر از اولین فریم «سینمایی» دیده می‌شود */
+  preloadBuildings(): Promise<THREE.Group | null>[] {
+    const out: Promise<THREE.Group | null>[] = [];
+    for (const t of ['apartment', 'home', 'shop', 'garage']) {
+      for (let v = 0; v < 3; v++) out.push(this.load(`buildings/${t}_${v}.glb`));
+    }
+    return out;
   }
 }
 

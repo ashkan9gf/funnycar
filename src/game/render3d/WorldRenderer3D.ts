@@ -335,6 +335,8 @@ export class WorldRenderer3D {
 
     // ---------- فاز OVERHAUL: پیش‌بارگذاری GLB خودروها (fallback: procedural) ----------
     this.preloadCars();
+    // ---------- فاز GLB-ONLY: پیش‌بارگذاری ۱۲ ساختمان حین لودینگ — نسخهٔ «پازلی» هرگز دیده نمی‌شود ----------
+    void this.glb.preloadBuildings();
     // ---------- فاز ENDLESS: قالب‌های async قطعه (پارکی GLB + کیت شهری) ----------
     void this.preloadParkedTemplates();
     void this.preloadCityKit();
@@ -1290,116 +1292,112 @@ export class WorldRenderer3D {
     }
 
     const hBase = RENDER3D.buildingHeights[p.assetId as keyof typeof RENDER3D.buildingHeights] ?? 340;
-    const tex = getFacadeTextures(p.assetId ?? 'env_building_home_01', p.label); // IR-SIGNS: تابلوی اختصاصی مغازه
-    // فاز CITY-BEAUTY: پالت اشباع ایرانی + تنوع ارتفاع واقعی (آسمان‌خط بهتر)
+    // فاز CITY-BEAUTY: تنوع ارتفاع واقعی (آسمان‌خط بهتر)
     const hash = Math.abs(Math.round(cx * 7 + cz * 13));
-    const tint = BUILDING_TINTS[hash % BUILDING_TINTS.length];
-    const tintC = new THREE.Color(tint);
     const hVar = 0.85 + ((hash >> 2) % 5) * 0.14; // 0.85..1.41
     const h = hBase * hVar;
-    const mats = tex.map((t) => {
-      const mm = new THREE.MeshLambertMaterial({ map: t });
-      mm.color.multiply(tintC);
-      return mm;
-    });
-    const box = new THREE.Mesh(new THREE.BoxGeometry(p.w, h, p.h), mats);
-    box.position.set(cx, h / 2, cz);
-    box.castShadow = true;
-    box.receiveShadow = true;
-    this.scene.add(box);
-    this.regVis(box, [box.geometry as THREE.BufferGeometry], mats);
-    // خوشه پشت‌بام ایرانی: ظرف ماهواره + منبع آب + آنتن چتری + کولر آبی
-    // فاز FPS-1: ~۷ مش → «یک» مش merge‌شده (رنگ‌ها بیک می‌شوند)
-    const roof = buildRooftopCluster(p.w, p.h, Math.round(cx * 7 + cz * 13));
-    roof.position.set(cx, h, cz);
-    const roofMesh = this.mergeGroupToVertexMesh(roof);
-    if (roofMesh) {
-      this.scene.add(roofMesh);
-      // ⚠️ متریال mergeGroupToVertexMesh مشترک است — فقط هندسه register می‌شود
-      this.regVis(roofMesh, [roofMesh.geometry as THREE.BufferGeometry]);
-    } else {
-      this.scene.add(roof);
-      this.regVisDeep(roof);
-    }
-
-    // ---------- فاز OVERHAUL: ارتقا به GLB (با پشت‌بام baked) — fallback بالا می‌ماند ----------
     const type = p.assetId?.includes('apartment') ? 'apartment'
       : p.assetId?.includes('shop') ? 'shop'
         : p.assetId?.includes('garage') ? 'garage' : 'home';
     const variance = Math.abs(Math.round(cx * 7 + cz * 13));
+
+    // ---------- فاز GLB-ONLY (خواستهٔ کاربر): ساختمان فقط «یک» ظاهر دارد — نسخهٔ سینمایی GLB ----------
+    // هر ۱۲ GLB حین لودینگ پیش‌بار می‌شوند؛ پس در ساخت قطعه معمولاً همین‌جا هم‌گام ساخته می‌شود
+    // و نسخهٔ قدیمی «نمای بافتیِ رنگی» (پازلی) برای همیشه از بازی حذف شد.
+    const cached = this.glb.getLoadedSync(this.glb.buildingFile(type, variance));
+    if (cached) {
+      const g = this.addGlbBuilding(cached, p, cx, cz, type, variance, h);
+      this.regVis(g); // هندسه/متریال مشترک GLB — در تخلیهٔ قطعه dispose نمی‌شوند
+      return;
+    }
+
+    // fallback فوق‌سبک (فقط تا رسیدن GLB — چند فریم): جعبهٔ تک‌رنگِ هم‌رنگ تون‌شهر،
+    // بدون بافت نما و بدون پشت‌بام — هیچ اثری از نسخهٔ «پازلی» وجود ندارد
+    const tintGlb = BUILDING_TINTS[variance % BUILDING_TINTS.length];
+    const boxGeo = new THREE.BoxGeometry(p.w, h, p.h);
+    const boxMat = new THREE.MeshLambertMaterial({ color: tintGlb });
+    const box = new THREE.Mesh(boxGeo, boxMat);
+    box.position.set(cx, h / 2, cz);
+    box.castShadow = true;
+    box.receiveShadow = true;
+    this.scene.add(box);
+    this.regVis(box, [boxGeo], [boxMat]);
+
     // 🔑 ENDLESS: اگر قطعه تا رسیدن GLB تخلیه شود — placeholder هم برداشته می‌شود
     const visRef = this.visCollector;
     void this.glb.loadBuilding(type, variance).then((scene) => {
       if (!scene) return;
       if (!visRef || visRef.dead) {
-        // قطعه مرده — فقط placeholder را از صحنه بردار (اگر هنوز هست)
+        // قطعه مرده — placeholder از صحنه + منابع اختصاصی‌اش آزاد
         this.scene.remove(box);
-        if (roofMesh) this.scene.remove(roofMesh); else this.scene.remove(roof);
+        boxGeo.dispose();
+        boxMat.dispose();
         return;
       }
-      const g = scene.clone(true);
-      const tintGlb = BUILDING_TINTS[variance % BUILDING_TINTS.length];
-      const tintCG = new THREE.Color(tintGlb);
-      // فاز CITY-FULL: فیت کردن GLB در پلن دلخواه (بلوک‌های چندساختمانه)
-      g.updateMatrixWorld(true);
-      const gb = new THREE.Box3().setFromObject(g);
-      const gs = gb.getSize(new THREE.Vector3());
-      const fit = Math.min(p.w / Math.max(gs.x, 1), p.h / Math.max(gs.z, 1));
-      const sy = h / Math.max(gs.y, 1); // ارتفاع هدف از buildingHeights × hVar
-      g.traverse((o) => {
-        const m = o as THREE.Mesh;
-        if (!m.isMesh) return;
-        m.castShadow = true; m.receiveShadow = true;
-        // رنگ نما per building — کلون متریال تا ساختمان‌ها رنگ‌های متفاوت بگیرند
-        // 🔑🔑 فیکس «بلوک‌های خالی + برخورد نامرئی» (فاز VIS-BUILDING):
-        // کد قبلی متریالِ تکی را هم داخل آرایه می‌پیچید ([mat]) در حالی که
-        // geometry.groups خالی است → three.js برای متریال آرایه‌ای فقط از روی
-        // groups رندر می‌کند → صفر Draw Call = ساختمان کاملاً نامرئی!
-        // اکنون: متریال تکی → تکی می‌ماند. Standard (GLB) → Lambert تون‌شهر.
-        const srcMats = m.material;
-        const convert = (mm: THREE.Material): THREE.Material => {
-          const c = mm.clone();
-          const std = c as THREE.MeshStandardMaterial;
-          if (std.isMeshStandardMaterial) { std.metalness = 0; std.roughness = 1; }
-          const cm = c as THREE.MeshLambertMaterial;
-          if (cm.color) {
-            if (cm.map) cm.color.multiply(tintCG);
-            else cm.color.set(tintGlb); // فاز CITY-FULL: اشباع کامل
-          }
-          return c;
-        };
-        m.material = Array.isArray(srcMats)
-          ? (srcMats as THREE.Material[]).map(convert)
-          : convert(srcMats as THREE.Material);
-      });
-      // GLB: مرکز پلن + پایه روی زمین + بدون چرخش (پلن مستطیلی تراز می‌ماند)
-      g.position.set(cx, -gb.min.y * sy, cz);
-      g.scale.set(fit, sy, fit);
-      // فاز CITY-BEAUTY: مغازه‌ها سایه‌بان راه‌راه + تابلوی رنگی می‌گیرند
-      // فاز IR-SIGNS: تابلوی GLB هم همان اسم اختصاصی مغازه را می‌گیرد (تنوع واقعی)
-      if (type === 'shop' || type === 'garage') {
-        this.decorateShopFront(g, variance, p.label);
-      }
-      // فاز FPS-1: هر دو نسخه placeholder (باکس و خوشه پشت‌بام merge‌شده) برداشته می‌شوند
+      const g = this.addGlbBuilding(scene, p, cx, cz, type, variance, h);
       this.scene.remove(box);
-      if (roofMesh) this.scene.remove(roofMesh);
-      else this.scene.remove(roof);
-      // از ویزوال قطعه هم حذف تا dispose دوباره انجام نشود (هندسه‌ها مشترک GLB)
+      // 🔑 منابع اختصاصی placeholder آزاد + از لیست قطعه خارج (dispose دوباره نشود)
+      boxGeo.dispose();
+      boxMat.dispose();
       const bi = visRef.objects.indexOf(box);
       if (bi >= 0) visRef.objects.splice(bi, 1);
-      const gi2 = visRef.geos.indexOf(box.geometry as THREE.BufferGeometry);
+      const gi2 = visRef.geos.indexOf(boxGeo);
       if (gi2 >= 0) visRef.geos.splice(gi2, 1);
-      const ri = visRef.objects.indexOf(roofMesh ?? roof);
-      if (ri >= 0) visRef.objects.splice(ri, 1);
-      if (roofMesh) {
-        const rj = visRef.geos.indexOf(roofMesh.geometry as THREE.BufferGeometry);
-        if (rj >= 0) visRef.geos.splice(rj, 1);
-        const rk = visRef.mats.indexOf(roofMesh.material as THREE.Material);
-        if (rk >= 0) visRef.mats.splice(rk, 1);
-      }
-      this.scene.add(g);
+      const mi2 = visRef.mats.indexOf(boxMat);
+      if (mi2 >= 0) visRef.mats.splice(mi2, 1);
       visRef.objects.push(g);
     });
+  }
+
+  /** 🔑 GLB-ONLY: ساخت نسخهٔ سینمایی GLB (تنها ظاهر ساختمان)
+   *  کلون صحنه + تون‌شهر per building + سایه‌بان/تابلوی مغازه — سپس add به صحنه.
+   *  ثبت در ویزوال قطعه با عهدهٔ caller است (مسیر هم‌گام/async فرق دارند) */
+  private addGlbBuilding(
+    scene: THREE.Group,
+    p: { x: number; y: number; w: number; h: number; assetId?: string; landmark?: boolean; label?: string },
+    cx: number, cz: number, type: string, variance: number, h: number,
+  ): THREE.Group {
+    const g = scene.clone(true);
+    const tintGlb = BUILDING_TINTS[variance % BUILDING_TINTS.length];
+    const tintCG = new THREE.Color(tintGlb);
+    // فاز CITY-FULL: فیت کردن GLB در پلن دلخواه (بلوک‌های چندساختمانه)
+    g.updateMatrixWorld(true);
+    const gb = new THREE.Box3().setFromObject(g);
+    const gs = gb.getSize(new THREE.Vector3());
+    const fit = Math.min(p.w / Math.max(gs.x, 1), p.h / Math.max(gs.z, 1));
+    const sy = h / Math.max(gs.y, 1); // ارتفاع هدف از buildingHeights × hVar
+    g.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.castShadow = true; m.receiveShadow = true;
+      // رنگ نما per building — کلون متریال تا ساختمان‌ها رنگ‌های متفاوت بگیرند
+      // 🔑🔑 فیکس «بلوک‌های خالی + برخورد نامرئی» (فاز VIS-BUILDING):
+      // متریال تکی باید تکی بماند (متریال آرایه‌ای بدون geometry.groups = نامرئی!)
+      const srcMats = m.material;
+      const convert = (mm: THREE.Material): THREE.Material => {
+        const c = mm.clone();
+        const std = c as THREE.MeshStandardMaterial;
+        if (std.isMeshStandardMaterial) { std.metalness = 0; std.roughness = 1; }
+        const cm = c as THREE.MeshLambertMaterial;
+        if (cm.color) {
+          if (cm.map) cm.color.multiply(tintCG);
+          else cm.color.set(tintGlb); // فاز CITY-FULL: اشباع کامل
+        }
+        return c;
+      };
+      m.material = Array.isArray(srcMats)
+        ? (srcMats as THREE.Material[]).map(convert)
+        : convert(srcMats as THREE.Material);
+    });
+    // GLB: مرکز پلن + پایه روی زمین + بدون چرخش (پلن مستطیلی تراز می‌ماند)
+    g.position.set(cx, -gb.min.y * sy, cz);
+    g.scale.set(fit, sy, fit);
+    // فاز CITY-BEAUTY/IR-SIGNS: مغازه‌ها سایه‌بان راه‌راه + تابلوی اسم اختصاصی
+    if (type === 'shop' || type === 'garage') {
+      this.decorateShopFront(g, variance, p.label);
+    }
+    this.scene.add(g);
+    return g;
   }
 
   /** سایه‌بان راه‌راه + تابلوی مغازه روی نمای ساختمان GLB — جلوه خیابان ایرانی
