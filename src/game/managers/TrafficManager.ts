@@ -13,17 +13,18 @@
  */
 
 import { TRAFFIC, TRAFFIC_LIGHTS } from '../data/balance';
-import { WORLD, roadCenter, nearestRoadIndex } from '../world/World';
+import { ENDLESS } from '../data/balance';
+import { WORLD, roadCenter } from '../world/World';
 import { TrafficCar, TrafficDir, DIR_INFO } from '../entities/TrafficCar';
 import type { TrafficLights } from '../world/TrafficLights';
 
-/**
- * شهر بی‌پایان: شبکه جاده لانه‌زنبوری بی‌نهایت است — جاده‌ها روی هر عدد صحیح k.
- * ماشین‌ها دور بازیکن زنده می‌مانند؛ دورتر از RECYCLE_R بازیافت می‌شوند (ضد lag).
- */
-const RECYCLE_R = 4800;      // بیشتر از این فاصله از بازیکن = بازیافت
-const SPAWN_MIN = 1500;      // اسپاون نه نزدیک‌تر از این
-const SPAWN_MAX = 4200;      // نه دورتر از این
+/** فاز ENDLESS-1: شبکه جاده بی‌نهایت است — هر شماره جاده/گره صحیح معتبر است.
+ *  ترافیک همیشه دور بازیکن جاری می‌شود: دورتر از trafficRecycleDist → اسپاون دوباره نزدیک بازیکن. */
+
+/** نزدیک‌ترین شماره جاده به مختصات (هر عدد صحیح — بی‌پایان) */
+function nearestRoadIndex(v: number): number {
+  return Math.round((v - WORLD.roadW / 2) / WORLD.pitch);
+}
 
 /** مختصات لاین برای یک جهت روی جاده idx با آفست مشخص (قاعده دست‌راست) */
 function laneFor(dir: TrafficDir, idx: number, off: number): number {
@@ -60,9 +61,6 @@ interface PlayerLike {
 export class TrafficManager {
   readonly cars: TrafficCar[] = [];
 
-  /** مرکز اسپاون/بازیافت — با موقعیت فعلی بازیکن به‌روز می‌شود (شهر بی‌پایان) */
-  private playerPos = { x: 0, y: 0 };
-
   constructor(
     private readonly allowedAssets: string[],
     private readonly callbacks: TrafficCallbacks = {},
@@ -71,18 +69,17 @@ export class TrafficManager {
     /** چراغ‌های تقاطع — اختیاری (null = بدون چراغ) */
     private readonly lights: TrafficLights | null = null,
   ) {
-    this.playerPos = { x: avoidSpawn.x, y: avoidSpawn.y };
     this.spawnAll();
   }
 
-  // ============ شبکه جاده (بی‌پایان) ============
+  // ============ شبکه جاده ============
 
-  /** در شهر بی‌پایان مستقیم رفتن همیشه معتبر است */
+  /** آیا «مستقیم» رفتن در گره فعلی معتبر است؟ — شهر بی‌پایان: همیشه */
   private straightValid(_car: TrafficCar): boolean {
     return true;
   }
 
-  /** پیچ به dir جدید در گره فعلی معتبر است؟ (شبکه بی‌نهایت = همیشه بله) */
+  /** پیچ به dir جدید در گره فعلی معتبر است؟ — شهر بی‌پایان: همیشه */
   private turnValid(_car: TrafficCar, _newDir: TrafficDir): boolean {
     return true;
   }
@@ -95,38 +92,32 @@ export class TrafficManager {
       const car = new TrafficCar();
       car.assetId = kinds[i % kinds.length];
       car.cruise = TRAFFIC.cruiseSpeed + (Math.random() * 2 - 1) * TRAFFIC.cruiseJitter;
-      if (this.spawnOne(car, 24)) this.cars.push(car);
+      if (this.spawnOne(car, 24, this.avoidSpawn)) this.cars.push(car);
     }
   }
 
-  /** یک ماشین در حلقه دور بازیکن اسپاون کن؛ false = بعد از tries نشد */
-  private spawnOne(car: TrafficCar, tries: number): boolean {
+  /** یک ماشین نزدیک نقطهٔ «around» اسپاون کن؛ false = بعد از tries نشد */
+  private spawnOne(car: TrafficCar, tries: number, around: { x: number; y: number }): boolean {
     const dirs: TrafficDir[] = ['N', 'E', 'S', 'W'];
-    const pcx = this.playerPos.x;
-    const pcy = this.playerPos.y;
     for (let t = 0; t < tries; t++) {
       const dir = dirs[Math.floor(Math.random() * 4)];
       const vertical = dir === 'N' || dir === 'S';
-      // جاده نزدیک بازیکن (±۲ جاده) — شهر بی‌پایان اندیس آزاد دارد
-      const baseRoad = vertical ? nearestRoadIndex(pcx) : nearestRoadIndex(pcy);
-      const roadIdx = baseRoad + Math.floor(Math.random() * 5) - 2;
+      // جاده/گره نزدیک بازیکن — بی‌پایان: منفی هم معتبر
+      const roadIdx = nearestRoadIndex(vertical ? around.x : around.y) + Math.floor(Math.random() * 3) - 1;
+      const nodeIdx = nearestRoadIndex(vertical ? around.y : around.x) + Math.floor(Math.random() * 5) - 2;
       const tt = 0.3 + Math.random() * 0.4;
+      // لاین داخلی یا بیرونی (دو لاین هر جهت)
       const laneOff = Math.random() < 0.5 ? WORLD.laneIn : WORLD.laneOut;
       let x: number; let y: number;
       if (vertical) {
         x = laneFor(dir, roadIdx, laneOff);
-        const nodeIdx = nearestRoadIndex(pcy) + Math.floor(Math.random() * 5) - 2;
         const c = roadCenter(nodeIdx);
         y = dir === 'N' ? c + WORLD.pitch * tt : c - WORLD.pitch * tt;
       } else {
         y = laneFor(dir, roadIdx, laneOff);
-        const nodeIdx = nearestRoadIndex(pcx) + Math.floor(Math.random() * 5) - 2;
         const c = roadCenter(nodeIdx);
         x = dir === 'E' ? c - WORLD.pitch * tt : c + WORLD.pitch * tt;
       }
-      // حلقه فاصله: نه لکه‌ای جلوی چشم، نه آن‌قدر دور که در هیچ ببینند
-      const d = Math.hypot(x - pcx, y - pcy);
-      if (d < SPAWN_MIN || d > SPAWN_MAX) continue;
       if (
         this.avoidSpawn.r > 0 &&
         Math.hypot(x - this.avoidSpawn.x, y - this.avoidSpawn.y) < this.avoidSpawn.r
@@ -136,9 +127,7 @@ export class TrafficManager {
       car.y = y;
       car.setDir(dir, true);
       car.roadIndex = roadIdx;
-      car.nodeIndex = vertical
-        ? nearestRoadIndex(y)
-        : nearestRoadIndex(x);
+      car.nodeIndex = nodeIdx;
       car.laneOff = laneOff;
       car.lane = vertical ? x : y;
       car.decided = false;
@@ -234,18 +223,16 @@ export class TrafficManager {
   // ============ به‌روزرسانی ============
 
   update(dt: number, player: PlayerLike): void {
-    // مرکز زنده‌بودن = بازیکن (شهر بی‌پایان — ترافیک دور بازیکن جریان دارد)
-    this.playerPos.x = player.x;
-    this.playerPos.y = player.y;
+    const recycle2 = ENDLESS.trafficRecycleDist * ENDLESS.trafficRecycleDist;
     for (const car of this.cars) {
-      // ---------- بازیافت دور (ضد lag: ماشین دور = اسپاون تازه نزدیک بازیکن) ----------
+      // ---------- بازیافت ایمنی (شهر بی‌پایان: دور از بازیکن → نزدیکش دوباره) ----------
       const pdx = car.x - player.x;
       const pdy = car.y - player.y;
       if (
-        pdx * pdx + pdy * pdy > RECYCLE_R * RECYCLE_R ||
-        !Number.isFinite(car.lane) || Math.abs(car.lane) > 1e9
+        pdx * pdx + pdy * pdy > recycle2 ||
+        !Number.isFinite(car.lane) || !Number.isFinite(car.x) || !Number.isFinite(car.y)
       ) {
-        if (this.spawnOne(car, 20)) continue;
+        if (this.spawnOne(car, 20, player)) continue;
       }
 
       // تصمیم‌های تقاطع

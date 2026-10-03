@@ -64,7 +64,6 @@ export class GlbLibrary {
     const v = variance % 3;
     return this.load(`buildings/${type}_${v}.glb`);
   }
-
 }
 
 /** ساخت گروه ماشین از صحنه GLB — با کلون صحنه برای هر نمونه

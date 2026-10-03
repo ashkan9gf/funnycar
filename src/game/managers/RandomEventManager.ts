@@ -6,11 +6,11 @@
  *  2) cones   — چند مخروط جلوی بازیکن ظاهر می‌شود (غیر برخوردی، موقتی)
  *  3) taxi    — تاکسیِ نزدیک بوق می‌زند و حباب طنز می‌دهد
  * همه اعداد از RANDOM_EVENTS (balance) — هیچ عدد Hard-Code
- * اسپاون فقط روی کاشی جاده و داخل دنیا؛ اگر جای معتبر نبود، رویداد رد می‌شود.
+ * اسپاون فقط روی جاده (ریاضی بی‌نایان)؛ اگر جای معتبر نبود، رویداد رد می‌شود.
  */
 
-import { RANDOM_EVENTS as RE, RENDER } from '../data/balance';
-import { WORLD } from '../world/World';
+import { RANDOM_EVENTS as RE } from '../data/balance';
+import { WORLD, roadCenter } from '../world/World';
 import { TRAFFIC } from '../data/balance';
 
 export type RandomEventKind = 'cat' | 'cones' | 'taxi';
@@ -34,8 +34,6 @@ export interface RandomEventCallbacks {
 
 interface PlayerPos { x: number; y: number; angle: number }
 
-const TS = RENDER.tileSize;
-
 export class RandomEventManager {
   cat: EventCat | null = null;
   cones: EventCone[] = [];
@@ -44,7 +42,6 @@ export class RandomEventManager {
   private lastKind: RandomEventKind | null = null;
 
   constructor(
-    private readonly world: { tileAt(c: number, r: number): string },
     private readonly callbacks: RandomEventCallbacks = {},
   ) {}
 
@@ -86,16 +83,20 @@ export class RandomEventManager {
     }
   }
 
-  /** آیا نقطه روی کاشی جاده است؟ */
+  /** آیا نقطه روی جاده است؟ — فاز ENDLESS: ریاضیِ بی‌نایان (نزدیک‌ترین محور جاده) */
   private isRoad(x: number, y: number): boolean {
-    const k = this.world.tileAt(Math.floor(x / TS), Math.floor(y / TS));
-    return k === 'road_v' || k === 'road_h' || k === 'cross';
+    const kv = Math.round((x - WORLD.roadW / 2) / WORLD.pitch);
+    const kh = Math.round((y - WORLD.roadW / 2) / WORLD.pitch);
+    const dv = Math.abs(x - roadCenter(kv));
+    const dh = Math.abs(y - roadCenter(kh));
+    const half = WORLD.roadW / 2;
+    return dv < half || dh < half;
   }
 
   /** گربه: از جاده نزدیک بازیکن عرضی رد می‌شود */
   private spawnCat(player: PlayerPos): void {
     for (let t = 0; t < 16; t++) {
-      // نقطه‌ای روی جاده در فاصله 180..420 از بازیکن (شهر بی‌پایان — بدون کلمپ)
+      // نقطه‌ای روی جاده در فاصله 180..420 از بازیکن
       const a = Math.random() * Math.PI * 2;
       const d = 180 + Math.random() * 240;
       const x = player.x + Math.cos(a) * d;
@@ -103,8 +104,8 @@ export class RandomEventManager {
       if (!this.isRoad(x, y)) continue;
 
       // جهت عبور: عمود بر جاده زیر پا
-      const kind = this.world.tileAt(Math.floor(x / TS), Math.floor(y / TS));
-      const crossX = kind === 'road_h'; // جاده افقی → گربه عمودی رد می‌شود
+      const crossX = Math.abs(y - roadCenter(Math.round((y - WORLD.roadW / 2) / WORLD.pitch)))
+        < Math.abs(x - roadCenter(Math.round((x - WORLD.roadW / 2) / WORLD.pitch)));
       const sgn = Math.random() < 0.5 ? 1 : -1;
       const v = RE.catSpeed * sgn;
       // از یک سمت جاده شروع کن (کمی بیرون لبه)

@@ -8,6 +8,7 @@
  */
 
 import { PEDESTRIANS as P } from '../data/balance';
+import { ENDLESS } from '../data/balance';
 import { WORLD } from '../world/World';
 
 /** اندازه بلوک = pitch - roadW */
@@ -86,19 +87,15 @@ export class PedestrianManager {
 
   constructor(
     private readonly callbacks: PedestrianCallbacks = {},
-    /** مرکز اولیه (اسپاون بازیکن) — عابرها دور همین پخش می‌شوند */
-    private readonly center: { x: number; y: number } = { x: WORLD.pitch + 300, y: WORLD.pitch + 300 },
   ) {
     this.spawnAll();
   }
 
   private spawnAll(): void {
-    const ci = Math.round((this.center.x - WORLD.roadW) / WORLD.pitch);
-    const cj = Math.round((this.center.y - WORLD.roadW) / WORLD.pitch);
     for (let i = 0; i < P.count; i++) {
-      // پخش قطعی روی بلوک‌های نزدیک مرکز (شهر بی‌پایان)
-      const bi = ci + ((i * 5 + 1) % 5) - 2;
-      const bj = cj + ((i * 3 + 2) % 5) - 2;
+      // پخش قطعی روی بلوک‌های مختلف شهر
+      const bi = (i * 5 + 1) % WORLD.roadCount;
+      const bj = (i * 3 + 2) % WORLD.roadCount;
       const bx = bi * WORLD.pitch + WORLD.roadW;
       const by = bj * WORLD.pitch + WORLD.roadW;
       const x0 = bx + RING_INSET;
@@ -133,18 +130,21 @@ export class PedestrianManager {
   }
 
   update(dt: number, player: PlayerLike): void {
+    const recycle2 = ENDLESS.pedRecycleDist * ENDLESS.pedRecycleDist;
     for (const ped of this.peds) {
-      // ---------- شهر بی‌پایان: عابر دور = انتقال به بلوک نزدیک بازیکن ----------
-      const farX = ped.x - player.x;
-      const farY = ped.y - player.y;
-      if (farX * farX + farY * farY > 3400 * 3400) {
-        const ci = Math.round((player.x - WORLD.roadW) / WORLD.pitch);
-        const cj = Math.round((player.y - WORLD.roadW) / WORLD.pitch);
-        ped.bi = ci + Math.floor(Math.random() * 5) - 2;
-        ped.bj = cj + Math.floor(Math.random() * 5) - 2;
-        ped.t = Math.random() * 2000;
+      // ---------- بازیافت بی‌پایان: دور از بازیکن → بلوک نزدیک بازیکن ----------
+      // (بلوک مقصد همیشه روی شبکهٔ جهانی است — چیدمان حلقه یکسان)
+      const pdx = ped.x - player.x;
+      const pdy = ped.y - player.y;
+      if (pdx * pdx + pdy * pdy > recycle2 && ped.knockT <= 0 && ped.downT <= 0) {
+        const pi = Math.round((player.x - WORLD.roadW) / WORLD.pitch);
+        const pj = Math.round((player.y - WORLD.roadW) / WORLD.pitch);
+        ped.bi = pi + Math.floor(Math.random() * 5) - 2;
+        ped.bj = pj + Math.floor(Math.random() * 5) - 2;
+        ped.t = Math.random() * 4000;
+        ped.hopT = 0;
+        continue;
       }
-
       // ---------- پرتاب با ضربه ماشین (فاز SMASH) ----------
       if (ped.knockT > 0) {
         ped.knockT -= dt;

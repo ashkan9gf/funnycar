@@ -5,7 +5,6 @@
  *  - سرعت روی محور جلو/عقب، فرمان فقط وقتی حرکت می‌کنی اثر دارد
  *  - همه اعداد از balance.ts می‌آیند (بدون عدد Hard-Code)
  *  - برخورد OBB دقیق (SAT) با موانع — نتیجه: توقف/جهش + رویداد + «نقطه برخورد»
- *    (فاز HITBOX-EXACT: در حرکت مورب دیگر برخورد خیالی وجود ندارد)
  *  - سلامت (health): برخورد با موانع بزرگ آسیب می‌زند؛ سرعت بیشینه افت می‌کند
  */
 
@@ -172,7 +171,7 @@ export class Vehicle {
     this.y += (this.vy + this.rightY * this.latVel) * dt;
 
     // ---------- برخورد (فاز HITBOX-EXACT: OBB×SAT — اگر واقعاً نخوردی، تصادف نیست!) ----------
-    // جعبه چرخان دقیق ماشین در برابر مانع — در حرکت مورب دیگر جعبه متورم نداریم
+    // جعبه چرخان دقیق ماشین در برابر مانع (ساختمان/دیوار) — در حرکت مورب دیگر جعبه متورم نداریم
     const velX = this.vx + this.rightX * this.latVel;
     const velY = this.vy + this.rightY * this.latVel;
     const playerBox = obbFromAngle(this.x, this.y, this.angle, this.hitH / 2, this.hitW / 2);

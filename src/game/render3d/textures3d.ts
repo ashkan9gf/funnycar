@@ -375,10 +375,11 @@ export function getBusStopTexture(): THREE.CanvasTexture {
 /**
  * نمایه ساختمان (۶ وجه بکس) — بر اساس نوع
  * فاز GTA-IR: خانه آجری با بالکن، مغازه با تابلو فارسی، تعمیرگاه
+ * فاز IR-SIGNS (پورت سبک از backup-v0.2.22): هر متنِ تابلو نسخه بافت خودش را دارد —
+ * کش بر اساس (assetId + متن)؛ همه چیز همان ۲۵۶×۲۵۶ روانِ v13 می‌ماند
  * خروجی: [side, side, top, bottom, side, side] برای متریال آرایه‌ای BoxGeometry
  */
 export function getFacadeTextures(assetId: string, signOverride?: string): THREE.CanvasTexture[] {
-  // فاز IR-SIGNS: هر متن تابلو نسخه بافت خودش را دارد (کش بر اساس assetId + متن)
   const cacheKey = `${assetId}|${signOverride ?? ''}`;
   const cached = facadeTexCache.get(cacheKey);
   if (cached) return cached;
@@ -390,7 +391,6 @@ export function getFacadeTextures(assetId: string, signOverride?: string): THREE
   let doorColor = '#7a5c3d';
   let signText: string | null = null;
   let brick = false;
-  let tiledPlinth = false; // فاز LUX-FACADE: نوار کاشی فیروزه‌ای زیر تابلو
 
   switch (assetId) {
     case 'env_building_home_01':
@@ -400,314 +400,139 @@ export function getFacadeTextures(assetId: string, signOverride?: string): THREE
     case 'env_building_shop_01':
       wall = '#f2c98c'; trim = '#c98d4b'; winBg = '#b8d8e8';
       awning = '#e2574c';
-      tiledPlinth = true;
       signText = signOverride ?? 'سوپرمارکت'; // فاز IR-SIGNS: تنوع مغازه‌ها
       break;
     case 'env_building_garage_01':
       wall = '#c4c0b8'; trim = '#8f8f8a'; winBg = '#7f96a8';
       doorColor = '#5f6a75';
-      signText = 'تعمیرگاه';
+      signText = signOverride ?? 'تعمیرگاه';
       break;
     case 'env_building_apartment_01':
       // آپارتمان مدرن شمال تهران — شیشه‌ای با نوارهای افقی
       wall = '#dde3e8'; trim = '#9fb2c0'; winBg = '#7fb3d5';
-      tiledPlinth = true;
       break;
     default:
       wall = '#e7d9b8'; trim = '#c9b98a'; winBg = '#9fc4d8';
   }
 
-  // ---------- فاز LUX-FACADE: RNG قطعی بر اساس کلید (هیچ Math.random) ----------
-  let seed = 0;
-  for (let i = 0; i < cacheKey.length; i++) seed = (seed * 31 + cacheKey.charCodeAt(i)) >>> 0;
-  const rf = (n: number): number => {
-    let x = (seed ^ Math.imul(n + 1, 2654435761)) >>> 0;
-    x ^= x >>> 13; x = Math.imul(x, 1274126177) >>> 0; x ^= x >>> 16;
-    return x / 4294967296;
-  };
-
-  // --- وجه طبقات — فاز PERF-4: خروجی ۲۵۶px (قبلاً ۵۱۲) با همان مختصات ترسیم ۵۱۲ —
-  // چهاربرابر سبک‌تر در تولید + چهاربرابر VRAM کمتر (هم‌سطح v0.2.13 روان)؛
-  // در فاصله‌ی معمول دید، تفاوت بصری ناچیز است
+  // --- وجه طبقات با پنجره + بالکن ---
   const { c: face, ctx: fx } = makeCanvas(256, 256);
-  fx.scale(0.5, 0.5);
   fx.fillStyle = wall;
-  fx.fillRect(0, 0, 512, 512);
-  // واترینگ عمودی: بالا روشن، پایین کثیف‌تر
-  const wg = fx.createLinearGradient(0, 0, 0, 512);
-  wg.addColorStop(0, 'rgba(255,255,255,0.12)');
-  wg.addColorStop(0.7, 'rgba(0,0,0,0)');
-  wg.addColorStop(1, 'rgba(40,30,20,0.16)');
-  fx.fillStyle = wg;
-  fx.fillRect(0, 0, 512, 512);
-  // نویز دیوار
-  for (let i = 0; i < 300; i++) {
-    fx.fillStyle = rf(i) > 0.5 ? 'rgba(255,255,255,0.05)' : `rgba(30,22,14,${0.02 + rf(i + 900) * 0.05})`;
-    fx.fillRect(Math.floor(rf(i + 100) * 512), Math.floor(rf(i + 200) * 512), 3, 3);
-  }
-  // جان‌پناه بالا + لبه روشن
-  fx.fillStyle = 'rgba(0,0,0,0.13)';
-  fx.fillRect(0, 0, 512, 26);
-  fx.fillStyle = 'rgba(255,255,255,0.22)';
-  fx.fillRect(0, 26, 512, 5);
-  // کمربند طبقات (خط افقی بین طبقه‌ها)
-  for (let j = 1; j < 4; j++) {
-    fx.fillStyle = 'rgba(0,0,0,0.10)';
-    fx.fillRect(0, j * 128 - 4, 512, 8);
-    fx.fillStyle = 'rgba(255,255,255,0.14)';
-    fx.fillRect(0, j * 128 - 4, 512, 2);
-  }
-  // پنجره‌ها ۴ ستون × ۳ ردیف — تنوع: روشن/پرده/شیشه/تاریک + کولر + لبه
-  for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 3; j++) {
-      const wx = 32 + i * 128;
-      const wy = 44 + j * 128;
-      const pw = 64;
-      const ph = 76;
-      const v = rf(i * 17 + j * 7 + 1);
-      // سایه کلی پنجره
-      fx.fillStyle = 'rgba(0,0,0,0.20)';
-      fx.fillRect(wx + 4, wy + 5, pw, ph);
-      // شیشه
-      if (v < 0.12) {
-        // پنجره روشن گرم — زندگی پشت شیشه
-        const lg = fx.createLinearGradient(wx, wy, wx, wy + ph);
-        lg.addColorStop(0, '#ffefc0');
-        lg.addColorStop(1, '#f0c268');
-        fx.fillStyle = lg;
-        fx.fillRect(wx, wy, pw, ph);
-        fx.fillStyle = 'rgba(60,40,20,0.35)'; // سیلوئت پرده
-        fx.fillRect(wx + 6, wy + 26, pw - 12, 8);
-      } else if (v < 0.3) {
-        // پرده‌ای — نیمه روشن
-        fx.fillStyle = winBg;
-        fx.fillRect(wx, wy, pw, ph);
-        fx.fillStyle = 'rgba(255,252,240,0.72)';
-        fx.fillRect(wx + 4, wy + 4, pw / 2 - 4, ph - 8);
-        fx.fillStyle = 'rgba(255,255,255,0.35)';
-        for (let c2 = 0; c2 < 3; c2++) fx.fillRect(wx + 8 + c2 * 14, wy + 6, 6, ph - 12);
-      } else if (v < 0.88) {
-        // شیشه آسمان — گرادیان + بازتاب مورب
-        const sg2 = fx.createLinearGradient(wx, wy, wx, wy + ph);
-        sg2.addColorStop(0, '#cfe6f2');
-        sg2.addColorStop(0.5, winBg);
-        sg2.addColorStop(1, '#7d9db5');
-        fx.fillStyle = sg2;
-        fx.fillRect(wx, wy, pw, ph);
-        fx.fillStyle = 'rgba(255,255,255,0.4)';
-        fx.beginPath();
-        fx.moveTo(wx + 6, wy + ph - 8);
-        fx.lineTo(wx + pw - 22, wy + 6);
-        fx.lineTo(wx + pw - 8, wy + 6);
-        fx.lineTo(wx + 18, wy + ph - 8);
-        fx.closePath();
-        fx.fill();
-      } else {
-        // تاریک
-        fx.fillStyle = '#3a4550';
-        fx.fillRect(wx, wy, pw, ph);
-        fx.fillStyle = 'rgba(255,255,255,0.12)';
-        fx.fillRect(wx + 4, wy + 4, pw - 24, 12);
-      }
-      // قاب + لبه پنجره (sill)
-      fx.strokeStyle = trim;
-      fx.lineWidth = 6;
-      fx.strokeRect(wx, wy, pw, ph);
-      fx.fillStyle = 'rgba(255,255,255,0.55)';
-      fx.fillRect(wx - 7, wy + ph, pw + 14, 7); // تخته لبه
+  fx.fillRect(0, 0, 256, 256);
+  const cols = 3;
+  const rows = 3;
+  const pw = 44;
+  const ph = 52;
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const wx = 32 + i * 80;
+      const wy = 28 + j * 84;
       fx.fillStyle = 'rgba(0,0,0,0.22)';
-      fx.fillRect(wx - 7, wy + ph + 7, pw + 14, 5); // سایه لبه
-      // کولر آبی گازی زیر بعضی پنجره‌ها
-      if (rf(i * 31 + j * 13 + 2) < 0.22) {
-        const ax = wx + pw - 40;
-        const ay = wy + ph + 14;
-        fx.fillStyle = '#b9bcbe';
-        fx.fillRect(ax, ay, 34, 24);
-        fx.fillStyle = 'rgba(0,0,0,0.28)';
-        for (let l = 0; l < 3; l++) fx.fillRect(ax + 5, ay + 5 + l * 7, 24, 3);
-        fx.strokeStyle = 'rgba(0,0,0,0.3)';
-        fx.lineWidth = 2;
-        fx.strokeRect(ax, ay, 34, 24);
-      }
-      // نرده بالکن دو ردیف بالا
-      if (j < 2) {
+      fx.fillRect(wx + 4, wy + 5, pw, ph); // سایه
+      fx.fillStyle = winBg;
+      fx.fillRect(wx, wy, pw, ph);
+      fx.fillStyle = 'rgba(255,255,255,0.5)';
+      fx.fillRect(wx + 4, wy + 4, pw - 22, 14); // بازتاب
+      fx.strokeStyle = trim;
+      fx.lineWidth = 5;
+      fx.strokeRect(wx, wy, pw, ph);
+      // نرده بالکن (دو طبقه بالا)
+      if (j < rows - 1) {
         fx.strokeStyle = 'rgba(50,44,40,0.75)';
-        fx.lineWidth = 4;
+        fx.lineWidth = 3;
         fx.beginPath();
-        fx.moveTo(wx - 10, wy + ph + 30);
-        fx.lineTo(wx + pw + 10, wy + ph + 30);
+        fx.moveTo(wx - 6, wy + ph + 12);
+        fx.lineTo(wx + pw + 6, wy + ph + 12);
         fx.stroke();
-        for (let b = 0; b <= 5; b++) {
-          const bx2 = wx - 10 + (b * (pw + 20)) / 5;
-          fx.beginPath(); fx.moveTo(bx2, wy + ph + 10); fx.lineTo(bx2, wy + ph + 30); fx.stroke();
+        for (let b = 0; b <= 4; b++) {
+          const bx = wx - 6 + (b * (pw + 12)) / 4;
+          fx.beginPath(); fx.moveTo(bx, wy + ph + 2); fx.lineTo(bx, wy + ph + 12); fx.stroke();
         }
       }
     }
   }
-  // پایه تیره زیر نمای طبقات
-  fx.fillStyle = 'rgba(30,22,16,0.25)';
-  fx.fillRect(0, 486, 512, 26);
+  fx.fillStyle = trim;
+  fx.fillRect(0, 236, 256, 20);
 
-  // --- وجه همکف — فاز PERF-4: ۲۵۶px مثل طبقات (قبل ۵۱۲) ---
+  // --- وجه همکف ---
   const { c: groundF, ctx: gx } = makeCanvas(256, 256);
-  gx.scale(0.5, 0.5);
   gx.fillStyle = wall;
-  gx.fillRect(0, 0, 512, 512);
-  const gg = gx.createLinearGradient(0, 256, 0, 512);
-  gg.addColorStop(0, 'rgba(0,0,0,0)');
-  gg.addColorStop(1, 'rgba(30,22,14,0.2)');
-  gx.fillStyle = gg;
-  gx.fillRect(0, 256, 512, 256);
+  gx.fillRect(0, 0, 256, 256);
   if (brick) {
-    // آجرچینی ایرانی بهتر: رنگ هر آجر کمی متفاوت + ملات روشن
-    gx.fillStyle = '#d9cbb2';
-    gx.fillRect(0, 224, 512, 288);
-    const bh = 22;
-    const bw = 62;
-    for (let row = 0; row < 13; row++) {
-      const y = 228 + row * (bh + 3);
-      const off = row % 2 === 0 ? 0 : bw / 2;
-      for (let bx3 = -bw; bx3 < 512 + bw; bx3 += bw + 3) {
-        const tint = rf(row * 53 + bx3 + 3);
-        const r2 = 158 + Math.floor(tint * 26);
-        const g2 = 84 + Math.floor(tint * 18);
-        const b2 = 60 + Math.floor(tint * 14);
-        gx.fillStyle = `rgb(${r2},${g2},${b2})`;
-        gx.fillRect(bx3 + off, y, bw, bh);
-        gx.fillStyle = 'rgba(255,255,255,0.10)';
-        gx.fillRect(bx3 + off, y, bw, 3);
+    // نیمه پایین: آجرچینی ایرانی
+    gx.fillStyle = '#a25a42';
+    gx.fillRect(0, 128, 256, 128);
+    gx.strokeStyle = 'rgba(240,230,215,0.35)';
+    gx.lineWidth = 2;
+    for (let row = 0; row < 8; row++) {
+      const y = 132 + row * 16;
+      gx.beginPath(); gx.moveTo(0, y); gx.lineTo(256, y); gx.stroke();
+      const offset = row % 2 === 0 ? 0 : 16;
+      for (let bx = offset; bx < 256; bx += 32) {
+        gx.beginPath(); gx.moveTo(bx, y); gx.lineTo(bx, y + 16); gx.stroke();
       }
     }
   }
   if (signText) {
-    // تابلوی فارسی بزرگ با قاب دوخطه + خط نور زیر تابلو
-    let sh = 0;
-    for (let si = 0; si < signText.length; si++) sh = (sh * 31 + signText.charCodeAt(si)) >>> 0;
-    const BOARD = ['#3a2e2a', '#22577a', '#7a3b2e', '#3f5e2e', '#5b3a6e', '#8a5a1f'];
-    const boardC = BOARD[sh % BOARD.length];
-    gx.fillStyle = 'rgba(0,0,0,0.25)';
-    gx.fillRect(28, 122, 456, 96);
-    gx.fillStyle = boardC;
-    gx.fillRect(22, 114, 456, 96);
-    gx.strokeStyle = '#F2D48A';
-    gx.lineWidth = 5;
-    gx.strokeRect(22, 114, 456, 96);
-    gx.strokeStyle = 'rgba(255,255,255,0.35)';
-    gx.lineWidth = 2;
-    gx.strokeRect(32, 124, 436, 76);
+    // تابلوی فارسی بالای ورودی
+    gx.fillStyle = '#3a2e2a';
+    gx.fillRect(28, 96, 200, 42);
     gx.fillStyle = '#FFF9EC';
-    gx.font = FA_FONT(signText.length > 10 ? 40 : 48);
+    gx.font = FA_FONT(26);
     gx.textAlign = 'center';
     gx.textBaseline = 'middle';
-    gx.fillText(signText, 250, 164);
-    // خط نور گرم زیر تابلو
-    gx.fillStyle = 'rgba(255,224,150,0.5)';
-    gx.fillRect(30, 214, 440, 6);
+    gx.fillText(signText, 128, 118);
+    gx.strokeStyle = '#FFF9EC';
+    gx.lineWidth = 3;
+    gx.strokeRect(28, 96, 200, 42);
   }
   if (awning) {
-    // آویز راه‌راه با لبه موجی + ویترین
+    // آویز راه‌راه مغازه
     gx.fillStyle = awning;
-    gx.fillRect(0, 246, 512, 42);
+    gx.fillRect(0, 148, 256, 26);
     gx.fillStyle = 'rgba(255,255,255,0.85)';
-    for (let i = 0; i < 8; i++) gx.fillRect(i * 64 + 8, 246, 32, 42);
-    gx.fillStyle = awning;
-    for (let i = 0; i < 8; i++) {
-      gx.beginPath();
-      gx.arc(i * 64 + 40, 288, 16, 0, Math.PI);
-      gx.fill();
-    }
-    gx.fillStyle = 'rgba(0,0,0,0.18)';
-    gx.fillRect(0, 292, 512, 8);
-    // ویترین بزرگ دولبه با بازتاب
-    for (const sx of [40, 300]) {
-      gx.fillStyle = 'rgba(0,0,0,0.2)';
-      gx.fillRect(sx + 6, 316, 172, 130);
-      const dg = gx.createLinearGradient(sx, 310, sx, 446);
-      dg.addColorStop(0, '#dceef8');
-      dg.addColorStop(1, winBg);
-      gx.fillStyle = dg;
-      gx.fillRect(sx, 310, 172, 130);
-      gx.fillStyle = 'rgba(255,255,255,0.45)';
-      gx.beginPath();
-      gx.moveTo(sx + 14, 434);
-      gx.lineTo(sx + 110, 320);
-      gx.lineTo(sx + 140, 320);
-      gx.lineTo(sx + 44, 434);
-      gx.closePath();
-      gx.fill();
-      gx.strokeStyle = trim;
-      gx.lineWidth = 8;
-      gx.strokeRect(sx, 310, 172, 130);
-    }
-    // در وسط با دستگیره
-    gx.fillStyle = doorColor;
-    gx.fillRect(232, 316, 48, 130);
+    for (let i = 0; i < 8; i++) gx.fillRect(i * 32 + 4, 148, 16, 26);
+    gx.fillStyle = winBg;
+    gx.fillRect(20, 180, 216, 62);
+    gx.fillStyle = 'rgba(255,255,255,0.35)';
+    gx.fillRect(28, 184, 60, 54);
     gx.strokeStyle = trim;
     gx.lineWidth = 6;
-    gx.strokeRect(232, 316, 48, 130);
-    gx.fillStyle = '#F2D48A';
-    gx.beginPath(); gx.arc(268, 384, 5, 0, Math.PI * 2); gx.fill();
+    gx.strokeRect(20, 180, 216, 62);
   } else if (assetId === 'env_building_garage_01') {
     // در بزرگ گاراژ
     gx.fillStyle = doorColor;
-    gx.fillRect(56, 300, 400, 184);
+    gx.fillRect(28, 150, 200, 92);
     gx.strokeStyle = 'rgba(0,0,0,0.28)';
-    gx.lineWidth = 5;
+    gx.lineWidth = 4;
     for (let i = 1; i < 5; i++) {
-      gx.beginPath(); gx.moveTo(56, 300 + i * 36); gx.lineTo(456, 300 + i * 36); gx.stroke();
+      gx.beginPath(); gx.moveTo(28, 150 + i * 18); gx.lineTo(228, 150 + i * 18); gx.stroke();
     }
-    gx.strokeStyle = trim; gx.lineWidth = 8;
-    gx.strokeRect(56, 300, 400, 184);
+    gx.strokeStyle = trim; gx.lineWidth = 6;
+    gx.strokeRect(28, 150, 200, 92);
   } else {
     // در خانه + پنجره (روی آجر)
     gx.fillStyle = doorColor;
-    gx.fillRect(300, 336, 128, 176);
-    gx.strokeStyle = '#e8dcc2'; gx.lineWidth = 8;
-    gx.strokeRect(300, 336, 128, 176);
-    gx.fillStyle = '#F2D48A';
-    gx.beginPath(); gx.arc(340, 424, 6, 0, Math.PI * 2); gx.fill();
-    gx.fillStyle = 'rgba(0,0,0,0.2)';
-    gx.fillRect(300, 470, 128, 8);
-    gx.fillStyle = 'rgba(0,0,0,0.22)';
-    gx.fillRect(72, 406, 146, 6);
-    const hg = gx.createLinearGradient(72, 344, 72, 470);
-    hg.addColorStop(0, '#cfe6f2');
-    hg.addColorStop(1, winBg);
-    gx.fillStyle = hg;
-    gx.fillRect(72, 344, 146, 126);
-    gx.fillStyle = 'rgba(255,255,255,0.4)';
-    gx.beginPath();
-    gx.moveTo(92, 464); gx.lineTo(160, 352); gx.lineTo(184, 352); gx.lineTo(116, 464);
-    gx.closePath();
-    gx.fill();
-    gx.strokeStyle = '#e8dcc2'; gx.lineWidth = 8;
-    gx.strokeRect(72, 344, 146, 126);
-  }
-  if (tiledPlinth && !awning) {
-    // نوار کاشی فیروزه‌ای زیر همکف (کاشی‌کاری ایرانی)
-    gx.fillStyle = '#2e8b8b';
-    gx.fillRect(0, 486, 512, 26);
-    gx.fillStyle = 'rgba(255,255,255,0.25)';
-    for (let i = 0; i < 16; i++) gx.fillRect(i * 32 + 4, 490, 24, 18);
+    gx.fillRect(150, 168, 64, 88);
+    gx.strokeStyle = '#e8dcc2'; gx.lineWidth = 5;
+    gx.strokeRect(150, 168, 64, 88);
+    gx.fillStyle = winBg;
+    gx.fillRect(40, 172, 72, 70);
+    gx.strokeStyle = '#e8dcc2'; gx.lineWidth = 5;
+    gx.strokeRect(40, 172, 72, 70);
   }
 
-  // --- سقف ۱۲۸px: شنی + وصله + جان‌پناه ---
-  const { c: roof, ctx: rx } = makeCanvas(128, 128);
+  // --- سقف ---
+  const { c: roof, ctx: rx } = makeCanvas(64, 64);
   rx.fillStyle = '#b8ac92';
-  rx.fillRect(0, 0, 128, 128);
-  for (let i = 0; i < 260; i++) {
-    rx.fillStyle = rf(i + 400) > 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)';
-    rx.fillRect(Math.floor(rf(i + 500) * 128), Math.floor(rf(i + 600) * 128), 3, 3);
+  rx.fillRect(0, 0, 64, 64);
+  rx.fillStyle = 'rgba(0,0,0,0.10)';
+  rx.fillRect(0, 0, 64, 8);
+  rx.fillRect(0, 0, 8, 64);
+  for (let i = 0; i < 30; i++) {
+    rx.fillStyle = 'rgba(0,0,0,0.06)';
+    rx.fillRect(Math.random() * 64, Math.random() * 64, 4, 4);
   }
-  rx.fillStyle = 'rgba(30,24,18,0.16)';
-  rx.fillRect(18 + Math.floor(rf(1) * 60), 18 + Math.floor(rf(2) * 60), 34, 26);
-  rx.fillStyle = 'rgba(0,0,0,0.16)';
-  rx.fillRect(0, 0, 128, 10);
-  rx.fillRect(0, 0, 10, 128);
-  rx.fillRect(118, 0, 10, 128);
-  rx.fillRect(0, 118, 128, 10);
-  rx.fillStyle = 'rgba(255,255,255,0.18)';
-  rx.fillRect(0, 10, 128, 3);
 
   const faceTex = toTex(face);
   const groundTex = toTex(groundF);

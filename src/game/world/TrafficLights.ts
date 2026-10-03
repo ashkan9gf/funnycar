@@ -23,14 +23,14 @@ export class TrafficLights {
     this.time += dt;
   }
 
-  /** آفست موج سبز برای تقاطع (i,j) */
+  /** آفست موج سبز برای تقاطع (i,j) — امن برای منفی (شهر بی‌پایان: i,j هر عدد صحیح) */
   private offset(i: number, j: number): number {
-    return ((i + j) * TRAFFIC_LIGHTS.offsetStepSec) % CYCLE;
+    return ((((i + j) * TRAFFIC_LIGHTS.offsetStepSec) % CYCLE) + CYCLE) % CYCLE;
   }
 
   /** حالت چراغ محور شمالی-جنوبی در تقاطع (i,j) */
   stateNS(i: number, j: number, time: number = this.time): LightState {
-    const t = (time + this.offset(i, j)) % CYCLE;
+    const t = (((time + this.offset(i, j)) % CYCLE) + CYCLE) % CYCLE;
     const G = TRAFFIC_LIGHTS.greenSec;
     const Y = TRAFFIC_LIGHTS.yellowSec;
     if (t < G) return 'green';
@@ -40,7 +40,7 @@ export class TrafficLights {
 
   /** حالت چراغ محور شرقی-غربی در تقاطع (i,j) */
   stateEW(i: number, j: number, time: number = this.time): LightState {
-    const t = (time + this.offset(i, j)) % CYCLE;
+    const t = (((time + this.offset(i, j)) % CYCLE) + CYCLE) % CYCLE;
     const P = TRAFFIC_LIGHTS.greenSec + TRAFFIC_LIGHTS.yellowSec + TRAFFIC_LIGHTS.allRedSec;
     const G = TRAFFIC_LIGHTS.greenSec;
     const Y = TRAFFIC_LIGHTS.yellowSec;

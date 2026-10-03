@@ -18,7 +18,7 @@
 
 import { MISSIONS as M, PARK, TAXI, CHALLENGE, RENDER } from '../data/balance';
 import { MISSION_LIST, type MissionDef, type MissionFailReason, type MissionCategory } from '../data/missions';
-import type { World } from '../world/World';
+import { WORLD, WORLD_SIZE, type World } from '../world/World';
 import type { Collider } from '../entities/Vehicle';
 
 export type MissionState = 'idle' | 'active' | 'succeeded' | 'failed';
@@ -197,14 +197,17 @@ export class MissionManager {
       });
   }
 
-  /** شروع مأموریت — همیشه از وضعیت تمیز (قفل زنجیره‌ای فاز ۷ رعایت می‌شود) */
-  start(id: string): boolean {
+  /** شروع مأموریت — همیشه از وضعیت تمیز (قفل زنجیره‌ای فاز ۷ رعایت می‌شود)
+   *  فاز ENDLESS: اگر بازیکن بیرون تهرانِ مبدأ باشد، هدف با مضرب pitch جابه‌جا می‌شود
+   *  (چیدمان خیابان در مضرب‌های ۱۴۰۰ تکرار می‌شود → هدف روی جادهٔ معتبر همان حوالی بازیکن) */
+  start(id: string, near?: { x: number; y: number }): boolean {
     const def = MISSION_LIST.find((m) => m.id === id);
     if (!def) return false;
     // فاز ۷: مأموریت قفل شروع نمی‌شود (نگهبان امنیتی — UI هم قفل نشان می‌دهد)
     if (def.requires !== undefined && !this.completedIds.has(def.requires)) return false;
     this.cleanupMissionWorld(); // اگر مأموریت قبلی نگهبان داشته — جمع کن
-    this.def = def;
+    this.def = this.retargetDef(def, near);
+    this.startPos = near ? { x: near.x, y: near.y } : null;
     this.state = 'active';
     this.elapsed = 0;
     this.penaltySec = 0;
@@ -226,6 +229,30 @@ export class MissionManager {
     this.state = 'idle';
     this.def = null;
     this.potholes = [];
+  }
+
+  /** نقطهٔ شروع مأموریت (برای چاله‌ها) — نزدیک بازیکن در دنیای بی‌پایان */
+  private startPos: { x: number; y: number } | null = null;
+
+  /** فاز ENDLESS: جابه‌جایی هدف مأموریت با مضرب pitch وقتی بازیکن دورِ مبدأ است */
+  private retargetDef(def: MissionDef, near?: { x: number; y: number }): MissionDef {
+    if (!near) return def;
+    const P = WORLD.pitch;
+    const outside =
+      near.x < -P || near.y < -P ||
+      near.x > WORLD_SIZE + P || near.y > WORLD_SIZE + P;
+    if (!outside) return def;
+    const t = def.target;
+    const sx = Math.round((near.x - t.x) / P) * P;
+    const sy = Math.round((near.y - t.y) / P) * P;
+    if (sx === 0 && sy === 0) return def;
+    const shift = (p: { x: number; y: number }): { x: number; y: number } => ({ x: p.x + sx, y: p.y + sy });
+    return {
+      ...def,
+      target: shift(t),
+      pickup: def.pickup ? shift(def.pickup) : undefined,
+      checkpoints: def.checkpoints ? def.checkpoints.map(shift) : undefined,
+    };
   }
 
   /** وضعیت نتیجه باید توسط GameManager مصرف و بعد پاک شود */
@@ -515,15 +542,14 @@ export class MissionManager {
         ? { x: g.x - hh, y: g.y - hw, w: hh * 2, h: hw * 2 }
         : { x: g.x - hw, y: g.y - hh, w: hw * 2, h: hh * 2 };
       this.guardColliders.push(c);
-      this.world.colliders.push(c);
+      this.world.addDynamicCollider(c);
     }
   }
 
   /** حذف colliderهای نگهبان (identity — بدون دست زدن به بقیه دنیا) */
   private removeGuardColliders(): void {
     if (this.guardColliders.length === 0) return;
-    const set = new Set(this.guardColliders);
-    this.world.colliders = this.world.colliders.filter((c) => !set.has(c));
+    this.world.removeDynamicColliders(this.guardColliders);
     this.guardColliders = [];
   }
 
@@ -544,7 +570,7 @@ export class MissionManager {
    */
   private spawnPotholes(def: MissionDef): Pothole[] {
     const out: Pothole[] = [];
-    const spawn = this.world.playerSpawn();
+    const spawn = this.startPos ?? this.world.playerSpawn();
     const minX = Math.min(spawn.x, def.target.x) - 260;
     const maxX = Math.max(spawn.x, def.target.x) + 260;
     const minY = Math.min(spawn.y, def.target.y) - 300;

@@ -69,15 +69,7 @@ interface Settings {
   music: number;
   sfx: number;
   voice: number;
-  gfx: number;
 }
-
-/** فاز QUALITY (v0.2.22): سطوح گرافیک — کم = بدون سایهٔ بلادرنگ (ضد تار/لگ گوشی ضعیف) */
-const GFX_LEVELS: Array<{ v: 0 | 1 | 2; label: string }> = [
-  { v: 0, label: "کم" },
-  { v: 1, label: "متوسط" },
-  { v: 2, label: "زیاد" },
-];
 
 /** پنل تنظیمات صدا (در منو و Pause استفاده می‌شود) */
 function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => void }) {
@@ -114,35 +106,6 @@ function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => 
         <span className="text-sm font-bold text-[#3a2e2a]">لرزش گوشی</span>
         <span className="text-xs text-[#3a2e2a]">(فازهای بعدی)</span>
       </div>
-      {/* فاز QUALITY: سطح گرافیک — بلافاصله اعمال می‌شود و در حافظه می‌ماند */}
-      <div className="flex items-center gap-3 border-t border-[#3a2e2a]/15 pt-3">
-        <Gauge className="h-5 w-5 shrink-0 text-[#3a2e2a]" />
-        <span className="w-24 shrink-0 text-sm font-bold text-[#3a2e2a]">کیفیت گرافیک</span>
-        <div className="flex flex-1 gap-1.5">
-          {GFX_LEVELS.map((g) => (
-            <button
-              key={g.v}
-              type="button"
-              aria-label={`کیفیت گرافیک ${g.label}`}
-              className={`flex-1 rounded-xl py-1.5 text-xs font-bold transition-colors ${
-                s.gfx === g.v
-                  ? "bg-[#3a2e2a] text-white"
-                  : "border border-[#3a2e2a]/25 bg-white/70 text-[#3a2e2a]"
-              }`}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                setS((p) => ({ ...p, gfx: g.v }));
-                game.setSetting("gfx", g.v);
-              }}
-            >
-              {g.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <p className="text-[11px] leading-4 text-[#3a2e2a]/70">
-        اگر صفحه تار یا کند است «کم» را بزن — سایهٔ بلادرنگ خاموش می‌شود ولی تصویر شفاف و روان می‌ماند.
-      </p>
       {onClose && (
         <button
           type="button"

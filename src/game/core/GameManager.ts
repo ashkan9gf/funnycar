@@ -19,6 +19,7 @@ import { MissionManager, faNum, type MissionHud, type GuardCar } from '../manage
 import type { MissionCategory } from '../data/missions';
 import { Vehicle } from '../entities/Vehicle';
 import { DIR_INFO } from '../entities/TrafficCar';
+import { obbFromAngle, satOverlapMTV } from '../entities/obb';
 import { World, type WorldProp } from '../world/World';
 import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
@@ -27,8 +28,7 @@ import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLIS
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
-import { roadCenter, WORLD as WR, nearestRoadIndex } from '../world/World';
-import { obbFromAngle, satOverlapMTV } from '../entities/obb';
+import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
 
@@ -202,7 +202,7 @@ export class GameManager {
       const overlay = document.createElement('canvas');
       overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;';
       canvas.parentElement?.appendChild(overlay);
-      this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera, this.lights, this.save.get().settings.gfx);
+      this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera, this.lights);
       this.fx = this.renderer3d;
     } else {
       this.is3D = false;
@@ -230,16 +230,13 @@ export class GameManager {
       })(),
       this.lights,
     );
-    this.randomEvents = new RandomEventManager(this.world, {
+    this.randomEvents = new RandomEventManager({
       onEvent: (kind, x, y) => this.onRandomEvent(kind, x, y),
     });
     // عابرهای پیاده (فاز BIG-IR) — ترس از ماشین سریع
     this.peds = new PedestrianManager({
       onScare: (x, y) => this.onPedScare(x, y),
-    }, (() => {
-      const s = this.world.playerSpawn();
-      return { x: s.x, y: s.y };
-    })());
+    });
     // مأموریت‌ها (فاز 4 + فاز ۵)
     this.mission = new MissionManager(this.world, {
       onPothole: (x, y) => this.onPotholeHit(x, y),
@@ -502,13 +499,8 @@ export class GameManager {
       this.fx.pushBubble(this.pickLine(ev), car.x, car.y, 'char_driver_01_idle', 2.6);
     }
   }
-  setSetting(k: 'music' | 'sfx' | 'voice' | 'gfx', v: number): void {
+  setSetting<K extends 'music' | 'sfx' | 'voice'>(k: K, v: number): void {
     this.save.mutate((d) => { d.settings[k] = v; });
-    // فاز QUALITY: تغییر سطح گرافیک — بلافاصله روی رندرر اعمال می‌شود (سایه/مه/رزولوشن)
-    if (k === 'gfx') {
-      this.renderer3d?.setQuality(v);
-      return;
-    }
     this.audio.setVolumes(this.save.get().settings);
   }
   getSettings() { return this.save.get().settings; }
@@ -652,13 +644,13 @@ export class GameManager {
     }
   }
 
-  /** برخورد بازیکن با خودروی ترافیک — OBB دقیق (SAT): جدا می‌شوند، ترافیک بر اساس شدت ضربه پرت می‌شود (فاز HITBOX-EXACT) */
+  /** برخورد بازیکن با خودروی ترافیک — OBB دقیق (SAT): جدا می‌شوند، ترافیک بر اساس شدت ضربه پرت می‌شود */
   private resolveTrafficCollisions(dt: number): void {
     const v = this.vehicle;
     this.crashCooldown = Math.max(0, this.crashCooldown - dt);
     const pv = obbFromAngle(v.x, v.y, v.angle, v.hitH / 2, v.hitW / 2);
     for (const c of this.traffic.cars) {
-      // ترافیک روی جاده‌های axis-aligned حرکت می‌کند → جعبه‌اش axis-aligned است
+      // ترافیک روی جاده‌های axis-aligned حرکت می‌کند → جعبه‌اش با زاویه‌اش ساخته می‌شود
       const cv = obbFromAngle(c.x, c.y, c.angle, c.hitH / 2, c.hitW / 2);
       // رد سریع دورها
       const ddx = c.x - v.x;
@@ -849,7 +841,7 @@ export class GameManager {
 
   private parkedCd = 0;
 
-  /** دوبله‌پارکی‌ها مانع‌اند — برخورد OBB دقیق (فاز HITBOX-EXACT): نچسبیدن = بدون تصادف */
+  /** دوبله‌پارکی‌ها مانع‌اند — برخورد OBB دقیق: نچسبیدن = بدون تصادف */
   private resolveParkedCollisions(dt: number): void {
     this.parkedCd = Math.max(0, this.parkedCd - dt);
     const v = this.vehicle;
@@ -1016,9 +1008,9 @@ export class GameManager {
   };
 
   private step(dt: number): void {
-    // فاز PERF-PROBE: زمان‌سنجی زیرسیستم‌ها (جمع + بیشینه — برای یافتن گلوگاه واقعی CPU)
-    const tp = (window as unknown as { __fcStepT?: Record<string, number> }).__fcStepT ??= { world: 0, worldMax: 0, veh: 0, vehMax: 0, traffic: 0, trafficMax: 0, peds: 0, pedsMax: 0, lights: 0, n: 0 };
-    let t0 = performance.now();
+    // ---------- شهر بی‌پایان: قطعه‌های فعال دور بازیکن (ارزان — داده منطقی) ----------
+    this.world.updateStreaming(this.vehicle.x, this.vehicle.y);
+
     let input = this.input.collect();
     this.lastInput = { gas: input.gas, brake: input.brake, steer: input.steer };
 
@@ -1028,23 +1020,13 @@ export class GameManager {
     // ---------- چراغ‌های راهنما (فاز OVERHAUL) ----------
     this.lights.update(dt);
     this.checkRedLightRunner(dt);
-    tp.lights += performance.now() - t0;
 
     // ---------- موتور خاموش: گاز کار نمی‌کند (فاز BIG-IR) ----------
     if (this.vehicle.dead) {
       input = { ...input, gas: false };
     }
 
-    // ---------- شهر بی‌پایان: قطعه‌های دور بازیکن را زنده نگه دار (فقط با تغییر قطعه کار می‌کند) ----------
-    t0 = performance.now();
-    this.world.updateStreaming(this.vehicle.x, this.vehicle.y);
-    tp.world += performance.now() - t0;
-    if (performance.now() - t0 > tp.worldMax) tp.worldMax = performance.now() - t0;
-
-    t0 = performance.now();
     const result = this.vehicle.update(dt, input, this.world.colliders);
-    tp.veh += performance.now() - t0;
-    if (performance.now() - t0 > tp.vehMax) tp.vehMax = performance.now() - t0;
     const nowMs = performance.now();
 
     // ---------- برخورد با موانع ثابت ----------
@@ -1123,11 +1105,8 @@ export class GameManager {
     }
 
       // ---------- ترافیک (فاز 2) ----------
-    t0 = performance.now();
     this.traffic.update(dt, this.vehicle);
     this.resolveTrafficCollisions(dt);
-    tp.traffic += performance.now() - t0;
-    if (performance.now() - t0 > tp.trafficMax) tp.trafficMax = performance.now() - t0;
 
     // ---------- برخورد با پارکی‌ها (فاز SMASH) ----------
     this.resolveParkedCollisions(dt);
@@ -1136,11 +1115,8 @@ export class GameManager {
     this.updateBreakables(dt);
 
     // ---------- عابرهای پیاده (فاز BIG-IR + برخورد SMASH) ----------
-    t0 = performance.now();
     this.peds.update(dt, this.vehicle);
     this.resolvePedestrianCollisions(dt);
-    tp.peds += performance.now() - t0;
-    if (performance.now() - t0 > tp.pedsMax) tp.pedsMax = performance.now() - t0;
 
     // ---------- دود ماشین آسیب‌دیده (فاز BIG-IR) ----------
     if (this.vehicle.health < DAMAGE.smokeBelow) {
@@ -1215,7 +1191,6 @@ export class GameManager {
       this.idleTimerSec = IDLE_EVENTS.minIntervalSec + Math.random() * (IDLE_EVENTS.maxIntervalSec - IDLE_EVENTS.minIntervalSec);
       this.voice.trigger('idle_funny', nowMs);
     }
-    tp.n++; // PERF-PROBE
 
     // ---------- دوربین ----------
     if (this.ctx) {
@@ -1237,9 +1212,9 @@ export class GameManager {
     if (this.redRunnerCooldown > 0) return;
     const v = this.vehicle;
     if (Math.abs(v.speed) < TRAFFIC_LIGHTS.redRunnerSpeed) return;
-    // نزدیک‌ترین جاده عمودی/افقی — شهر بی‌پایان (اندیس آزاد، حتی منفی)
-    const bi = nearestRoadIndex(v.x);
-    const bj = nearestRoadIndex(v.y);
+    // نزدیک‌ترین جاده عمودی/افقی — فاز ENDLESS: بستهٔ O(1) (بی‌نهایت جاده)
+    const bi = Math.round((v.x - WR.roadW / 2) / WR.pitch);
+    const bj = Math.round((v.y - WR.roadW / 2) / WR.pitch);
     const di = Math.abs(v.x - roadCenter(bi));
     const dj = Math.abs(v.y - roadCenter(bj));
     // باید داخل محدوده تقاطع باشد (هر دو فاصله کمتر از نصف عرض جاده)
