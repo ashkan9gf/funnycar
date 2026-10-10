@@ -60,5 +60,7 @@ server.log
 /skills
 /examples
 /tool-results
-/android-build
+/android-build/assets/
+/android-build/*.apk
+/android-build/res.zip
 /temp_model
