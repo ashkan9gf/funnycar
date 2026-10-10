@@ -60,7 +60,8 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(false);
 
         // برای دیباگ با chrome://inspect
-        WebView.setWebContentsDebuggingEnabled(true);
+        // Keep WebView remote debugging disabled in release builds.
+        WebView.setWebContentsDebuggingEnabled(false);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
