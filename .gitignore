@@ -64,3 +64,10 @@ server.log
 /android-build/*.apk
 /android-build/res.zip
 /temp_model
+
+# Android generated outputs and signing material
+/android-build/classes/
+/android-build/dexout/
+/android-build/debug.keystore
+*.jks
+*.keystore
