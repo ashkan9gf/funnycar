@@ -798,3 +798,18 @@ Stage Summary:
 - بهینه‌سازی چهارلایه بدون کوچک‌ترین تغییر ظاهری: boot منتظر GLBها (صفر placeholder) + کش متریال + کش BBox + تخلیهٔ بی‌آلوکیشن
 - شهر بی‌پایان و بودجهٔ فریمی ENDLESS دست‌نخورده ماند (حفظ روانی v13)
 - درس: نام backup/api_backup در اسکریپت بیلد هم باید در sed نسخه‌ها عوض شود (api_backup223 یتیم شده بود) + نسخهٔ واقعی را همیشه از tail worklog.md بگیر نه از summary
+
+---
+Task ID: 41-SRC-ZIP
+Agent: Super Z (main agent)
+Task: درخواست کاربر — «فایل نهایی سورس پروژه رو بده»
+
+Work Log:
+- وضعیت واقعی از tail worklog خوانده شد: آخرین نسخه v0.2.28 (PERF-2 + GLB-ONLY + شهر بی‌پایان + OBB + IR-SIGNS) کامیت 3c88c6c — worktree تمیز
+- بسته‌بندی سورس با scripts/package_source_v0228.sh: src (۱۱۲ فایل) + public کامل (۳۵MB: ۱۳ GLB ساختمان + ۲۰ خودرو + شهر/صدا/فونت) + android-build (مانیفست + dex + keystore + res — بدون aligned/base.apk و assets/www چون اسکریپت بیلد هر بار بازتولید می‌کند) + scripts (بدون ~۶۰MB اسکرین‌شات E2E؛ شامل build_apk_v0228.sh و تست‌ها و raw_assets) + کانفیگ‌های ریشه + README_FA + worklog.md کامل
+- زیپ نهایی: download/FunnyCarIR-Source-v0.2.28.zip = 22,724,139 bytes / 346 فایل — صحت‌سنجی: WorldRenderer3D.ts (125KB)، هر ۳ پوشه مدل، dexout/classes.dex، build_apk_v0228.sh همه داخل zip ✓
+- آپلود با scripts/upload_uploadkon.sh (POST به «/» روش اثبات‌شده): https://uploadkon.ir/uploads/b59610_26FunnyCarIR-Source-v0-2-28.zip — HEAD: 200 + content-length دقیقاً 22,724,139 ✓
+
+Stage Summary:
+- سورس کامل و قابل‌بیلد v0.2.28 تحویل شد؛ برای بیلد APK: bun install → bash scripts/build_apk_v0228.sh (مسیر SDK و ROOT داخل اسکریپت قابل ویرایش است)
+- نکته: .git عمداً داخل بسته نیست (۱۰۵MB) — تاریخچه و تگ backup-v0.2.22 فقط در workspace این جلسه است
