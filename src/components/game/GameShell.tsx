@@ -169,6 +169,7 @@ export default function GameShell() {
   const [game, setGame] = useState<GameInstance | null>(null);
 
   const [phase, setPhase] = useState<GameState | "boot">("boot");
+  const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState(0);
   const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false });
   const [toast, setToast] = useState<string | null>(null);
@@ -227,6 +228,11 @@ export default function GameShell() {
       }
       gameRef.current = inst;
       setGame(inst);
+    }).catch((err: unknown) => {
+      if (cancelled) return;
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error("[FunnyCar] game boot failed:", err);
+      setBootError(detail);
     });
     return () => {
       cancelled = true;
@@ -263,6 +269,28 @@ export default function GameShell() {
     <div className="fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
       {/* بوم بازی — زیر همه لایه‌ها */}
       <canvas ref={canvasRef} className="fc-canvas absolute inset-0 h-full w-full" />
+      {bootError && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-[#201914]/95 p-6" role="alert">
+          <div className="fc-panel w-full max-w-md rounded-3xl bg-[#FFF9EC] p-6 text-center shadow-2xl">
+            <div className="mb-3 text-4xl" aria-hidden="true">🚗</div>
+            <h1 className="mb-2 text-xl font-extrabold text-[#3a2e2a]">بازی اجرا نشد</h1>
+            <p className="mb-4 text-sm leading-7 text-[#5b4a40]">
+              راه‌اندازی بازی با خطا روبه‌رو شد. می‌توانی دوباره تلاش کنی.
+            </p>
+            <details className="mb-5 text-left" dir="ltr">
+              <summary className="cursor-pointer text-xs font-bold text-[#7b6252]">جزئیات فنی</summary>
+              <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-[#f0e7d8] p-3 text-xs text-[#3a2e2a]">{bootError}</pre>
+            </details>
+            <button
+              type="button"
+              className="fc-btn w-full rounded-2xl bg-[#2A9D8F] py-3 font-extrabold text-white"
+              onClick={() => window.location.reload()}
+            >
+              تلاش دوباره
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ============ صفحه بوت ============ */}
       {phase === "boot" && (
