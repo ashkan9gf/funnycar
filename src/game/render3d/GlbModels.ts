@@ -143,6 +143,15 @@ export function assembleCarFromGLB(
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.castShadow = true;
+      // حفظ ظاهر PBR مدل‌های واقعی؛ کمی براق‌تر شدن رنگ بدنه بدون متریال آینه‌ای پرهزینه.
+      const srcMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of srcMaterials) {
+        if (material instanceof THREE.MeshStandardMaterial && !material.transparent) {
+          material.roughness = Math.max(0.42, Math.min(0.84, material.roughness));
+          material.metalness = Math.max(0, Math.min(0.22, material.metalness));
+          material.envMapIntensity = 1.1;
+        }
+      }
       const name = (mesh.name || '').toLowerCase();
       if (name.includes('wheel') || name.includes('tire') || name.includes('tyre')) {
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
