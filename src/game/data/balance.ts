@@ -341,7 +341,7 @@ export const SAVE = {
 export const RENDER = {
   /** عرض منطقی بازی — همه محاسبات با این است (ارتفاع متغیر با صفحه) */
   logicalWidth: 720,
-  maxDevicePixelRatio: 2,
+  maxDevicePixelRatio: 1.5,
   /** کاشی پایه دنیا */
   tileSize: 256,
 } as const;
