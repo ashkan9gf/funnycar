@@ -686,13 +686,17 @@ export class GameManager {
       const kdy = impact > 40 ? relVy : dy;
       c.knock(kdx, kdy, impact);
 
-      // بازیکن فقط در ضربه واقعی کند می‌شود — ساییدنِ آرام دیگر حالت قفل ندارد
+      // برخورد خودرو به خودرو: پاسخ سرعت بر پایه جهت تماس به‌جای ضریب ثابتِ سرعت.
+      const hardImpact = impact > COLLISION.hardCrashSpeed;
+      v.applyCollisionResponse(
+        mtv.x,
+        mtv.y,
+        hardImpact ? COLLISION.hardRestitution : COLLISION.restitution,
+        hardImpact ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
+      );
       if (impact > COLLISION.softCrashSpeed) {
-        v.speed *= 0.55;
-        v.latVel *= 0.4;
         c.stun(TRAFFIC.stunnedSec * 1.4);
       } else {
-        v.speed *= 0.985;
         c.stun(0.5);
       }
 
@@ -871,17 +875,20 @@ export class GameManager {
       v.x += mtv.x * mtv.depth;
       v.y += mtv.y * mtv.depth;
 
-      const impact = Math.abs(v.speed);
+      const contactVx = v.vx + Math.cos(v.angle) * v.latVel;
+      const contactVy = v.vy + Math.sin(v.angle) * v.latVel;
+      const impact = Math.abs(contactVx * mtv.x + contactVy * mtv.y);
       if (impact < PARKED_HIT.softSpeed) {
-        v.speed *= 0.995;
+        v.applyCollisionResponse(mtv.x, mtv.y, 0.025, 0.985);
         continue;
       }
       const hard = impact > PARKED_HIT.hardSpeed;
-      if (hard) {
-        v.speed *= PARKED_HIT.hardKeep;
-      } else {
-        v.speed *= PARKED_HIT.slideKeep;
-      }
+      v.applyCollisionResponse(
+        mtv.x,
+        mtv.y,
+        hard ? COLLISION.hardRestitution : COLLISION.restitution,
+        hard ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
+      );
       if (this.parkedCd > 0) break;
       this.parkedCd = PARKED_HIT.cooldownSec;
       const cx = (v.x + pc.x) / 2;
@@ -1053,7 +1060,8 @@ export class GameManager {
       this.audio.crash(hard);
       this.camera.addShake(hard ? CAM.maxShake : CAM.maxShake * 0.45);
       // نقطه برخورد داینامیک: ذرات + جرقه در نقطه تماس + خرابی بدنه (فاز BIG-IR)
-      this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
+      this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#ffd166' : '#D6D6D6', hard ? 18 : 8, hard ? 280 : 140);
+      if (hard) this.fx.spawnBurst(result.impactX, result.impactY, '#ff6b35', 10, 240);
       // فاز OVERHAUL: لاشه + شیشه در تصادف سخت
       if (hard) {
         this.fx.spawnDebris?.(result.impactX, result.impactY, '#4a4a48', 10, 300, 10);
