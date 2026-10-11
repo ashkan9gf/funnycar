@@ -48,6 +48,27 @@ export class GlbLibrary {
         .then((buf) => {
           this.loader.parse(buf, '', (gltf) => {
             const scene = gltf.scene as THREE.Group;
+            // فیلتر ناهمسانگرد برای بافت‌های اریب (آسفالت، شیشه و نمای ساختمان):
+            // جزئیات از زاویه دوربین واضح‌تر می‌مانند، بدون افزایش اندازه فایل مدل.
+            const textureSlots = [
+              'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap',
+              'emissiveMap', 'alphaMap', 'lightMap', 'bumpMap', 'displacementMap',
+            ];
+            scene.traverse((obj) => {
+              const mesh = obj as THREE.Mesh;
+              if (!mesh.isMesh) return;
+              const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+              for (const material of mats) {
+                const slots = material as unknown as Record<string, unknown>;
+                for (const slot of textureSlots) {
+                  const texture = slots[slot] as THREE.Texture | null | undefined;
+                  if (texture?.isTexture && texture.anisotropy < 4) {
+                    texture.anisotropy = 4;
+                    texture.needsUpdate = true;
+                  }
+                }
+              }
+            });
             this.ready.set(relPath, scene); // 🔑 GLB-ONLY: برای getLoadedSync
             resolve(scene);
           }, () => resolve(null));
@@ -147,9 +168,23 @@ export function assembleCarFromGLB(
       const srcMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const material of srcMaterials) {
         if (material instanceof THREE.MeshStandardMaterial && !material.transparent) {
-          material.roughness = Math.max(0.42, Math.min(0.84, material.roughness));
-          material.metalness = Math.max(0, Math.min(0.22, material.metalness));
-          material.envMapIntensity = 1.1;
+          const materialName = material.name.toLowerCase();
+          if (/tire|tyre|rubber|plastic/.test(materialName)) {
+            // لاستیک و پلاستیک مات بمانند؛ رفلکس فلزی غیرطبیعی نگیرند.
+            material.roughness = Math.max(0.7, material.roughness);
+            material.metalness = Math.min(0.06, material.metalness);
+            material.envMapIntensity = 0.45;
+          } else if (/chrome|rim|metal/.test(materialName)) {
+            // رینگ و قطعات فلزی بازتاب واضح‌تر اما غیرآینه‌ای دارند.
+            material.roughness = Math.max(0.24, Math.min(0.5, material.roughness));
+            material.metalness = Math.max(0.12, Math.min(0.45, material.metalness));
+            material.envMapIntensity = 1.4;
+          } else {
+            // رنگ بدنه: جلای خودرویی طبیعی به‌جای ظاهر گچی و تخت.
+            material.roughness = Math.max(0.32, Math.min(0.72, material.roughness));
+            material.metalness = Math.max(0, Math.min(0.3, material.metalness));
+            material.envMapIntensity = 1.25;
+          }
         }
       }
       const name = (mesh.name || '').toLowerCase();

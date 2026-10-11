@@ -11,6 +11,7 @@
  */
 
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { AssetManager } from '../core/AssetManager';
 import type { Camera } from '../core/Camera';
@@ -244,7 +245,9 @@ export class WorldRenderer3D {
   private basePixelW = 1;
   private basePixelH = 1;
   /** مقیاس رندر تطبیقی: روی گوشی در افت فریم رزولوشن داخلی کم می‌شود، نه جزئیات مدل‌ها. */
-  private renderScale = this.mobileMode ? 0.94 : 1;
+  private renderScale = 1;
+  /** PMREM محیط استودیویی برای انعکاس کنترل‌شده روی رنگ بدنه و نمای ساختمان‌ها. */
+  private environmentTarget: THREE.WebGLRenderTarget | null = null;
   private qualityElapsed = 0;
   private qualityFrameTime = 0;
   private qualityFrameCount = 0;
@@ -340,7 +343,23 @@ export class WorldRenderer3D {
 
     // تون‌مپینگ سینمایی سبک GTA (رنگ‌ها غنی‌تر)
     this.r3.toneMapping = THREE.ACESFilmicToneMapping;
-    this.r3.toneMappingExposure = 1.17;
+    this.r3.toneMappingExposure = 1.2;
+
+    // نور محیطی مبتنی بر PMREM: بازتاب نرم روی رنگ خودروها و سطوح PBR،
+    // بدون فعال‌کردن shadow map سنگین روی GPU موبایل.
+    const pmrem = new THREE.PMREMGenerator(this.r3);
+    const studio = new RoomEnvironment();
+    this.environmentTarget = pmrem.fromScene(studio, 0.04);
+    this.scene.environment = this.environmentTarget.texture;
+    this.scene.environmentIntensity = this.mobileMode ? 0.62 : 0.82;
+    pmrem.dispose();
+    studio.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = (mesh as unknown as { material?: THREE.Material | THREE.Material[] }).material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else if (mat) mat.dispose();
+    });
 
     // نور: خورشید طلایی با سایه‌های بلند + آسمان روشن
     const hemi = new THREE.HemisphereLight('#eaf2f8', '#c9a97a', RENDER3D.hemiIntensity);
@@ -1437,8 +1456,9 @@ export class WorldRenderer3D {
         const std = c as THREE.MeshStandardMaterial;
         if (std.isMeshStandardMaterial) {
           // نمای ساختمان مات می‌ماند، اما کاملاً گچی و تخت دیده نمی‌شود.
-          std.metalness = Math.min(std.metalness, 0.08);
-          std.roughness = Math.min(0.9, Math.max(0.62, std.roughness));
+          std.metalness = Math.min(std.metalness, 0.12);
+          std.roughness = Math.min(0.92, Math.max(0.48, std.roughness));
+          std.envMapIntensity = 0.55;
         }
         const cm = c as THREE.MeshLambertMaterial;
         if (cm.color) {
@@ -2049,8 +2069,10 @@ export class WorldRenderer3D {
     this.qualityFrameCount = 0;
 
     let nextScale = this.renderScale;
-    if (averageFrame > 0.0215) nextScale = Math.max(0.72, this.renderScale - 0.08);
-    else if (averageFrame < 0.018) nextScale = Math.min(1, this.renderScale + 0.04);
+    // کاهش رزولوشن آرام‌تر و با کف بالاتر؛ افت کیفیت تصویر دیگر به ۷۲٪ نمی‌رسد.
+    // فریم سنگین گهگاهی نیز نباید بلافاصله باعث افت محسوس وضوح شود.
+    if (averageFrame > 0.024) nextScale = Math.max(0.84, this.renderScale - 0.04);
+    else if (averageFrame < 0.0185) nextScale = Math.min(1, this.renderScale + 0.02);
     if (Math.abs(nextScale - this.renderScale) < 0.001) return;
     this.renderScale = nextScale;
     this.applyRenderSize();
@@ -2845,6 +2867,8 @@ export class WorldRenderer3D {
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
       else if (mat) mat.dispose();
     });
+    this.environmentTarget?.dispose();
+    this.environmentTarget = null;
     // توجه: کانتکت WebGL را نمی‌بندیم (loseContext) — چون کانواس در
     // StrictMode/HMR دوباره استفاده می‌شود و کانتکت همان است.
     this.r3.dispose();
