@@ -304,8 +304,15 @@ export class WorldRenderer3D {
     /** چراغ‌های تقاطع (فاز OVERHAUL) — برای رندر لامپ‌ها */
     private lights: TrafficLights,
   ) {
-    this.r3 = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl as WebGL2RenderingContext, antialias: true });
-    this.r3.shadowMap.enabled = true;
+    const mobileMode = window.matchMedia("(pointer: coarse)").matches;
+    this.r3 = new THREE.WebGLRenderer({
+      canvas: glCanvas,
+      context: gl as WebGL2RenderingContext,
+      antialias: !mobileMode,
+      powerPreference: "high-performance",
+    });
+    // Mobile GPUs are bandwidth-limited: keep desktop shadows, prioritize stable frame time on phones.
+    this.r3.shadowMap.enabled = !mobileMode;
     // PCFSoftShadowMap در three r186 حذف شده — PCF استاندارد
     this.r3.shadowMap.type = THREE.PCFShadowMap;
     // فاز OVERHAUL: مدیریت رنگ صریح (خروجی sRGB)
