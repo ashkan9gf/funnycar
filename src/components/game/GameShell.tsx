@@ -181,6 +181,7 @@ export default function GameShell() {
   /** فاز ۶: گاراژ عمو نقی */
   const [showGarage, setShowGarage] = useState(false);
   const [garage, setGarage] = useState<GarageView | null>(null);
+  const isAndroidBuild = process.env.NEXT_PUBLIC_ANDROID_BUILD === "1";
 
   /** باز کردن گاراژ + تازه‌سازی داده */
   const openGarage = useCallback(() => {
@@ -356,27 +357,29 @@ export default function GameShell() {
               <span className="rounded-full bg-[#3a2e2a] px-2 py-0.5 text-[10px] font-extrabold text-[#F2B705]">جدید</span>
             </button>
 
-            {/* کنسول تست + فایل‌های پروژه (ابزار تست) */}
-            <div className="flex w-full max-w-xs gap-2">
-              <a
-                href="/test"
-                target="_blank"
-                rel="noreferrer"
-                className="fc-btn flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-[#FFF9EC] py-2.5 text-sm font-extrabold text-[#3a2e2a] no-underline"
-              >
-                <FlaskConical className="h-4 w-4" />
-                کنسول تست
-              </a>
-              <a
-                href="/files"
-                target="_blank"
-                rel="noreferrer"
-                className="fc-btn flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-[#FFF9EC] py-2.5 text-sm font-extrabold text-[#3a2e2a] no-underline"
-              >
-                <FolderOpen className="h-4 w-4" />
-                فایل‌ها
-              </a>
-            </div>
+            {/* ابزارهای توسعه فقط در نسخه وب نمایش داده می‌شوند */}
+            {!isAndroidBuild && (
+              <div className="flex w-full max-w-xs gap-2">
+                <a
+                  href="/test"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="fc-btn flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-[#FFF9EC] py-2.5 text-sm font-extrabold text-[#3a2e2a] no-underline"
+                >
+                  <FlaskConical className="h-4 w-4" />
+                  کنسول تست
+                </a>
+                <a
+                  href="/files"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="fc-btn flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-[#FFF9EC] py-2.5 text-sm font-extrabold text-[#3a2e2a] no-underline"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  فایل‌ها
+                </a>
+              </div>
+            )}
 
             {/* تنظیمات */}
             {showSettings ? (
