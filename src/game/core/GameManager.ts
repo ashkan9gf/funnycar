@@ -1346,7 +1346,9 @@ export class GameManager {
 
   // ============ رویدادهای صفحه ============
   private handleResize = (): void => {
-    const dpr = Math.min(RENDER.maxDevicePixelRatio, window.devicePixelRatio || 1);
+    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+    const maxDpr = isTouchDevice ? 1.25 : RENDER.maxDevicePixelRatio;
+    const dpr = Math.min(maxDpr, window.devicePixelRatio || 1);
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.canvas.width = Math.round(w * dpr);
