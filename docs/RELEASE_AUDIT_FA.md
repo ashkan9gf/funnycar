@@ -10,6 +10,7 @@
 - WebView debugging از حالت فعال به غیرفعال تغییر کرده است.
 - فایل‌های خروجی کامپایل اندروید و کلیدهای keystore به gitignore افزوده شده‌اند.
 - workflow کنترل کیفیت وب اضافه شده است تا نصب وابستگی‌های قفل‌شده، lint و production build در GitHub Actions بررسی شوند.
+- مهاجرت SaveManager مقاوم‌تر شده است: مقادیر NaN/Infinity و داده‌های ناقص سیو پاک‌سازی می‌شوند و دسترسی مسدودشده به localStorage نباید به‌تنهایی بازی را متوقف کند.
 - فایل keystore آزمایشی از شاخه ممیزی حذف شده است.
 
 ## موانع انتشار که هنوز باید حل/تأیید شوند
@@ -23,7 +24,8 @@
 
 ## دروازه پذیرش انتشار
 
-- [ ] GitHub Actions: install + lint + build موفق
+- [x] GitHub Actions: install + lint + build موفق (روی commit `0f01218`)
+- [ ] اجرای مجدد GitHub Actions پس از آخرین اصلاحات SaveManager
 - [ ] خروجی وب کپی‌شده در مسیر دقیق Android assets و وجود index.html
 - [ ] بیلد Android تکرارپذیر از سورس تمیز
 - [ ] APK نصب‌شده و اجرای واقعی روی دستگاه/شبیه‌ساز
