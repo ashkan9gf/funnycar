@@ -102,7 +102,7 @@ jobs:
           if marker not in manifest:
               raise SystemExit("MainActivity entry not found; refusing to produce a portrait APK")
           if 'android:screenOrientation="landscape"' not in manifest:
-              manifest = manifest.replace(marker, marker + '\\n            android:screenOrientation="landscape"', 1)
+              manifest = manifest.replace(marker, marker + '\n            android:screenOrientation="landscape"', 1)
           path.write_text(manifest)
           if 'android:screenOrientation="landscape"' not in path.read_text():
               raise SystemExit("Landscape orientation was not applied")
