@@ -157,6 +157,9 @@ export class GameManager {
   private raf = 0;
   private lastFrame = 0;
   private accumulator = 0;
+  /** حداکثر ۶۰ رندر در ثانیه؛ شبیه‌سازی همچنان با گام ثابت ادامه دارد. */
+  private lastRenderAt = 0;
+  private visualAccumulator = 0;
   private scale = 1;
   private showFps = false;
   private fpsAccum = 0;
@@ -981,15 +984,6 @@ export class GameManager {
       const rawDt = Math.min(0.1, (now - this.lastFrame) / 1000 || 0);
       this.lastFrame = now;
 
-      // FPS
-      this.fpsAccum += rawDt;
-      this.fpsCount++;
-      if (this.fpsAccum >= 0.5) {
-        this.fpsValue = Math.round(this.fpsCount / this.fpsAccum);
-        this.fpsAccum = 0;
-        this.fpsCount = 0;
-      }
-
       if (this.state === 'playing') {
         this.accumulator += rawDt;
         let steps = 0;
@@ -1002,9 +996,24 @@ export class GameManager {
         this.voice.update(rawDt);
       }
 
-      this.fx.update(rawDt);
-      this.draw();
-      this.emitHud(rawDt);
+      // انباشتن زمان افکت‌ها تا وقتی رندر محدود می‌شود، سرعت انیمیشن‌ها تغییر نکند.
+      this.visualAccumulator += rawDt;
+      const renderInterval = 1000 / 60;
+      if (this.lastRenderAt === 0 || now - this.lastRenderAt >= renderInterval) {
+        const renderDt = this.lastRenderAt > 0 ? Math.min(0.1, (now - this.lastRenderAt) / 1000) : rawDt;
+        this.fpsAccum += renderDt;
+        this.fpsCount++;
+        if (this.fpsAccum >= 0.5) {
+          this.fpsValue = Math.round(this.fpsCount / this.fpsAccum);
+          this.fpsAccum = 0;
+          this.fpsCount = 0;
+        }
+        this.fx.update(Math.min(0.1, this.visualAccumulator));
+        this.visualAccumulator = 0;
+        this.draw();
+        this.emitHud(renderDt);
+        this.lastRenderAt = now;
+      }
     } catch (err) {
       // خطای یک فریم هرگز بازی را نمی‌بندد
       console.warn('[Game] frame error:', err);
