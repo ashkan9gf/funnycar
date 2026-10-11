@@ -340,7 +340,7 @@ export class WorldRenderer3D {
 
     // تون‌مپینگ سینمایی سبک GTA (رنگ‌ها غنی‌تر)
     this.r3.toneMapping = THREE.ACESFilmicToneMapping;
-    this.r3.toneMappingExposure = 1.14;
+    this.r3.toneMappingExposure = 1.17;
 
     // نور: خورشید طلایی با سایه‌های بلند + آسمان روشن
     const hemi = new THREE.HemisphereLight('#eaf2f8', '#c9a97a', RENDER3D.hemiIntensity);
@@ -1435,7 +1435,11 @@ export class WorldRenderer3D {
         if (hit) return hit;
         const c = mm.clone();
         const std = c as THREE.MeshStandardMaterial;
-        if (std.isMeshStandardMaterial) { std.metalness = 0; std.roughness = 1; }
+        if (std.isMeshStandardMaterial) {
+          // نمای ساختمان مات می‌ماند، اما کاملاً گچی و تخت دیده نمی‌شود.
+          std.metalness = Math.min(std.metalness, 0.08);
+          std.roughness = Math.min(0.9, Math.max(0.62, std.roughness));
+        }
         const cm = c as THREE.MeshLambertMaterial;
         if (cm.color) {
           if (cm.map) cm.color.multiply(tintCG);
