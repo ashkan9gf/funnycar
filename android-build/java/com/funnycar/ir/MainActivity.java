@@ -2,7 +2,6 @@ package com.funnycar.ir;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -43,8 +42,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Force landscape even on devices whose sensor orientation starts in portrait.
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
