@@ -1,5 +1,5 @@
 /** @type {import('@capacitor/cli').CapacitorConfig} */
-const config = {
+module.exports = {
   appId: "com.funnycar.ir",
   appName: "FunnyCarIR",
   webDir: "out",
@@ -7,5 +7,3 @@ const config = {
     androidScheme: "https",
   },
 };
-
-export default config;
