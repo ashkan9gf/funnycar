@@ -773,7 +773,7 @@ export default function GameShell() {
               <HoldButton
                 ariaLabel="فرمان راست"
                 onHold={steerRight}
-                className="h-[88px] w-[88px] bg-[#FFF3D6] text-[#3a2e2a]"
+                className="bg-[#FFF3D6] text-[#3a2e2a]" style={{ width: "clamp(54px, 10vh, 88px)", height: "clamp(54px, 10vh, 88px)" }}
               >
                 <ChevronRight className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
