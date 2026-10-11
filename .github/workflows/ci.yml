@@ -2,12 +2,16 @@ name: FunnyCar quality checks
 
 on:
   push:
-    branches: [main, "audit/**"]
+    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
   contents: read
+
+concurrency:
+  group: funnycar-ci-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   web-quality:
