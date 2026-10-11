@@ -233,3 +233,27 @@ input[type="range"].fc-range::-moz-range-thumb {
   border: 3px solid var(--fc-ink);
   cursor: pointer;
 }
+
+
+/* Keep the driving HUD legible and prevent portrait-mode control overlap. */
+@media (orientation: portrait) {
+  .fc-landscape-root::after {
+    content: "لطفاً گوشی را افقی بچرخانید";
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: #201914;
+    color: #fff3d6;
+    font-family: var(--vazir);
+    font-size: clamp(1.1rem, 5vw, 1.7rem);
+    font-weight: 800;
+    text-align: center;
+  }
+  .fc-landscape-root > * {
+    visibility: hidden !important;
+  }
+}
