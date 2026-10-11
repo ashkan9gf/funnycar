@@ -182,15 +182,17 @@ export class SaveManager {
   }
 
   private load(): SaveData {
-    if (typeof window === 'undefined' || !window.localStorage) return defaultSave();
+    if (typeof window === 'undefined') return defaultSave();
     try {
-      const text = window.localStorage.getItem(SAVE.key);
+      // Accessing localStorage itself can throw in restricted WebView/private contexts.
+      const storage = window.localStorage;
+      const text = storage.getItem(SAVE.key);
       if (text) {
         const parsed = safeParse(text);
         if (parsed !== null) return migrate(parsed);
       }
       // نسخه اصلی خراب/خالی → بازیابی از backup
-      const backup = window.localStorage.getItem(SAVE.backupKey);
+      const backup = storage.getItem(SAVE.backupKey);
       if (backup) {
         const parsed = safeParse(backup);
         if (parsed !== null) return migrate(parsed);
