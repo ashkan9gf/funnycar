@@ -1,5 +1,5 @@
 // تست قطعی SAT — برخورد دقیق (بدون برخورد خیالی)
-const { obbFromAngle, obbFromAABB, satOverlapMTV } = require('/home/z/my-project/node_modules/.bin/../src/game/entities/obb.ts');
+import { obbFromAngle, obbFromAABB, satOverlapMTV } from '../src/game/entities/obb.ts';
 
 let pass = 0, fail = 0;
 function check(name, cond) {

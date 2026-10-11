@@ -72,17 +72,23 @@ function migrate(raw: unknown): SaveData {
   // نسخه‌های آینده اینجا زنجیره‌وار ارتقا می‌یابند: if (data.version === 1) {...}
   return {
     version: SAVE.version,
-    coins: typeof data.coins === 'number' && data.coins >= 0 ? Math.floor(data.coins) : base.coins,
-    reputation: typeof data.reputation === 'number'
+    coins: typeof data.coins === 'number' && Number.isFinite(data.coins) && data.coins >= 0
+      ? Math.floor(data.coins)
+      : base.coins,
+    reputation: typeof data.reputation === 'number' && Number.isFinite(data.reputation)
       ? Math.min(100, Math.max(0, data.reputation))
       : base.reputation,
-    unlockedVehicles: Array.isArray(data.unlockedVehicles) && data.unlockedVehicles.length > 0
-      ? data.unlockedVehicles.filter((v): v is string => typeof v === 'string')
+    unlockedVehicles: Array.isArray(data.unlockedVehicles) && data.unlockedVehicles.some((v) => typeof v === 'string')
+      ? [...new Set(data.unlockedVehicles.filter((v): v is string => typeof v === 'string' && v.length > 0))]
       : base.unlockedVehicles,
-    selectedVehicle: typeof data.selectedVehicle === 'string' ? data.selectedVehicle : base.selectedVehicle,
-    completedMissions: Array.isArray(data.completedMissions) ? data.completedMissions : [],
-    settings: { ...base.settings, ...(typeof data.settings === 'object' && data.settings !== null ? data.settings : {}) },
-    progress: { ...base.progress, ...(typeof data.progress === 'object' && data.progress !== null ? data.progress : {}) },
+    selectedVehicle: typeof data.selectedVehicle === 'string' && data.selectedVehicle.length > 0
+      ? data.selectedVehicle
+      : base.selectedVehicle,
+    completedMissions: Array.isArray(data.completedMissions)
+      ? [...new Set(data.completedMissions.filter((id): id is string => typeof id === 'string' && id.length > 0))]
+      : [],
+    settings: migrateSettings(data.settings, base.settings),
+    progress: migrateProgress(data.progress, base.progress),
     upgrades: migrateUpgrades(data.upgrades),
     ownedPaints: migratePaints(data.ownedPaints),
     paint: typeof data.paint === 'string' && PAINT_IDS.includes(data.paint) ? data.paint : DEFAULT_PAINT_ID,
@@ -121,6 +127,28 @@ function migratePaints(raw: unknown): string[] {
   return list;
 }
 
+function migrateSettings(raw: unknown, base: GameSettings): GameSettings {
+  if (typeof raw !== 'object' || raw === null) return { ...base };
+  const value = raw as Partial<GameSettings>;
+  const volume = (v: unknown, fallback: number): number =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : fallback;
+  return {
+    music: volume(value.music, base.music),
+    sfx: volume(value.sfx, base.sfx),
+    voice: volume(value.voice, base.voice),
+    vibration: typeof value.vibration === 'boolean' ? value.vibration : base.vibration,
+  };
+}
+
+function migrateProgress(raw: unknown, base: SaveData['progress']): SaveData['progress'] {
+  if (typeof raw !== 'object' || raw === null) return { ...base };
+  const value = raw as Partial<SaveData['progress']>;
+  return {
+    tutorialDone: typeof value.tutorialDone === 'boolean' ? value.tutorialDone : base.tutorialDone,
+    firstRunDone: typeof value.firstRunDone === 'boolean' ? value.firstRunDone : base.firstRunDone,
+  };
+}
+
 function safeParse(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -154,15 +182,17 @@ export class SaveManager {
   }
 
   private load(): SaveData {
-    if (typeof window === 'undefined' || !window.localStorage) return defaultSave();
+    if (typeof window === 'undefined') return defaultSave();
     try {
-      const text = window.localStorage.getItem(SAVE.key);
+      // Accessing localStorage itself can throw in restricted WebView/private contexts.
+      const storage = window.localStorage;
+      const text = storage.getItem(SAVE.key);
       if (text) {
         const parsed = safeParse(text);
         if (parsed !== null) return migrate(parsed);
       }
       // نسخه اصلی خراب/خالی → بازیابی از backup
-      const backup = window.localStorage.getItem(SAVE.backupKey);
+      const backup = storage.getItem(SAVE.backupKey);
       if (backup) {
         const parsed = safeParse(backup);
         if (parsed !== null) return migrate(parsed);
