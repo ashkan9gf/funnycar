@@ -259,7 +259,7 @@ export default function GameShell() {
   const towCostLabel = hud.coins >= 30 ? "−۳۰ سکه" : "رایگان — رفیق مکانیکی!";
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
+    <div className="fc-landscape-root fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
       {/* بوم بازی — زیر همه لایه‌ها */}
       <canvas ref={canvasRef} className="fc-canvas absolute inset-0 h-full w-full" />
 
@@ -762,11 +762,11 @@ export default function GameShell() {
 
           {/* کنترل‌ها: فرمان پایین-چپ، گاز/ترمز پایین-راست — dir ltr تا RTL دکمه‌ها را برعکس نچیند */}
           <div className="pointer-events-none absolute inset-0 z-20">
-            <div className="pointer-events-auto absolute" style={{ left: 20, bottom: 28, display: "flex", gap: 14, direction: "ltr" }}>
+            <div className="pointer-events-auto absolute" style={{ left: "max(10px, env(safe-area-inset-left))", bottom: "max(10px, env(safe-area-inset-bottom))", display: "flex", gap: "clamp(8px, 1.5vw, 14px)", direction: "ltr" }}>
               <HoldButton
                 ariaLabel="فرمان چپ"
                 onHold={steerLeft}
-                className="h-[88px] w-[88px] bg-[#FFF3D6] text-[#3a2e2a]"
+                className="bg-[#FFF3D6] text-[#3a2e2a]" style={{ width: "clamp(54px, 10vh, 88px)", height: "clamp(54px, 10vh, 88px)" }}
               >
                 <ChevronLeft className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
@@ -778,19 +778,19 @@ export default function GameShell() {
                 <ChevronRight className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
             </div>
-            <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: 20, bottom: 28, direction: "ltr" }}>
+            <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: "max(10px, env(safe-area-inset-right))", bottom: "max(10px, env(safe-area-inset-bottom))", direction: "ltr", gap: "clamp(8px, 1.5vw, 12px)" }}>
               <div className="flex flex-col items-center gap-3">
                 <TapButton
                   ariaLabel="بوق"
                   onTap={() => gameRef.current?.pressHorn()}
-                  className="h-[60px] w-[60px] bg-[#F2B705] text-[#3a2e2a]"
+                  className="bg-[#F2B705] text-[#3a2e2a]" style={{ width: "clamp(42px, 7vh, 60px)", height: "clamp(42px, 7vh, 60px)" }}
                 >
                   <Megaphone className="h-7 w-7" />
                 </TapButton>
                 <HoldButton
                   ariaLabel="ترمز"
                   onHold={(d) => gameRef.current?.setVirtualBrake(d)}
-                  className="h-[76px] w-[76px] bg-[#D64545] text-white"
+                  className="bg-[#D64545] text-white" style={{ width: "clamp(48px, 8.5vh, 76px)", height: "clamp(48px, 8.5vh, 76px)" }}
                 >
                   <Square className="h-8 w-8" strokeWidth={2.6} />
                 </HoldButton>
@@ -798,7 +798,7 @@ export default function GameShell() {
               <HoldButton
                 ariaLabel="گاز"
                 onHold={(d) => gameRef.current?.setVirtualGas(d)}
-                className="h-[100px] w-[100px] bg-[#8AC926] text-[#3a2e2a]"
+                className="bg-[#8AC926] text-[#3a2e2a]" style={{ width: "clamp(58px, 11vh, 100px)", height: "clamp(58px, 11vh, 100px)" }}
               >
                 <ArrowUp className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
