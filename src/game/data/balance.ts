@@ -375,8 +375,8 @@ export const RENDER3D = {
   fogFar: 3300,
   skyColor: '#AEDCEB',
   /** نور */
-  sunIntensity: 1.35,
-  hemiIntensity: 0.85,
+  sunIntensity: 1.42,
+  hemiIntensity: 0.92,
   /** سقف رد لاستیک و ذرات در حالت سه‌بعدی (Pool) */
   skidMax: 180,
   particleMax: 140,
