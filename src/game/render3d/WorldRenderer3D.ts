@@ -11,6 +11,7 @@
  */
 
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { AssetManager } from '../core/AssetManager';
 import type { Camera } from '../core/Camera';
@@ -238,8 +239,18 @@ export class WorldRenderer3D {
 
   // دوربین
   private camAngle = 0;
-  private lastDrawMs = 0;
+  private mobileMode = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
   private dpr = 1;
+  private baseDpr = 1;
+  private basePixelW = 1;
+  private basePixelH = 1;
+  /** مقیاس رندر تطبیقی: روی گوشی در افت فریم رزولوشن داخلی کم می‌شود، نه جزئیات مدل‌ها. */
+  private renderScale = 1;
+  /** PMREM محیط استودیویی برای انعکاس کنترل‌شده روی رنگ بدنه و نمای ساختمان‌ها. */
+  private environmentTarget: THREE.WebGLRenderTarget | null = null;
+  private qualityElapsed = 0;
+  private qualityFrameTime = 0;
+  private qualityFrameCount = 0;
   private overlayW = 1;
   private overlayH = 1;
   /** FOV پایه (با extraFov صفحه باریک) — فاز OVERHAUL برای FOV سرعتی */
@@ -304,8 +315,15 @@ export class WorldRenderer3D {
     /** چراغ‌های تقاطع (فاز OVERHAUL) — برای رندر لامپ‌ها */
     private lights: TrafficLights,
   ) {
-    this.r3 = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl as WebGL2RenderingContext, antialias: true });
-    this.r3.shadowMap.enabled = true;
+    const mobileMode = this.mobileMode;
+    this.r3 = new THREE.WebGLRenderer({
+      canvas: glCanvas,
+      context: gl as WebGL2RenderingContext,
+      antialias: !mobileMode,
+      powerPreference: "high-performance",
+    });
+    // Mobile GPUs are bandwidth-limited: keep desktop shadows, prioritize stable frame time on phones.
+    this.r3.shadowMap.enabled = !mobileMode;
     // PCFSoftShadowMap در three r186 حذف شده — PCF استاندارد
     this.r3.shadowMap.type = THREE.PCFShadowMap;
     // فاز OVERHAUL: مدیریت رنگ صریح (خروجی sRGB)
@@ -325,7 +343,23 @@ export class WorldRenderer3D {
 
     // تون‌مپینگ سینمایی سبک GTA (رنگ‌ها غنی‌تر)
     this.r3.toneMapping = THREE.ACESFilmicToneMapping;
-    this.r3.toneMappingExposure = 1.14;
+    this.r3.toneMappingExposure = 1.2;
+
+    // نور محیطی مبتنی بر PMREM: بازتاب نرم روی رنگ خودروها و سطوح PBR،
+    // بدون فعال‌کردن shadow map سنگین روی GPU موبایل.
+    const pmrem = new THREE.PMREMGenerator(this.r3);
+    const studio = new RoomEnvironment();
+    this.environmentTarget = pmrem.fromScene(studio, 0.04);
+    this.scene.environment = this.environmentTarget.texture;
+    this.scene.environmentIntensity = this.mobileMode ? 0.62 : 0.82;
+    pmrem.dispose();
+    studio.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = (mesh as unknown as { material?: THREE.Material | THREE.Material[] }).material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else if (mat) mat.dispose();
+    });
 
     // نور: خورشید طلایی با سایه‌های بلند + آسمان روشن
     const hemi = new THREE.HemisphereLight('#eaf2f8', '#c9a97a', RENDER3D.hemiIntensity);
@@ -1420,7 +1454,12 @@ export class WorldRenderer3D {
         if (hit) return hit;
         const c = mm.clone();
         const std = c as THREE.MeshStandardMaterial;
-        if (std.isMeshStandardMaterial) { std.metalness = 0; std.roughness = 1; }
+        if (std.isMeshStandardMaterial) {
+          // نمای ساختمان مات می‌ماند، اما کاملاً گچی و تخت دیده نمی‌شود.
+          std.metalness = Math.min(std.metalness, 0.12);
+          std.roughness = Math.min(0.92, Math.max(0.48, std.roughness));
+          std.envMapIntensity = 0.55;
+        }
         const cm = c as THREE.MeshLambertMaterial;
         if (cm.color) {
           if (cm.map) cm.color.multiply(tintCG);
@@ -2016,8 +2055,33 @@ export class WorldRenderer3D {
     return Math.min(0.05, Math.max(0.001, dt));
   }
 
+  /** به‌جای کاهش دائمی کیفیت مدل‌ها، رزولوشن داخلی فقط هنگام افت محسوس FPS تنظیم می‌شود. */
+  private updateAdaptiveRenderScale(dt: number): void {
+    if (!this.mobileMode || this.basePixelW < 2 || this.basePixelH < 2) return;
+    this.qualityElapsed += dt;
+    this.qualityFrameTime += dt;
+    this.qualityFrameCount++;
+    if (this.qualityElapsed < 1 || this.qualityFrameCount === 0) return;
+
+    const averageFrame = this.qualityFrameTime / this.qualityFrameCount;
+    this.qualityElapsed = 0;
+    this.qualityFrameTime = 0;
+    this.qualityFrameCount = 0;
+
+    let nextScale = this.renderScale;
+    // کاهش رزولوشن آرام‌تر و با کف بالاتر؛ افت کیفیت تصویر دیگر به ۷۲٪ نمی‌رسد.
+    // فریم سنگین گهگاهی نیز نباید بلافاصله باعث افت محسوس وضوح شود.
+    if (averageFrame > 0.024) nextScale = Math.max(0.84, this.renderScale - 0.04);
+    else if (averageFrame < 0.0185) nextScale = Math.min(1, this.renderScale + 0.02);
+    if (Math.abs(nextScale - this.renderScale) < 0.001) return;
+    this.renderScale = nextScale;
+    this.applyRenderSize();
+  }
+
   draw3D(opts: Draw3DOptions): void {
     const t = performance.now() / 1000;
+    const frameDt = this.drawDt();
+    this.updateAdaptiveRenderScale(frameDt);
     const car = opts.car;
 
     // ---------- فاز ENDLESS-1: جریان بصری قطعه‌ها با بودجهٔ فریمی + زمین دنبال‌کننده ----------
@@ -2028,7 +2092,7 @@ export class WorldRenderer3D {
     this.playerModel.group.position.set(car.x, 0, car.y);
     this.playerModel.group.rotation.y = -car.angle;
     const wheelR = car.drawH * 0.135;
-    const spin = (car.speed / wheelR) * this.drawDt();
+    const spin = (car.speed / wheelR) * frameDt;
     spinWheels(this.playerModel, spin);
 
     // ---------- فاز OVERHAUL: ترمز/فرمان/رول/پیک بدنه بازیکن ----------
@@ -2041,13 +2105,13 @@ export class WorldRenderer3D {
     }
     // فرمان بصری چرخ‌های جلو — با محور واقعی هر پیوت
     const steerTarget = (opts.steer ?? 0) * 0.42;
-    this.steerVis += (steerTarget - this.steerVis) * Math.min(1, 10 * 0.016);
+    this.steerVis += (steerTarget - this.steerVis) * Math.min(1, 10 * frameDt);
     steerWheels(pmodel, this.steerVis);
     // رول بدنه (خم به بیرون پیچ) + پیک گاز/ترمز
     const rollTarget = Math.max(-0.08, Math.min(0.08, -car.latVel * 0.0006));
-    this.rollVis += (rollTarget - this.rollVis) * Math.min(1, 6 * 0.016);
+    this.rollVis += (rollTarget - this.rollVis) * Math.min(1, 6 * frameDt);
     const pitchTarget = opts.braking ? 0.035 : opts.accelerating ? -0.022 : 0;
-    this.pitchVis += (pitchTarget - this.pitchVis) * Math.min(1, 5 * 0.016);
+    this.pitchVis += (pitchTarget - this.pitchVis) * Math.min(1, 5 * frameDt);
     pmodel.rollZ = this.rollVis;
     pmodel.pitchX = this.pitchVis;
     pmodel.group.rotation.z = (pmodel.damageTiltZ ?? 0) + this.rollVis;
@@ -2067,7 +2131,7 @@ export class WorldRenderer3D {
       model.group.position.set(c.x, 0, c.y);
       model.group.rotation.y = -c.angle;
       const wr = c.drawH * 0.135;
-      spinWheels(model, (c.speed / wr) * this.drawDt());
+      spinWheels(model, (c.speed / wr) * frameDt);
       // چراغ ترمز ترافیک: کند شدن ناگهانی
       const prev = (model as unknown as { __prevSpeed?: number }).__prevSpeed ?? c.speed;
       const braking = c.speed < prev - 1.5 || (c.speed < 8 && prev < 8 && c.atLight);
@@ -2288,10 +2352,7 @@ export class WorldRenderer3D {
     if (this.skidMesh.instanceColor) this.skidMesh.instanceColor.needsUpdate = true;
 
     // ---------- دوربین Chase ----------
-    const nowMs = performance.now();
-    const dt = Math.min(0.1, Math.max(0.0001, (nowMs - this.lastDrawMs) / 1000));
-    this.lastDrawMs = nowMs;
-    this.updateChaseCamera(car, dt, t);
+    this.updateChaseCamera(car, frameDt, t);
 
     // ---------- نور خورشید دنبال بازیکن — زاویه پایین‌تر = سایه‌های بلند سینمایی ----------
     this.sun.position.set(car.x + 520, 640, car.y + 380);
@@ -2769,18 +2830,27 @@ export class WorldRenderer3D {
 
   // ============ اندازه و پاک‌سازی ============
 
-  /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی */
+  /** اندازه پایه از CSS/DPR؛ مقیاس داخلی می‌تواند برای حفظ FPS پایین‌تر بیاید. */
   resize(pixelW: number, pixelH: number, dpr: number): void {
-    this.dpr = dpr;
+    this.basePixelW = Math.max(1, pixelW);
+    this.basePixelH = Math.max(1, pixelH);
+    this.baseDpr = Math.max(0.5, dpr);
+    this.applyRenderSize();
+  }
+
+  private applyRenderSize(): void {
+    const pixelW = Math.max(1, Math.round(this.basePixelW * this.renderScale));
+    const pixelH = Math.max(1, Math.round(this.basePixelH * this.renderScale));
+    this.dpr = this.baseDpr * this.renderScale;
     this.r3.setPixelRatio(1);
     this.r3.setSize(pixelW, pixelH, false);
     this.overlay.width = pixelW;
     this.overlay.height = pixelH;
-    // ابعاد منطقی برای پروجکشن = پیکسل CSS
+    // ابعاد منطقی برای پروجکشن = پیکسل CSS؛ بوم کوچک‌تر با CSS کشیده می‌شود.
     const rect = this.overlay.getBoundingClientRect();
-    this.overlayW = rect.width || pixelW / dpr;
-    this.overlayH = rect.height || pixelH / dpr;
-    // FOV تطبیقی: در صفحه‌های باریک (موبایل عمودی) زاویه دید بازتر می‌شود
+    this.overlayW = rect.width || pixelW / Math.max(this.dpr, 0.1);
+    this.overlayH = rect.height || pixelH / Math.max(this.dpr, 0.1);
+    // FOV تطبیقی: در صفحه‌های باریک زاویه دید بازتر می‌شود.
     const aspect = this.overlayW / Math.max(1, this.overlayH);
     const extraFov = Math.min(26, Math.max(0, (1 / Math.max(aspect, 0.2) - 1) * 22));
     this.fovBase = RENDER3D.fov + extraFov;
@@ -2797,6 +2867,8 @@ export class WorldRenderer3D {
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
       else if (mat) mat.dispose();
     });
+    this.environmentTarget?.dispose();
+    this.environmentTarget = null;
     // توجه: کانتکت WebGL را نمی‌بندیم (loseContext) — چون کانواس در
     // StrictMode/HMR دوباره استفاده می‌شود و کانتکت همان است.
     this.r3.dispose();

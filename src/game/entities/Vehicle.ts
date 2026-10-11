@@ -212,9 +212,14 @@ export class Vehicle {
         res.front = this.isFrontHit(res.nx, res.ny);
       }
 
-      // ساییدن به مانع: سرعت کم می‌شود ولی حرکت ادامه می‌یابد (لغزش)
-      this.speed *= COLLISION.wallSlideFactor;
-      this.latVel *= 0.4;
+      // ضربه: جهش کم در راستای نرمال + اصطکاک روی سطح برخورد؛ مماس دیوار قفل نمی‌شود.
+      const hardImpact = axisImpact > COLLISION.hardCrashSpeed;
+      this.applyCollisionResponse(
+        mtv.x,
+        mtv.y,
+        hardImpact ? COLLISION.hardRestitution : COLLISION.restitution,
+        hardImpact ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
+      );
 
       if (axisImpact > COLLISION.softCrashSpeed) {
         res.crashed = true;

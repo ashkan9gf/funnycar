@@ -81,10 +81,7 @@ export function TapButton({ label, children, ariaLabel, className = "", style, o
       aria-label={ariaLabel}
       className={`fc-btn flex items-center justify-center rounded-full active:brightness-110 ${className}`}
       style={{ touchAction: "manipulation", ...style }}
-      onPointerDown={(e) => {
-        e.preventDefault();
-        onTap();
-      }}
+      onClick={onTap}
       onContextMenu={(e) => e.preventDefault()}
     >
       {children ?? label}

@@ -110,8 +110,7 @@ function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => 
         <button
           type="button"
           className="fc-btn mt-2 w-full rounded-2xl bg-[#3a2e2a] py-2.5 text-white"
-          onPointerDown={(e) => {
-            e.preventDefault();
+          onClick={() => {
             onClose();
           }}
         >
@@ -259,7 +258,7 @@ export default function GameShell() {
   const towCostLabel = hud.coins >= 30 ? "−۳۰ سکه" : "رایگان — رفیق مکانیکی!";
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
+    <div className="fc-landscape-root fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
       {/* بوم بازی — زیر همه لایه‌ها */}
       <canvas ref={canvasRef} className="fc-canvas absolute inset-0 h-full w-full" />
 
@@ -279,8 +278,8 @@ export default function GameShell() {
 
       {/* ============ منوی اصلی ============ */}
       {phase === "menu" && (
-        <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
-          <div className="fc-pop mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 px-6 py-8">
+        <div className="fc-menu-scroll absolute inset-0 z-30 flex flex-col overflow-y-auto bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
+          <div className="fc-pop fc-menu-content mx-auto flex w-full max-w-md min-h-full flex-col items-center justify-center gap-4 px-6 py-5">
             {/* لوگو */}
             <div className="flex flex-col items-center gap-2">
               <div className="fc-btn flex h-20 w-20 items-center justify-center rounded-3xl bg-[#F2B705]">
@@ -308,8 +307,7 @@ export default function GameShell() {
             <button
               type="button"
               className="fc-btn w-full max-w-xs rounded-3xl bg-[#8AC926] py-4 text-2xl font-extrabold text-[#3a2e2a]"
-              onPointerDown={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 gameRef.current?.startGameplay();
               }}
             >
@@ -328,9 +326,8 @@ export default function GameShell() {
                   key={m.cat}
                   type="button"
                   className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#8AC926] py-3 text-[#3a2e2a]"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    setMissionFilter(m.cat);
+                  onClick={() => {
+                        setMissionFilter(m.cat);
                     setMissions(gameRef.current?.listMissions(m.cat) ?? []);
                     setShowMissions(true);
                   }}
@@ -346,8 +343,7 @@ export default function GameShell() {
             <button
               type="button"
               className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#F2B705] py-3 text-lg font-extrabold text-[#3a2e2a]"
-              onPointerDown={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 openGarage();
               }}
             >
@@ -393,9 +389,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex items-center gap-2 rounded-2xl bg-[#FFF9EC] px-6 py-2.5 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  setShowSettings(true);
+                onClick={() => {
+                    setShowSettings(true);
                 }}
               >
                 <Settings className="h-5 w-5" />
@@ -447,9 +442,8 @@ export default function GameShell() {
                 className={`fc-btn fc-panel flex w-full flex-col items-start gap-1 p-4 text-right ${
                   locked ? "bg-[#FFF9EC]/60 opacity-75" : "bg-[#FFF9EC]"
                 }`}
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  if (locked) return;
+                onClick={() => {
+                    if (locked) return;
                   gameRef.current?.startMission(m.id);
                   setShowMissions(false);
                 }}
@@ -561,9 +555,8 @@ export default function GameShell() {
                             ? "bg-[#8AC926] text-[#3a2e2a]"
                             : "bg-[#FFF3D6] text-[#3a2e2a]/60"
                       }`}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        if (maxed) return;
+                      onClick={() => {
+                                if (maxed) return;
                         purchase(() => gameRef.current!.buyUpgrade(u.id));
                       }}
                     >
@@ -594,9 +587,8 @@ export default function GameShell() {
                   className={`fc-btn flex flex-col items-center gap-1 rounded-2xl p-2 ${
                     p.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
                   }`}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    if (p.owned) {
+                  onClick={() => {
+                        if (p.owned) {
                       if (!p.selected) purchase(() => gameRef.current!.selectPaint(p.id));
                     } else {
                       purchase(() => gameRef.current!.buyPaint(p.id));
@@ -638,9 +630,8 @@ export default function GameShell() {
                   className={`fc-btn flex items-center gap-2 rounded-2xl p-2.5 text-right ${
                     h.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
                   }`}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    if (h.owned) {
+                  onClick={() => {
+                        if (h.owned) {
                       if (!h.selected) purchase(() => gameRef.current!.selectHorn(h.id));
                     } else {
                       purchase(() => gameRef.current!.buyHorn(h.id));
@@ -762,35 +753,35 @@ export default function GameShell() {
 
           {/* کنترل‌ها: فرمان پایین-چپ، گاز/ترمز پایین-راست — dir ltr تا RTL دکمه‌ها را برعکس نچیند */}
           <div className="pointer-events-none absolute inset-0 z-20">
-            <div className="pointer-events-auto absolute" style={{ left: 20, bottom: 28, display: "flex", gap: 14, direction: "ltr" }}>
+            <div className="pointer-events-auto absolute" style={{ left: "max(10px, env(safe-area-inset-left))", bottom: "max(10px, env(safe-area-inset-bottom))", display: "flex", gap: "clamp(8px, 1.5vw, 14px)", direction: "ltr" }}>
               <HoldButton
                 ariaLabel="فرمان چپ"
                 onHold={steerLeft}
-                className="h-[88px] w-[88px] bg-[#FFF3D6] text-[#3a2e2a]"
+                className="bg-[#FFF3D6] text-[#3a2e2a]" style={{ width: "clamp(68px, 12vh, 104px)", height: "clamp(68px, 12vh, 104px)" }}
               >
                 <ChevronLeft className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
               <HoldButton
                 ariaLabel="فرمان راست"
                 onHold={steerRight}
-                className="h-[88px] w-[88px] bg-[#FFF3D6] text-[#3a2e2a]"
+                className="bg-[#FFF3D6] text-[#3a2e2a]" style={{ width: "clamp(68px, 12vh, 104px)", height: "clamp(68px, 12vh, 104px)" }}
               >
                 <ChevronRight className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
             </div>
-            <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: 20, bottom: 28, direction: "ltr" }}>
+            <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: "max(10px, env(safe-area-inset-right))", bottom: "max(10px, env(safe-area-inset-bottom))", direction: "ltr", gap: "clamp(8px, 1.5vw, 12px)" }}>
               <div className="flex flex-col items-center gap-3">
                 <TapButton
                   ariaLabel="بوق"
                   onTap={() => gameRef.current?.pressHorn()}
-                  className="h-[60px] w-[60px] bg-[#F2B705] text-[#3a2e2a]"
+                  className="bg-[#F2B705] text-[#3a2e2a]" style={{ width: "clamp(54px, 9vh, 72px)", height: "clamp(54px, 9vh, 72px)" }}
                 >
                   <Megaphone className="h-7 w-7" />
                 </TapButton>
                 <HoldButton
                   ariaLabel="ترمز"
                   onHold={(d) => gameRef.current?.setVirtualBrake(d)}
-                  className="h-[76px] w-[76px] bg-[#D64545] text-white"
+                  className="bg-[#D64545] text-white" style={{ width: "clamp(64px, 11vh, 92px)", height: "clamp(64px, 11vh, 92px)" }}
                 >
                   <Square className="h-8 w-8" strokeWidth={2.6} />
                 </HoldButton>
@@ -798,7 +789,7 @@ export default function GameShell() {
               <HoldButton
                 ariaLabel="گاز"
                 onHold={(d) => gameRef.current?.setVirtualGas(d)}
-                className="h-[100px] w-[100px] bg-[#8AC926] text-[#3a2e2a]"
+                className="bg-[#8AC926] text-[#3a2e2a]" style={{ width: "clamp(76px, 14vh, 116px)", height: "clamp(76px, 14vh, 116px)" }}
               >
                 <ArrowUp className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
@@ -817,9 +808,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#8AC926] py-3 text-lg font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  gameRef.current?.resume();
+                onClick={() => {
+                    gameRef.current?.resume();
                 }}
               >
                 <Play className="h-5 w-5" />
@@ -828,9 +818,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  setShowSettings((v) => !v);
+                onClick={() => {
+                    setShowSettings((v) => !v);
                 }}
               >
                 <Settings className="h-5 w-5" />
@@ -839,9 +828,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D64545] py-3 font-extrabold text-white"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  gameRef.current?.backToMenu();
+                onClick={() => {
+                    gameRef.current?.backToMenu();
                 }}
               >
                 <Home className="h-5 w-5" />
@@ -910,9 +898,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#8AC926] py-3 text-lg font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  setMissionResult(null);
+                onClick={() => {
+                    setMissionResult(null);
                   gameRef.current?.startMission(missionResult.missionId);
                 }}
               >
@@ -922,9 +909,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  setMissionResult(null);
+                onClick={() => {
+                    setMissionResult(null);
                   gameRef.current?.abandonMission();
                 }}
               >
@@ -934,9 +920,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D64545] py-3 font-extrabold text-white"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  setMissionResult(null);
+                onClick={() => {
+                    setMissionResult(null);
                   gameRef.current?.backToMenu();
                 }}
               >
@@ -963,9 +948,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2A9D8F] py-3 text-lg font-extrabold text-white"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  gameRef.current?.towToRepair();
+                onClick={() => {
+                    gameRef.current?.towToRepair();
                 }}
               >
                 <Wrench className="h-5 w-5" />
@@ -974,9 +958,8 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  gameRef.current?.backToMenu();
+                onClick={() => {
+                    gameRef.current?.backToMenu();
                 }}
               >
                 <Home className="h-5 w-5" />

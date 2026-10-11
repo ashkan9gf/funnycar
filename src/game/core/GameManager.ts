@@ -157,6 +157,9 @@ export class GameManager {
   private raf = 0;
   private lastFrame = 0;
   private accumulator = 0;
+  /** حداکثر ۶۰ رندر در ثانیه؛ شبیه‌سازی همچنان با گام ثابت ادامه دارد. */
+  private lastRenderAt = 0;
+  private visualAccumulator = 0;
   private scale = 1;
   private showFps = false;
   private fpsAccum = 0;
@@ -683,13 +686,17 @@ export class GameManager {
       const kdy = impact > 40 ? relVy : dy;
       c.knock(kdx, kdy, impact);
 
-      // بازیکن فقط در ضربه واقعی کند می‌شود — ساییدنِ آرام دیگر حالت قفل ندارد
+      // برخورد خودرو به خودرو: پاسخ سرعت بر پایه جهت تماس به‌جای ضریب ثابتِ سرعت.
+      const hardImpact = impact > COLLISION.hardCrashSpeed;
+      v.applyCollisionResponse(
+        mtv.x,
+        mtv.y,
+        hardImpact ? COLLISION.hardRestitution : COLLISION.restitution,
+        hardImpact ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
+      );
       if (impact > COLLISION.softCrashSpeed) {
-        v.speed *= 0.55;
-        v.latVel *= 0.4;
         c.stun(TRAFFIC.stunnedSec * 1.4);
       } else {
-        v.speed *= 0.985;
         c.stun(0.5);
       }
 
@@ -868,17 +875,20 @@ export class GameManager {
       v.x += mtv.x * mtv.depth;
       v.y += mtv.y * mtv.depth;
 
-      const impact = Math.abs(v.speed);
+      const contactVx = v.vx + Math.cos(v.angle) * v.latVel;
+      const contactVy = v.vy + Math.sin(v.angle) * v.latVel;
+      const impact = Math.abs(contactVx * mtv.x + contactVy * mtv.y);
       if (impact < PARKED_HIT.softSpeed) {
-        v.speed *= 0.995;
+        v.applyCollisionResponse(mtv.x, mtv.y, 0.025, 0.985);
         continue;
       }
       const hard = impact > PARKED_HIT.hardSpeed;
-      if (hard) {
-        v.speed *= PARKED_HIT.hardKeep;
-      } else {
-        v.speed *= PARKED_HIT.slideKeep;
-      }
+      v.applyCollisionResponse(
+        mtv.x,
+        mtv.y,
+        hard ? COLLISION.hardRestitution : COLLISION.restitution,
+        hard ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
+      );
       if (this.parkedCd > 0) break;
       this.parkedCd = PARKED_HIT.cooldownSec;
       const cx = (v.x + pc.x) / 2;
@@ -981,15 +991,6 @@ export class GameManager {
       const rawDt = Math.min(0.1, (now - this.lastFrame) / 1000 || 0);
       this.lastFrame = now;
 
-      // FPS
-      this.fpsAccum += rawDt;
-      this.fpsCount++;
-      if (this.fpsAccum >= 0.5) {
-        this.fpsValue = Math.round(this.fpsCount / this.fpsAccum);
-        this.fpsAccum = 0;
-        this.fpsCount = 0;
-      }
-
       if (this.state === 'playing') {
         this.accumulator += rawDt;
         let steps = 0;
@@ -1002,9 +1003,24 @@ export class GameManager {
         this.voice.update(rawDt);
       }
 
-      this.fx.update(rawDt);
-      this.draw();
-      this.emitHud(rawDt);
+      // انباشتن زمان افکت‌ها تا وقتی رندر محدود می‌شود، سرعت انیمیشن‌ها تغییر نکند.
+      this.visualAccumulator += rawDt;
+      const renderInterval = 1000 / 60;
+      if (this.lastRenderAt === 0 || now - this.lastRenderAt >= renderInterval) {
+        const renderDt = this.lastRenderAt > 0 ? Math.min(0.1, (now - this.lastRenderAt) / 1000) : rawDt;
+        this.fpsAccum += renderDt;
+        this.fpsCount++;
+        if (this.fpsAccum >= 0.5) {
+          this.fpsValue = Math.round(this.fpsCount / this.fpsAccum);
+          this.fpsAccum = 0;
+          this.fpsCount = 0;
+        }
+        this.fx.update(Math.min(0.1, this.visualAccumulator));
+        this.visualAccumulator = 0;
+        this.draw();
+        this.emitHud(renderDt);
+        this.lastRenderAt = now;
+      }
     } catch (err) {
       // خطای یک فریم هرگز بازی را نمی‌بندد
       console.warn('[Game] frame error:', err);
@@ -1044,7 +1060,8 @@ export class GameManager {
       this.audio.crash(hard);
       this.camera.addShake(hard ? CAM.maxShake : CAM.maxShake * 0.45);
       // نقطه برخورد داینامیک: ذرات + جرقه در نقطه تماس + خرابی بدنه (فاز BIG-IR)
-      this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
+      this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#ffd166' : '#D6D6D6', hard ? 18 : 8, hard ? 280 : 140);
+      if (hard) this.fx.spawnBurst(result.impactX, result.impactY, '#ff6b35', 10, 240);
       // فاز OVERHAUL: لاشه + شیشه در تصادف سخت
       if (hard) {
         this.fx.spawnDebris?.(result.impactX, result.impactY, '#4a4a48', 10, 300, 10);
@@ -1346,7 +1363,9 @@ export class GameManager {
 
   // ============ رویدادهای صفحه ============
   private handleResize = (): void => {
-    const dpr = Math.min(RENDER.maxDevicePixelRatio, window.devicePixelRatio || 1);
+    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+    const maxDpr = isTouchDevice ? 1.25 : RENDER.maxDevicePixelRatio;
+    const dpr = Math.min(maxDpr, window.devicePixelRatio || 1);
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.canvas.width = Math.round(w * dpr);
