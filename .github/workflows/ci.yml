@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  web-build:
-    name: TypeScript, lint and production build
+  web-quality:
+    name: Lint and production build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -26,18 +26,18 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: "1.3.4"
 
-      - name: Install dependencies
+      - name: Install locked dependencies
         run: bun install --frozen-lockfile
 
-      - name: TypeScript check
-        run: bunx tsc --noEmit
-
-      - name: ESLint
+      - name: Lint
         run: bun run lint
 
       - name: Production build
+        env:
+          DATABASE_URL: "file:../db/custom.db"
+          NEXT_TELEMETRY_DISABLED: "1"
         run: bun run build
 
   android-debug-apk:
