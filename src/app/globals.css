@@ -174,7 +174,7 @@
 
 /* دکمه‌های لمسی بازی */
 .fc-btn {
-  touch-action: none;
+  touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -187,6 +187,29 @@
   transform: translateY(4px) scale(0.97);
   box-shadow: 0 2px 0 rgba(58, 46, 42, 0.35);
   filter: brightness(1.08);
+}
+
+/* Main menu: allow vertical scrolling even when a gesture begins over a button. */
+.fc-menu-scroll {
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.fc-menu-scroll .fc-btn,
+.fc-menu-scroll a.fc-btn {
+  touch-action: pan-y;
+}
+.fc-menu-content {
+  min-height: 100%;
+}
+@media (max-height: 560px) and (orientation: landscape) {
+  .fc-menu-content {
+    min-height: max-content;
+    justify-content: flex-start;
+    padding-top: 14px;
+    padding-bottom: 24px;
+  }
 }
 
 /* کارت‌های منو */
