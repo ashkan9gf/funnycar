@@ -96,8 +96,9 @@ export class TrafficManager {
     }
   }
 
-  /** یک ماشین نزدیک نقطهٔ «around» اسپاون کن؛ false = بعد از tries نشد */
-  private spawnOne(car: TrafficCar, tries: number, around: { x: number; y: number }): boolean {
+  /** یک ماشین نزدیک نقطهٔ «around» اسپاون کن؛ false = بعد از tries نشد
+   *  🔕 minDist: کمینه فاصلهٔ اسپاون از around — بازیافت هرگز جلوی چشم ظاهر نمیشود */
+  private spawnOne(car: TrafficCar, tries: number, around: { x: number; y: number }, minDist = 0): boolean {
     const dirs: TrafficDir[] = ['N', 'E', 'S', 'W'];
     for (let t = 0; t < tries; t++) {
       const dir = dirs[Math.floor(Math.random() * 4)];
@@ -122,6 +123,8 @@ export class TrafficManager {
         this.avoidSpawn.r > 0 &&
         Math.hypot(x - this.avoidSpawn.x, y - this.avoidSpawn.y) < this.avoidSpawn.r
       ) continue;
+      // 🔕 ضد pop-in: کاندید نزدیک‌تر از minDist دور انداخته می‌شود (بازیافت بیرون دید)
+      if (minDist > 0 && Math.hypot(x - around.x, y - around.y) < minDist) continue;
 
       car.x = x;
       car.y = y;
@@ -232,7 +235,10 @@ export class TrafficManager {
         pdx * pdx + pdy * pdy > recycle2 ||
         !Number.isFinite(car.lane) || !Number.isFinite(car.x) || !Number.isFinite(car.y)
       ) {
-        if (this.spawnOne(car, 20, player)) continue;
+        // 🔕 ضد «غیب میشه توی مسیرش ظاهر میشه»: ماشین تازه‌ضربه‌خورده (نزدیک) بازیافت نمیشود؛
+        //    و اسپاون بازیافت حتماً بیرون شعاع دید (۱۶۰۰px — جلوتر از مه) انجام می‌شود
+        if (car.recentlyKnocked() && Number.isFinite(car.x) && Number.isFinite(car.y)) continue;
+        if (this.spawnOne(car, 24, player, 1600)) continue;
       }
 
       // تصمیم‌های تقاطع

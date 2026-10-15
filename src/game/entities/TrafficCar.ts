@@ -45,6 +45,8 @@ export class TrafficCar {
   knockVy = 0;
   /** چرخش بدنه بر اثر ضربه محکم (rad/s) */
   spinVel = 0;
+  /** 🔕 ثانیه‌های ماندهٔ «تازه‌ضربه‌خورده» — در این مدت بازیافت نمیشود (ضد غیب‌شدن جلوی چشم) */
+  knockedSec = 0;
   /** چند ثانیه است پشت مانع گیر کرده (برای بوق) */
   blockedSec = 0;
   /** در همینepisode گیر، بوق زده؟ */
@@ -92,10 +94,16 @@ export class TrafficCar {
     const k = Math.min(TRAFFIC.knockMax, TRAFFIC.knockBase + impact * TRAFFIC.knockScale);
     this.knockVx += (dirX / len) * k;
     this.knockVy += (dirY / len) * k;
+    this.knockedSec = 6; // 🔕 تا ۶ ثانیه بازیافت ممنوع — کاربر باید نتیجهٔ ضربه را ببیند
     // ضربه محکم = کمی چرخش بدنه (طنز کارتونی!)
     if (impact > COLLISION_SOFT) {
       this.spinVel += (Math.random() - 0.5) * 2 * impact * TRAFFIC.spinScale;
     }
+  }
+
+  /** آیا به‌تازگی ضربه خورده؟ (بازیافت در این حالت متوقف است) */
+  recentlyKnocked(): boolean {
+    return this.knockedSec > 0;
   }
 
   /**
@@ -103,6 +111,12 @@ export class TrafficCar {
    * شامل پرتاب برخوردی (knock) که مستقل از AI کار می‌کند (فاز APK-FIX)
    */
   update(dt: number, desiredSpeed: number): void {
+    // 🔕 آخرین وضعیت سالم — برای گارد NaN (یک محاسبهٔ بد هرگز ماشین را غایب نمیکند)
+    const px0 = this.x;
+    const py0 = this.y;
+    const pa0 = this.angle;
+    if (this.knockedSec > 0) this.knockedSec -= dt;
+
     // ---------- چرخش بدنه بر اثر ضربه (قبل از نرم‌سازی AI تا با هم نجنگند) ----------
     if (Math.abs(this.spinVel) > 0.02) {
       this.angle += this.spinVel * dt;
@@ -153,6 +167,17 @@ export class TrafficCar {
     if (kv <= 40) {
       if (v.x === 0) this.x += (this.lane - this.x) * Math.min(1, 5 * dt);
       else this.y += (this.lane - this.y) * Math.min(1, 5 * dt);
+    }
+
+    // 🔕 گارد NaN: اگر هر محاسبه‌ای مقدار نامعتبر ساخت، به آخرین وضعیت سالم برگرد
+    if (!Number.isFinite(this.x) || !Number.isFinite(this.y) || !Number.isFinite(this.angle)) {
+      this.x = px0;
+      this.y = py0;
+      this.angle = pa0;
+      this.knockVx = 0;
+      this.knockVy = 0;
+      this.spinVel = 0;
+      this.speed = 0;
     }
   }
 }

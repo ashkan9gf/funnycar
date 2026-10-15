@@ -10,8 +10,139 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CarModel3D, CarVariant, ExtWheelSpin } from './CarFactory3D';
 import { VEHICLE_SPECS, FIXED_COLORS, VEHICLE_COLORS } from './vehicleGeometry';
+
+/**
+ * دی‌کوانتیزه کردن اتریبیوت‌ها به Float32 — mergeGeometries نوع یکسان می‌خواهد
+ * (اینترلیو + normalized + index قاطی را خودش حل می‌کند؛ هندسهٔ منبع دست‌نخورده)
+ */
+export function dequantizeGeoNew(src: THREE.BufferGeometry): THREE.BufferGeometry | null {
+  const pos = src.getAttribute('position') as THREE.BufferAttribute | undefined;
+  if (!pos || pos.count === 0) return null;
+  const count = pos.count;
+  const out = new THREE.BufferGeometry();
+  for (const name of Object.keys(src.attributes)) {
+    const attr = src.getAttribute(name) as THREE.BufferAttribute;
+    if (!attr || attr.count !== count) return null; // اتریبیوت ناهم‌راستا — مش معیوب
+    const isz = attr.itemSize;
+    const f = new Float32Array(count * isz);
+    for (let i = 0; i < count; i++) {
+      for (let c = 0; c < isz; c++) {
+        const v = attr.getComponent(i, c); // اینترلیو + normalized را خودش حل می‌کند
+        if (!Number.isFinite(v)) return null; // هندسه معیوب مدل — رد
+        f[i * isz + c] = v;
+      }
+    }
+    out.setAttribute(name, new THREE.BufferAttribute(f, isz));
+  }
+  const idx = src.getIndex();
+  if (idx) {
+    const i32 = new Uint32Array(idx.count);
+    const srcIdx = idx.array as ArrayLike<number>;
+    for (let i = 0; i < idx.count; i++) i32[i] = srcIdx[i];
+    out.setIndex(new THREE.BufferAttribute(i32, 1));
+  }
+  return out;
+}
+
+/** 🔑 PERF-4: merge قطعات «ایستای» بدنه در قالب خودرو — یک‌بار per variant
+ *  قبل از هر clone. همهٔ نمونه‌های بعدی (ترافیک/نگهبان/بازیکن) هندسهٔ
+ *  merge‌شده را «اشتراکی» استفاده می‌کنند → هر ماشین به‌جای ۱۲-۵۲ مش، ~۴-۸ مش.
+ *  چرخ‌ها و چراغ‌گردان دست‌نخورده می‌مانند (چرخش/فرمان/فلاش پلیس سالم).
+ *  ⚠️ هندسهٔ اصلی dispose نمی‌شود (کلون‌های پارکی ممکن است به آن اشاره کنند). */
+export function mergeTemplateStatics(scene: THREE.Group): void {
+  scene.updateMatrixWorld(true);
+  const gInv = new THREE.Matrix4().copy(scene.matrixWorld).invert();
+  const isWheelName = (n: string): boolean => {
+    const l = n.toLowerCase();
+    return l.includes('wheel') || l.includes('tire') || l.includes('tyre');
+  };
+  interface Bucket { mat: THREE.Material; geos: THREE.BufferGeometry[]; }
+  const buckets = new Map<string, Bucket>();
+  const doomed: THREE.Mesh[] = [];
+  scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if (m.name === 'lightbar_red' || m.name === 'lightbar_blue') return;
+    if (isWheelName(m.name)) return;
+    doomed.push(m);
+  });
+  if (doomed.length < 2) return; // چیزی برای merge نیست (مثل vintage تک‌مش)
+  const bake = (srcGeo: THREE.BufferGeometry, rel: THREE.Matrix4, mat: THREE.Material): void => {
+    const dq = dequantizeGeoNew(srcGeo) ?? srcGeo.clone();
+    dq.applyMatrix4(rel);
+    const key = mat.uuid;
+    const b = buckets.get(key);
+    if (b) b.geos.push(dq);
+    else buckets.set(key, { mat, geos: [dq] });
+  };
+  for (const m of doomed) {
+    const rel = new THREE.Matrix4().multiplyMatrices(gInv, m.matrixWorld);
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    const multi = Array.isArray(m.material) && m.geometry.groups && m.geometry.groups.length > 1;
+    if (!multi) {
+      bake(m.geometry, rel, mats[0]);
+    } else {
+      for (const gr of m.geometry.groups) {
+        const mi = gr.materialIndex ?? 0;
+        const mat = (mi >= 0 ? mats[mi] : undefined) ?? mats[0];
+        // برش بازهٔ گروه → هندسهٔ مستقل
+        let part: THREE.BufferGeometry;
+        const src = m.geometry;
+        if (src.index) {
+          const idx = src.index;
+          const sub = new Uint32Array(gr.count);
+          const arr = idx.array as ArrayLike<number>;
+          for (let i = 0; i < gr.count; i++) sub[i] = arr[gr.start + i];
+          part = src.clone();
+          part.setIndex(new THREE.BufferAttribute(sub, 1));
+        } else {
+          part = src.clone();
+        }
+        part.clearGroups();
+        bake(part, rel, mat);
+      }
+    }
+  }
+  if (buckets.size === 0) return;
+  // یکدست‌سازی اتریبیوت‌ها در هر باکت (شرط mergeGeometries)
+  for (const b of buckets.values()) {
+    let common: string[] | null = null;
+    for (const g of b.geos) {
+      const names = Object.keys(g.attributes);
+      if (!common) common = names;
+      else common = common.filter((n) => names.includes(n));
+    }
+    common = common ?? ['position'];
+    const needUv = !common.includes('uv');
+    const needNormal = !common.includes('normal');
+    for (const g of b.geos) {
+      for (const name of Object.keys(g.attributes)) {
+        if (!common.includes(name)) g.deleteAttribute(name);
+      }
+      if (needUv) {
+        const n = g.getAttribute('position').count;
+        g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+      }
+      if (needNormal) g.computeVertexNormals();
+    }
+  }
+  for (const b of buckets.values()) {
+    const merged = mergeGeometries(b.geos, false);
+    for (const g of b.geos) g.dispose(); // کپی‌های bake — بعد از merge آزاد
+    if (!merged) continue;
+    merged.computeBoundingBox();
+    merged.computeBoundingSphere();
+    const mesh = new THREE.Mesh(merged, b.mat);
+    mesh.name = '__static';
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  }
+  for (const m of doomed) m.parent?.remove(m);
+}
 
 /** پالت رنگ تصادفی ترافیک — پراید غالب مثل خیابان واقعی */
 export function pickBodyColor(variant: CarVariant): string {

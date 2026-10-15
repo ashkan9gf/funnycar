@@ -213,8 +213,15 @@ export class Vehicle {
       }
 
       // ساییدن به مانع: سرعت کم می‌شود ولی حرکت ادامه می‌یابد (لغزش)
-      this.speed *= COLLISION.wallSlideFactor;
-      this.latVel *= 0.4;
+      // 🔕 تصادف واقعی‌تر: کوبشِ سختِ پیشانی = توقف تقریبی + برگشت کوچک، نه سُرخوردن
+      const frontalMag = Math.abs(Math.sin(this.angle) * mtv.x - Math.cos(this.angle) * mtv.y);
+      if (axisImpact > COLLISION.hardCrashSpeed && frontalMag > 0.72) {
+        this.speed = -Math.min(42, axisImpact * 0.14); // کوبش + برگشت ملایم مثل خودروی واقعی
+        this.latVel *= 0.2;
+      } else {
+        this.speed *= COLLISION.wallSlideFactor;
+        this.latVel *= 0.4;
+      }
 
       if (axisImpact > COLLISION.softCrashSpeed) {
         res.crashed = true;

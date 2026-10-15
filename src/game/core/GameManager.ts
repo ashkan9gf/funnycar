@@ -285,7 +285,15 @@ export class GameManager {
     // شهر از اولین فریم نسخهٔ «سینمایی» نهایی است و نسخهٔ رنگی placeholder (پازلی)
     // هرگز به صحنه نمی‌رسد. گارد ۱۲ ثانیه‌ای داخل whenReady — boot هرگز قفل نمی‌شود.
     // پیش‌بارگذاری‌ها هم‌زمان با assets.loadAll اجرا شده‌اند → فقط مابقی منتظر می‌مانیم.
-    await this.renderer3d?.whenReady();
+    // 🔕 لایهٔ محافظ ۲: حتی اگر whenReady به هر دلیل خطا بدهد، boot ادامه می‌یابد
+    // (باگ v0.2.28: یک reject تنها = گیر ابدی در صفحهٔ لودینگ — منبع «خطای آخرین بیلد»)
+    // ⏱ سقف ۳۰ ثانیه: گوشی کند بیشتر منتظر می‌ماند تا شهر سینمایی کامل برسد؛
+    // اگر باز دیر شد، flush دیرهنگام در رندرر بصری‌های جایگزین را با GLB بازمی‌سازد
+    try {
+      await this.renderer3d?.whenReady(30000);
+    } catch (err) {
+      console.warn('[Game] GLB preload wait failed (continuing with fallbacks):', err);
+    }
     // مقیاس رسم ماشین از اندازه Asset واقعی/Placeholder — نسبت ثابت 4:7
     const size = this.assets.getSize('veh_player_01');
     if (size.w > 0) {
@@ -683,6 +691,10 @@ export class GameManager {
       const kdy = impact > 40 ? relVy : dy;
       c.knock(kdx, kdy, impact);
 
+      // 🔕 شلاق جانبی بازیکن — تصادف واقعی‌تر: ضربهٔ بغلی ماشین را می‌کشد (مطابق rightX/rightY در Vehicle)
+      const sideN = mtv.x * Math.cos(v.angle) + mtv.y * Math.sin(v.angle);
+      v.latVel = Math.max(-140, Math.min(140, v.latVel + sideN * Math.min(impact, 200) * 0.28));
+
       // بازیکن فقط در ضربه واقعی کند می‌شود — ساییدنِ آرام دیگر حالت قفل ندارد
       if (impact > COLLISION.softCrashSpeed) {
         v.speed *= 0.55;
@@ -988,6 +1000,7 @@ export class GameManager {
         this.fpsValue = Math.round(this.fpsCount / this.fpsAccum);
         this.fpsAccum = 0;
         this.fpsCount = 0;
+        this.adaptDpr3d(); // 🔕 ضدلگ: کاهش نرم رزولوشن روی گوشی ضعیف
       }
 
       if (this.state === 'playing') {
@@ -1345,8 +1358,31 @@ export class GameManager {
   }
 
   // ============ رویدادهای صفحه ============
+
+  /** 🔕 DPR سه‌بعدی تطبیقی — ضدلگ: اگر FPS پایین ماند، رزولوشن رندر نرم کم می‌شود؛
+   *  اگر بالا رفت، برمی‌گردد. کیفیت منو/شهر روی گوشی معمولی دست‌نخورده می‌ماند */
+  private dpr3dBase = Math.min(RENDER.maxDevicePixelRatio, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
+  private dpr3d = this.dpr3dBase;
+  private dprCheck = 0;
+
+  private adaptDpr3d(): void {
+    if (this.state !== 'playing') return;
+    this.dprCheck++;
+    if (this.dprCheck < 4) return; // هر ۲ ثانیه — نوسان‌گیر
+    this.dprCheck = 0;
+    const fps = this.fpsValue;
+    let nd = this.dpr3d;
+    if (fps < 38) nd = Math.max(1.1, this.dpr3d - 0.3);
+    else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.2);
+    if (Math.abs(nd - this.dpr3d) > 0.01) {
+      this.dpr3d = Math.round(nd * 100) / 100;
+      this.handleResize();
+      console.warn('[Game] adaptive render scale →', this.dpr3d, 'fps:', fps);
+    }
+  }
+
   private handleResize = (): void => {
-    const dpr = Math.min(RENDER.maxDevicePixelRatio, window.devicePixelRatio || 1);
+    const dpr = this.dpr3d; // 🔕 DPR سه‌بعدی تطبیقی (نه dpr خام صفحه)
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.canvas.width = Math.round(w * dpr);

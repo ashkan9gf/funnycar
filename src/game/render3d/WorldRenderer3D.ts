@@ -24,7 +24,7 @@ import { faNum } from '../managers/MissionManager';
 import { RENDER3D, MISSIONS as M, RANDOM_EVENTS as RE, PEDESTRIANS as PEDS, DEBRIS, TRAFFIC_LIGHTS, ENDLESS } from '../data/balance';
 import { WORLD as WR, WORLD_SIZE, roadCenter, type WorldChunk } from '../world/World';
 import { buildCar3D, variantFromAssetId, applyDamageVisual, detachBumper, spinWheels, steerWheels, type CarModel3D, type CarVariant } from './CarFactory3D';
-import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin } from './GlbModels';
+import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin, dequantizeGeoNew, mergeTemplateStatics } from './GlbModels';
 
 /** واریانت‌های با مدل خارجی کاربر — متریال GLB حفظ می‌شود (بدون پره مصنوعی) */
 const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage']);
@@ -127,49 +127,7 @@ interface Particle3D {
   spin?: number; spinRate?: number; rested?: boolean;
 }
 
-/**
- * دی‌کوانتیزه کردن اتریبیوت‌ها به Float32 — mergeGeometries نوع یکسان می‌خواهد؛ NaN → null
- *
- * 🔑 فیکس ریشه‌ای «خطای NaN کنسول» (فاز PARKED-NAN):
- * GLBهای peugeot405/samand اتریبیوت INTERLEAVED دارند — position داخل بافر مشترک با
- * normal/uv (stride=۸ المنت) قرار دارد. کد قبلی `pos.array` می‌خواند = کل بافر اینترلیو
- * (شامل normal/uv همسایه!) → BufferAttribute(f, 3) با طول غلط → count غیرصحیح (۱۰۹۳٫۳)
- * → خواندن خارج از محدوده در computeBoundingBox → NaN → خطای کنسول + حذف ۸۰٪ مش‌های
- * پارکی از merge (ماشین‌های پارکی نامرئی!).
- *
- * راه‌حل: خواندن per-vertex با getComponent (اینترلیو-امن + دینرمالایز-امن) و ساخت
- * هندسه‌ی «جدید» — هندسه‌ی منبع دست‌نخورده می‌ماند (کش GlbLibrary سالم می‌ماند).
- */
-function dequantizeGeoNew(src: THREE.BufferGeometry): THREE.BufferGeometry | null {
-  const pos = src.getAttribute('position') as THREE.BufferAttribute | undefined;
-  if (!pos || pos.count === 0) return null;
-  const count = pos.count;
-  const out = new THREE.BufferGeometry();
-  for (const name of Object.keys(src.attributes)) {
-    const attr = src.getAttribute(name) as THREE.BufferAttribute;
-    if (!attr || attr.count !== count) return null; // اتریبیوت ناهم‌راستا — مش معیوب
-    const isz = attr.itemSize;
-    const f = new Float32Array(count * isz);
-    for (let i = 0; i < count; i++) {
-      for (let c = 0; c < isz; c++) {
-        const v = attr.getComponent(i, c); // اینترلیو + normalized را خودش حل می‌کند
-        if (!Number.isFinite(v)) return null; // هندسه معیوب مدل — رد
-        f[i * isz + c] = v;
-      }
-    }
-    out.setAttribute(name, new THREE.BufferAttribute(f, isz));
-  }
-  const idx = src.getIndex();
-  if (idx) {
-    // 🔑 index هم یکدست Uint32 می‌شود — mergeGeometries تایپ‌های قاطی (Uint16/Uint32)
-    // را نمی‌پذیرد (خطای کنسول «merge the uv/index attribute»)
-    const i32 = new Uint32Array(idx.count);
-    const srcIdx = idx.array as ArrayLike<number>;
-    for (let i = 0; i < idx.count; i++) i32[i] = srcIdx[i];
-    out.setIndex(new THREE.BufferAttribute(i32, 1));
-  }
-  return out;
-}
+// 🔑 PERF-4: dequantizeGeoNew به GlbModels.ts منتقل شد (اشتراک با mergeTemplateStatics)
 
 export class WorldRenderer3D {
   private r3: THREE.WebGLRenderer;
@@ -201,6 +159,9 @@ export class WorldRenderer3D {
 
   // عابرهای پیاده + شکستنی‌ها + زون تعمیر
   private pedModels: Array<{ g: THREE.Group; legL: THREE.Mesh; legR: THREE.Mesh; armL: THREE.Mesh; armR: THREE.Mesh }> = [];
+  /** 🔑 PERF-3-ج: صف merge پراپ‌های ویژه‌ی یک قطعه — buildProp به‌جای مش تکی، هندسه به صف می‌دهد
+   *  و آخر buildChunkVisual per (متریال همسان × امضا) merge می‌شود — صدها درخواست ترسیم → چند ده */
+  private propStage: Array<{ key: string; mat: THREE.Material; geo: THREE.BufferGeometry; cast: boolean }> | null = null;
   private propGroups = new Map<WorldProp, THREE.Group>();
   private repairRings: THREE.Group[] = [];
 
@@ -210,6 +171,12 @@ export class WorldRenderer3D {
   /** فاز GLB-READY: همهٔ پیش‌بارگذاری‌های GLB — boot() منتظرشان می‌ماند تا شهر از
    *  اولین فریم «سینمایی» ساخته شود و نسخهٔ رنگی placeholder هرگز ساخته نشود */
   private readyJobs: Promise<unknown>[] = [];
+  // 🔕 فلاش دیرهنگام GLB (ضدپازلی)
+  private allJobsDone = false;
+  private builtWithFallback = false;
+  private flushedLate = false;
+  // 🔕 سایهٔ ۲۰Hz
+  private shadowTick = 0;
   /** فاز PERF-2: کش متریال تینت‌شدهٔ ساختمان — کلید: uuid متریال منبع + تینت.
    *  ساختمان‌های هم‌واریانت/هم‌تینت متریال «مشترک» می‌گیرند؛ کلونِ به‌ازای هر ساختمان حذف
    *  می‌شود (کاهش فشار GC + سوییچ شیدر کمتر). مشترک است → هرگز dispose نمی‌شود */
@@ -304,10 +271,14 @@ export class WorldRenderer3D {
     /** چراغ‌های تقاطع (فاز OVERHAUL) — برای رندر لامپ‌ها */
     private lights: TrafficLights,
   ) {
-    this.r3 = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl as WebGL2RenderingContext, antialias: true });
+    this.r3 = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl as WebGL2RenderingContext, antialias: true, powerPreference: 'high-performance' });
     this.r3.shadowMap.enabled = true;
     // PCFSoftShadowMap در three r186 حذف شده — PCF استاندارد
     this.r3.shadowMap.type = THREE.PCFShadowMap;
+    // 🔕 ضدلگ: بازتولید نقشهٔ سایه هر ۳ فریم (۲۰Hz) — خورشید تقریباً ثابت است،
+    // تأخیر ۵۰ms سایه نامرئی است ولی بار GPU موبایل نصف می‌شود
+    this.r3.shadowMap.autoUpdate = false;
+    this.r3.shadowMap.needsUpdate = true;
     // فاز OVERHAUL: مدیریت رنگ صریح (خروجی sRGB)
     this.r3.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -320,7 +291,7 @@ export class WorldRenderer3D {
     this.buildSkyDome();
     this.buildClouds();
 
-    this.cam3 = new THREE.PerspectiveCamera(RENDER3D.fov, 1, 10, 5200);
+    this.cam3 = new THREE.PerspectiveCamera(RENDER3D.fov, 1, 10, 3450);
     this.cam3.position.set(0, RENDER3D.camHeight, 0);
 
     // تون‌مپینگ سینمایی سبک GTA (رنگ‌ها غنی‌تر)
@@ -332,15 +303,16 @@ export class WorldRenderer3D {
     this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight('#ffdfb0', RENDER3D.sunIntensity);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
-    // فاز FPS-1: محدوده سایه تنگ‌تر (±۸۲۰ → ±۶۲۰) — رندر سایه ~۲ برابر سبک‌تر
-    // و کیفیت سایه نزدیک ماشین بهتر؛ دوردست در مه گم است و سایه‌اش دیده نمی‌شود
-    this.sun.shadow.camera.left = -620;
-    this.sun.shadow.camera.right = 620;
-    this.sun.shadow.camera.top = 620;
-    this.sun.shadow.camera.bottom = -620;
+    // 🔑 PERF-4 (لگ حین رانندگی): کادر قبلی ±۶۲۰ با نقشهٔ ۱۰۲۴ — حین رانندگی صدها
+    // سایه‌انداز دور و بر داخل shadow pass رندر می‌شدند و تراکم تکسل فقط ۰٫۸۳/واحد بود.
+    // حالا کادر ±۳۳۰ دور ماشین + نقشهٔ ۲۰۴۸ → سایهٔ «شارپ‌تر» (کیفیت بالاتر) با کسری از هزینه.
+    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.camera.left = -330;
+    this.sun.shadow.camera.right = 330;
+    this.sun.shadow.camera.top = 330;
+    this.sun.shadow.camera.bottom = -330;
     this.sun.shadow.camera.near = 100;
-    this.sun.shadow.camera.far = 2600;
+    this.sun.shadow.camera.far = 1800;
     this.sun.shadow.bias = -0.0006;
     this.scene.add(this.sun, this.sun.target);
 
@@ -352,8 +324,14 @@ export class WorldRenderer3D {
     // ---------- فاز GLB-READY: پیش‌بارگذاری ۱۲ ساختمان + قالب‌های async قطعه (پارکی/کیت) —
     //  همه جمع‌شونده‌اند؛ boot() منتظرشان می‌ماند → نسخهٔ «پازلی» هرگز به صحنه نمی‌رسد ----------
     this.readyJobs.push(...this.glb.preloadBuildings());
-    this.readyJobs.push(this.preloadParkedTemplates());
-    this.readyJobs.push(this.preloadCityKit());
+    // 🔕 catch در محل push — شکست قالب‌ها = fallback procedural، نه مرگ boot
+    this.readyJobs.push(this.preloadParkedTemplates().catch(() => undefined));
+    this.readyJobs.push(this.preloadCityKit().catch(() => undefined));
+    // 🔕 فلاش دیرهنگام: اگر قالب‌ها بعد از timeout رسیدند، بصری‌های باکسِ جایگزین
+    // یک‌بار تخلیه می‌شوند تا شهر سینمایی جایگزینشان کند (ضد «پازلی» روی گوشی کند)
+    Promise.all(this.readyJobs.map((p) => Promise.resolve(p).catch(() => undefined))).then(() => {
+      this.allJobsDone = true;
+    });
     // ---------- چراغ‌های راهنما (استخر اسلاتی بی‌پایان) ----------
     this.buildTrafficLights();
 
@@ -515,6 +493,18 @@ export class WorldRenderer3D {
 
   /** شروع هر draw3D: تخلیه دورها + صف نزدیک‌ها + ساخت با بودجهٔ ms */
   private streamVisuals(car: Vehicle): void {
+    // 🔕 فلاش دیرهنگام: قالب‌ها تازه همه رسیده‌اند و قطعه‌هایی با باکس fallback ساخته شده‌اند
+    // → یک‌بار تخلیه؛ صف فاصله‌مرتب همان‌ها را با GLB سینمایی بازمی‌سازد (بودجهٔ فریمی حفظ)
+    if (this.allJobsDone && this.builtWithFallback && !this.flushedLate && this.chunkVis.size > 0) {
+      this.flushedLate = true;
+      const keys: string[] = [];
+      for (const k of this.chunkVis.keys()) keys.push(k);
+      for (let i = 0; i < keys.length; i++) {
+        const vis = this.chunkVis.get(keys[i]);
+        if (vis) this.unloadChunkVisual(keys[i], vis);
+      }
+    }
+
     const ci = Math.floor(car.x / WR.pitch);
     const cj = Math.floor(car.y / WR.pitch);
     const R = ENDLESS.visualRadius;
@@ -568,6 +558,7 @@ export class WorldRenderer3D {
       if (di > R || dj > R) continue; // از صف خارج شده
       if (this.chunkVis.has(key)) continue;
       this.buildChunkVisual(Number(p[0]), Number(p[1]), key);
+      if (!this.allJobsDone) this.builtWithFallback = true; // 🔕 برای فلاش دیرهنگام
       builds++;
     }
   }
@@ -595,6 +586,7 @@ export class WorldRenderer3D {
       const road = new THREE.Mesh(roadMerged, this.roadMat);
       road.receiveShadow = true;
       this.scene.add(road);
+      this.freezeStatic(road);
       vis.objects.push(road);
       vis.geos.push(roadMerged);
     }
@@ -603,6 +595,7 @@ export class WorldRenderer3D {
     const cross = new THREE.Mesh(gc, this.crossMat);
     cross.receiveShadow = true;
     this.scene.add(cross);
+    this.freezeStatic(cross);
     vis.objects.push(cross);
     vis.geos.push(gc);
 
@@ -613,6 +606,7 @@ export class WorldRenderer3D {
     const sw = new THREE.Mesh(gs, this.swMat);
     sw.receiveShadow = true;
     this.scene.add(sw);
+    this.freezeStatic(sw);
     vis.objects.push(sw);
     vis.geos.push(gs);
 
@@ -623,15 +617,20 @@ export class WorldRenderer3D {
     const inner = new THREE.Mesh(gi, isPark ? this.grassMat : this.yardMat);
     inner.receiveShadow = true;
     this.scene.add(inner);
+    this.freezeStatic(inner);
     vis.objects.push(inner);
     vis.geos.push(gi);
 
-    // ---------- ساختمان‌ها ----------
+    // ---------- ساختمان‌ها + پراپ‌ها (صف merge فعال است) ----------
+    const stage: NonNullable<typeof this.propStage> = [];
+    this.propStage = stage;
     for (const p of ch.props) {
       if (p.kind === 'building') this.buildBuilding(p);
     }
     // ---------- پراپ‌ها ----------
     this.buildChunkProps(ch, vis);
+    this.propStage = null;
+    this.flushPropStage(stage, vis);
     // ---------- دوبله‌پارکی‌ها ----------
     this.buildChunkParked(ch, vis);
     // ---------- سرعت‌گیرها ----------
@@ -640,6 +639,7 @@ export class WorldRenderer3D {
       bump.position.set(sb.x, 0, sb.y);
       bump.rotation.y = sb.horiz ? Math.PI / 2 : 0;
       this.scene.add(bump);
+      this.freezeStatic(bump);
       vis.objects.push(bump);
       bump.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -658,6 +658,7 @@ export class WorldRenderer3D {
       ringG.add(ring, disc);
       ringG.position.set(z.x, 0, z.y);
       this.scene.add(ringG);
+      this.freezeStatic(ringG);
       vis.objects.push(ringG);
       vis.geos.push(ringGeo, discGeo);
       vis.mats.push(ring.material as THREE.Material, disc.material as THREE.Material);
@@ -670,6 +671,7 @@ export class WorldRenderer3D {
       mesh.count = ch.coins.length;
       vis.coinMesh = mesh;
       this.scene.add(mesh);
+      this.freezeStatic(mesh);
       vis.objects.push(mesh);
     }
     // ---------- چراغ راهنمای تقاطع (اسلات از استخر) ----------
@@ -708,6 +710,16 @@ export class WorldRenderer3D {
     if (mats) for (const m of mats) vis.mats.push(m);
   }
 
+  /** 🔑 PERF-4: فریز ماتریس شیء ایستا — compose ماتریس هر فریم حذف می‌شود
+   *  (۱۵۰۰+ شیء ایستای شهر: جاده/ساختمان/پارکی/پراپ — صرفه‌جویی CPU خالص) */
+  private freezeStatic(obj: THREE.Object3D): void {
+    obj.updateMatrixWorld(true);
+    obj.traverse((o) => {
+      o.updateMatrix();
+      o.matrixAutoUpdate = false;
+    });
+  }
+
   /** ثبت عمیق گروه پراپ — همه هندسه/متریال‌های اختصاصی زیرش برای dispose */
   private regVisDeep(obj: THREE.Object3D): void {
     const vis = this.visCollector;
@@ -725,7 +737,11 @@ export class WorldRenderer3D {
   /** فاز GLB-READY: انتظار برای همهٔ پیش‌بارگذاری‌های GLB (ساختمان/خودرو/پارکی/کیت)
    *  گارد timeout — با شبکهٔ کند/فایل خراب boot هرگز قفل نمی‌شود (fallback فعال می‌ماند) */
   whenReady(timeoutMs = 12000): Promise<void> {
-    const done = Promise.all(this.readyJobs).then(() => undefined);
+    // 🔕 هرگز reject نمی‌شود: شکست تک‌کار فقط آن یک ویژگی را fallback می‌کند،
+    // نه اینکه کل boot را بکشد (باگ v0.2.28 — گیر کردن در صفحهٔ لودینگ روی گوشی)
+    const done = Promise.all(
+      this.readyJobs.map((p) => Promise.resolve(p).catch(() => undefined)),
+    ).then(() => undefined);
     return Promise.race([done, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
   }
 
@@ -736,14 +752,24 @@ export class WorldRenderer3D {
       this.readyJobs.push(
         this.glb.loadCar(v, false).then((scene) => {
           if (!scene) return;
-          this.glbCars.set(v, scene);
-          if (v === 'player') this.upgradePlayerToGLB();
-          else this.upgradeTrafficToGLB(v);
+          // 🔑 PERF-4: merge قطعات ایستای بدنه در قالب — یک‌بار per variant قبل از هر clone
+          // هر نمونهٔ بعدی (ترافیک/نگهبان/بازیکن) ~۴-۸ مش دارد به‌جای ۱۲-۵۲
+          try { mergeTemplateStatics(scene); } catch { /* fallback: قالب دست‌نخورده */ }
+          // 🔕 شکست ارتقا هرگز job را reject نمی‌کند — مدل procedural می‌ماند
+          try {
+            this.glbCars.set(v, scene);
+            if (v === 'player') this.upgradePlayerToGLB();
+            else this.upgradeTrafficToGLB(v);
+          } catch (e) {
+            console.warn('[Renderer] car GLB upgrade failed (kept procedural):', v, e);
+          }
         }),
       );
       this.readyJobs.push(
         this.glb.loadCar(v, true).then((scene) => {
-          if (scene) this.glbCars1.set(v, scene);
+          if (!scene) return;
+          try { mergeTemplateStatics(scene); } catch { /* fallback */ }
+          this.glbCars1.set(v, scene);
         }),
       );
     }
@@ -854,8 +880,12 @@ export class WorldRenderer3D {
   private async preloadParkedTemplates(): Promise<void> {
     const kinds: VehicleVariant[] = ['peugeot405', 'samand', 'renault4', 'vintage'];
     for (const kind of kinds) {
-      let scene = await this.glb.loadCar(kind, false);
-      if (!scene) scene = await this.glb.loadCar(kind, true);
+      // 🔑 PERF-3: پارکی با lod1 (همان مدلی که ترافیک همان خودروها استفاده می‌کند) —
+      // نسخهٔ کامل ۶۷۱K مثلث برای پژو است؛ پارکی از فاصلهٔ رانندگی تفاوتی ندارد
+      // و این بزرگ‌ترین منبع لگ بود (۴٫۵M مثلث ترسیم‌شده در هر فریم).
+      // lod1 پژو هنوز ۲۶۱K مثلث است — فوق‌پرخاشگری بصری حفظ می‌شود.
+      let scene = await this.glb.loadCar(kind, true);
+      if (!scene) scene = await this.glb.loadCar(kind, false);
       if (!scene) continue;
       const tmpl = scene.clone(true);
       const broken: THREE.Object3D[] = [];
@@ -867,6 +897,11 @@ export class WorldRenderer3D {
         else broken.push(m);
       });
       for (const b of broken) b.parent?.remove(b);
+      // 🔑 PERF-3-ب: ذوب متریال‌های همسان قالب — هر پژو lod1 ۲۰ مش دارد (۱۹ متریال بی‌تکسچر!)
+      // متریال‌های بی‌تکسچر → رنگ در vertex-color + متریال مشترک per (فلزی‌بودن×زبری×سایه)
+      // متریال‌های تکسچردار همسان → متریال مشترک per (تکسچر×رنگ×آلفا×سایه)
+      // نتیجه: ۲۰ مش پژو → ~۴ مش؛ سایه‌زنی دقیقاً همان شیدر استاندارد است (صفر تغییر ظاهر)
+      this.bakeParkedTemplate(tmpl);
       const box = new THREE.Box3().setFromObject(tmpl);
       const size = box.getSize(new THREE.Vector3());
       if (!Number.isFinite(box.min.x) || !Number.isFinite(size.x)) continue;
@@ -887,15 +922,105 @@ export class WorldRenderer3D {
     }
   }
 
-  /** دوبله‌پارکی‌های یک قطعه — merge per (قطعه × متریال × امضای اتریبیوت) */
+  /** 🔑 PERF-3-ب: قالب پارکی را به چند مش کم‌تعداد ذوب می‌کند (یک‌بار per kind)
+   *  - متریال بی‌تکسچر مات: رنگش در attribute «color» هر رأس ذوب می‌شود و متریال مشترک
+   *    per (فلزی‌بودن×زبری — گردشده به ۰٫۲ — ×تک/دوجهته) می‌گیرد؛ شیدر همان Standard است
+   *    پس نورپردازی بجز گردشدنِ بی‌اثر زبری، مو‌به‌مو یکی می‌ماند.
+   *  - متریال همسان (همان تکسچر/رنگ/آلفا/سایه): متریال اول گروه بین همه مشترک می‌شود.
+   *  - شفاف‌ها/خاص‌ها دست‌نخورده می‌مانند. خروجی: هر قالب ۱-۸ مش به‌جای ۹-۴۷ مش. */
+  private bakeParkedTemplate(tmpl: THREE.Group): void {
+    type Group = { mat: THREE.Material; geos: THREE.BufferGeometry[] };
+    const groups = new Map<string, Group>();
+    const vcMats = new Map<string, THREE.MeshStandardMaterial>();
+    const meshes: THREE.Mesh[] = [];
+    tmpl.updateMatrixWorld(true);
+    tmpl.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
+    const q = (v: number): number => Math.round(v * 5) / 5; // گرد به ۰٫۲
+    for (const m of meshes) {
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      const src = mats[0] as THREE.MeshStandardMaterial | undefined;
+      if (!src) continue;
+      const g = m.geometry;
+      const sig = Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '|n');
+      const hasAnyMap = !!(src.map || src.normalMap || src.roughnessMap || src.metalnessMap || src.aoMap || src.emissiveMap || src.alphaMap || src.lightMap);
+      const transparent = !!src.transparent || src.opacity < 1 || src.alphaTest > 0;
+      const emissiveOn = src.emissive ? (src.emissive.r + src.emissive.g + src.emissive.b) > 1e-4 : false;
+      const canVC = !!src.isMeshStandardMaterial && !hasAnyMap && !transparent && !emissiveOn
+        && !src.vertexColors && !src.wireframe && !!src.color;
+      let key: string;
+      let mat: THREE.Material;
+      if (canVC) {
+        const mk = `v${q(src.metalness)}_${q(src.roughness)}_${src.side}`;
+        let vc = vcMats.get(mk);
+        if (!vc) {
+          vc = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, metalness: q(src.metalness), roughness: q(src.roughness), side: src.side });
+          vcMats.set(mk, vc);
+        }
+        // ذوب رنگ متریال در رأس‌ها (Color سه‌بعدی خطی است — همان که شیدر از uniform می‌خواند)
+        const n = g.attributes.position.count;
+        const arr = new Float32Array(n * 3);
+        const cr = src.color.r, cg = src.color.g, cb = src.color.b;
+        for (let i = 0; i < n; i++) { arr[i * 3] = cr; arr[i * 3 + 1] = cg; arr[i * 3 + 2] = cb; }
+        g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+        key = `VC|${mk}|${sig}`;
+        mat = vc;
+      } else {
+        // متریال تکسچردار/خاص — اگر دقیقاً همسان بود متریال اول گروه بین همه مشترک می‌شود
+        // (مثلاً ۴ متریال سمند با همان تکسچر/رنگ/آلفا → ۱ متریال)
+        const hex = src.color ? src.color.getHexString() : 'ffffff';
+        const mu = src.map ? src.map.uuid : '-';
+        const ru = src.roughnessMap ? src.roughnessMap.uuid : (src.metalnessMap ? src.metalnessMap.uuid : '-');
+        key = `M|${mu}|${ru}|${hex}|${q(src.metalness ?? 0)}|${q(src.roughness ?? 1)}|${src.opacity}|${src.transparent ? 1 : 0}|${src.side}|${sig}`;
+        mat = src;
+      }
+      const geo = g.clone();
+      geo.applyMatrix4(m.matrixWorld);
+      const e = groups.get(key);
+      if (e) e.geos.push(geo);
+      else groups.set(key, { mat, geos: [geo] });
+    }
+    if (groups.size === 0 || groups.size >= meshes.length) return; // صرفه‌ای ندارد — دست نخورده
+    // ساخت گروه تازه از مش‌های merge‌شده
+    const merged = new THREE.Group();
+    for (const { mat, geos } of groups.values()) {
+      const gg = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
+      if (!gg) continue;
+      if (geos.length > 1) for (const x of geos) x.dispose();
+      gg.computeBoundingBox();
+      gg.computeBoundingSphere();
+      merged.add(new THREE.Mesh(gg, mat));
+    }
+    tmpl.clear();
+    tmpl.add(merged);
+  }
+
+  /** دوبله‌پارکی‌های یک قطعه — merge per (سلول ۴۰۰ واحدی × متریال × امضای اتریبیوت)
+   *  🔑 PERF-3: قبلاً merge کل قطعه (۱۴۰۰×۱۴۰۰) بود → کرهٔ محصورکنندهٔ غول‌پیکر →
+   *  frustum culling عملاً کور می‌شد و همهٔ mergeهای قطعه‌های نزدیک، کامل رندر می‌شدند.
+   *  حالا هر خوشهٔ همسایه merge جدا دارد → دوربین فقط خوشه‌های واقعاً در دید را می‌کشد. */
   private buildChunkParked(ch: WorldChunk, vis: ChunkVisual): void {
     if (ch.parkedCars.length === 0) return;
     if (!this.parkedTmplReady) {
       this.waitingParked.add(vis.key);
       return;
     }
-    const byKey = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>();
+    // 🔑 PERF-3: خوشه‌بندی فضایی — ماشین‌های نزدیک هم (سلول ۴۰۰) یک merge می‌گیرند
+    const cells = new Map<string, typeof ch.parkedCars>();
     for (const pc of ch.parkedCars) {
+      const ck = `${Math.floor(pc.x / 400)}_${Math.floor(pc.y / 400)}`;
+      const arr = cells.get(ck);
+      if (arr) arr.push(pc);
+      else cells.set(ck, [pc]);
+    }
+    for (const cars of cells.values()) {
+      this.mergeParkedCluster(cars, vis);
+    }
+  }
+
+  /** merge یک خوشهٔ پارکی (۱-۵ ماشین همسایه) — per متریال × امضای اتریبیوت */
+  private mergeParkedCluster(cars: WorldChunk['parkedCars'], vis: ChunkVisual): void {
+    const byKey = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>();
+    for (const pc of cars) {
       const entry = this.parkedTmpl.get(pc.kind);
       if (entry) {
         const clone = entry.tmpl.clone(true);
@@ -951,6 +1076,7 @@ export class WorldRenderer3D {
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       this.scene.add(mesh);
+      this.freezeStatic(mesh);
       vis.objects.push(mesh);
       vis.geos.push(merged);
     }
@@ -1033,6 +1159,7 @@ export class WorldRenderer3D {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.scene.add(mesh);
+      this.freezeStatic(mesh);
       vis.objects.push(mesh);
     }
   }
@@ -1117,6 +1244,7 @@ export class WorldRenderer3D {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.scene.add(mesh);
+      this.freezeStatic(mesh);
       vis.objects.push(mesh);
     }
   }
@@ -1353,6 +1481,7 @@ export class WorldRenderer3D {
     box.castShadow = true;
     box.receiveShadow = true;
     this.scene.add(box);
+    this.freezeStatic(box);
     this.regVis(box, [boxGeo], [boxMat]);
 
     // 🔑 ENDLESS: اگر قطعه تا رسیدن GLB تخلیه شود — placeholder هم برداشته می‌شود
@@ -1441,6 +1570,7 @@ export class WorldRenderer3D {
       this.decorateShopFront(g, variance, p.label);
     }
     this.scene.add(g);
+    this.freezeStatic(g); // 🔑 PERF-4: ساختمان ایستا است — ماتریس هر فریم compose نشود
     return g;
   }
 
@@ -1481,19 +1611,38 @@ export class WorldRenderer3D {
     if (awMerged) {
       awMerged.computeBoundingBox();
       awMerged.computeBoundingSphere();
-      const awning = new THREE.Mesh(awMerged, new THREE.MeshLambertMaterial({ map: awningTex }));
-      awning.castShadow = true;
-      g.add(awning);
+      const awMat = new THREE.MeshLambertMaterial({ map: awningTex });
+      // 🔑 PERF-3-ج: سایه‌بان به صف merge قطعه — سایه‌بان‌های هم‌رنگ همهٔ مغازه‌های قطعه یک مش می‌شوند
+      if (this.propStage) {
+        g.updateMatrixWorld(true);
+        awMerged.applyMatrix4(g.matrixWorld); // هندسه نسبت به g ساخته شده — ترنسفورم ساختمان ذوب شود
+        this.propStage.push({
+          key: `MeshLambertMaterial|${awningTex.uuid}|ffffff|1|0|${awMat.side}|1|position,normal,uv|i`,
+          mat: awMat, geo: awMerged, cast: true,
+        });
+      } else {
+        const awning = new THREE.Mesh(awMerged, awMat);
+        awning.castShadow = true;
+        g.add(awning);
+      }
     }
     const sgMerged = mergeGeometries(signParts, false);
     if (sgMerged) {
       sgMerged.computeBoundingBox();
       sgMerged.computeBoundingSphere();
-      const sign = new THREE.Mesh(
-        sgMerged,
-        new THREE.MeshBasicMaterial({ map: signTex, transparent: true, side: THREE.DoubleSide }),
-      );
-      g.add(sign);
+      const signMat = new THREE.MeshBasicMaterial({ map: signTex, transparent: true, side: THREE.DoubleSide });
+      // 🔑 PERF-3-ج: تابلوهای هم‌اسم (تکسچر مشترک) هم merge می‌شوند
+      if (this.propStage) {
+        g.updateMatrixWorld(true);
+        sgMerged.applyMatrix4(g.matrixWorld);
+        this.propStage.push({
+          key: `MeshBasicMaterial|${signTex.uuid}|ffffff|1|1|${signMat.side}|0|position,normal,uv|i`,
+          mat: signMat, geo: sgMerged, cast: false,
+        });
+      } else {
+        const sign = new THREE.Mesh(sgMerged, signMat);
+        g.add(sign);
+      }
     }
   }
 
@@ -1648,9 +1797,54 @@ export class WorldRenderer3D {
     }
 
     wrap.position.set(cx, 0, cz);
+    // 🔑 PERF-3-ج: اگر صف merge قطعه فعال است — هندسه‌ها با ترنسفورم جهانی به صف می‌روند
+    // (بعداً per متریال همسان merge می‌شوند)؛ وگرنه مثل قبل مستقیم به صحنه
+    if (this.propStage) {
+      wrap.updateMatrixWorld(true);
+      wrap.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mm = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.MeshLambertMaterial | undefined;
+        if (!mm) return;
+        const g = m.geometry;
+        g.applyMatrix4(m.matrixWorld);
+        const sig = Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '|n');
+        const hex = mm.color ? mm.color.getHexString() : 'ffffff';
+        const mu = mm.map ? mm.map.uuid : '-';
+        const key = `${mm.type}|${mu}|${hex}|${mm.opacity}|${mm.transparent ? 1 : 0}|${mm.side}|${m.castShadow ? 1 : 0}|${sig}`;
+        this.propStage!.push({ key, mat: mm, geo: g, cast: m.castShadow });
+      });
+      return;
+    }
     this.scene.add(wrap);
     this.regVisDeep(wrap);
     if (p.breakable) this.propGroups.set(p, wrap);
+  }
+
+  /** 🔑 PERF-3-ج: تخلیهٔ صف merge پراپ‌های یک قطعه — per (متریال همسان × امضای اتریبیوت × سایه)
+   *  صدها مش تکی (نیمکت/گل/چراغ/سایه‌بان/بیلبورد...) به چند مش محدود per قطعه می‌رسد */
+  private flushPropStage(stage: NonNullable<typeof this.propStage>, vis: ChunkVisual): void {
+    if (stage.length === 0) return;
+    const byKey = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[]; cast: boolean }>();
+    for (const s of stage) {
+      const e = byKey.get(s.key);
+      if (e) { e.geos.push(s.geo); e.cast = e.cast || s.cast; }
+      else byKey.set(s.key, { mat: s.mat, geos: [s.geo], cast: s.cast });
+    }
+    for (const { mat, geos, cast } of byKey.values()) {
+      const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
+      if (!merged) continue;
+      if (geos.length > 1) for (const g of geos) g.dispose(); // سورس‌ها بعد از merge آزاد
+      merged.computeBoundingBox();
+      merged.computeBoundingSphere();
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.castShadow = cast;
+      this.scene.add(mesh);
+      this.freezeStatic(mesh);
+      vis.objects.push(mesh);
+      vis.geos.push(merged);
+      vis.mats.push(mat); // متریال merge‌شده فقط مال همین قطعه است (تکسچرها مشترک‌اند و دست‌نخورده)
+    }
   }
 
   /** فاز FPS-1: merge کل اجزای یک گروه ایستا (مثل خوشه پشت‌بام) به «یک» مش
@@ -1741,9 +1935,11 @@ export class WorldRenderer3D {
   private sunGlow: THREE.Sprite | null = null;
   private vignette: HTMLCanvasElement | null = null;
 
-  /** گنبد آسمان گرادیانی — دنبال دوربین، بدون مه */
+  /** گنبد آسمان گرادیانی — دنبال دوربین، بدون مه
+   *  🔑 PERF-3: شعاع ۳۳۰۰ = هم‌تراز fogFar — هر چیز دورتر ۱۰۰٪ هم‌رنگ مِه است و دیده نمی‌شود؛
+   *  دوربین far=3450 آن‌ها را رایگان حذف می‌کند (قبلاً ۵۲۰۰ بود = رندر پیکسل‌های نامرئی) */
   private buildSkyDome(): void {
-    const geo = new THREE.SphereGeometry(4600, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    const geo = new THREE.SphereGeometry(3300, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.52);
     const mat = new THREE.MeshBasicMaterial({ map: getSkyDomeTexture(), side: THREE.BackSide, fog: false, depthWrite: false });
     this.skyDome = new THREE.Mesh(geo, mat);
     this.skyDome.renderOrder = -10;
@@ -1757,9 +1953,11 @@ export class WorldRenderer3D {
       const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.8, depthWrite: false, fog: false });
       const sp = new THREE.Sprite(mat);
       const a = (i / 10) * Math.PI * 2 + 0.55;
-      const r = 2400 + (i % 4) * 520;
-      const scale = 1100 + (i % 3) * 620;
-      sp.userData.cloudOffset = new THREE.Vector3(Math.cos(a) * r, 880 + (i % 5) * 210, Math.sin(a) * r);
+      // 🔑 PERF-3: فاصله/اندازه ×0.6 — زاویهٔ دید و اندازهٔ ظاهری ابر دقیقاً همان است،
+      // فقط داخل far=3450 می‌ماند (قبلاً تا ۴۳۱۷ می‌رفت و clip می‌شد یا far را بالا می‌برد)
+      const r = 1440 + (i % 4) * 312;
+      const scale = 660 + (i % 3) * 372;
+      sp.userData.cloudOffset = new THREE.Vector3(Math.cos(a) * r, 528 + (i % 5) * 126, Math.sin(a) * r);
       sp.userData.drift = 6 + (i % 4) * 4;
       sp.scale.set(scale, scale * 0.4, 1);
       this.clouds.push(sp);
@@ -1771,7 +1969,7 @@ export class WorldRenderer3D {
       color: '#ffdf9e', blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
     });
     this.sunGlow = new THREE.Sprite(glowMat);
-    this.sunGlow.scale.set(1150, 1150, 1);
+    this.sunGlow.scale.set(1022, 1022, 1);
     this.scene.add(this.sunGlow);
   }
 
@@ -2019,6 +2217,10 @@ export class WorldRenderer3D {
   draw3D(opts: Draw3DOptions): void {
     const t = performance.now() / 1000;
     const car = opts.car;
+
+    // 🔕 سایهٔ ۲۰Hz — نقشهٔ سایه فقط هر ۳ فریم بازتولید می‌شود
+    this.shadowTick = (this.shadowTick + 1) % 3;
+    if (this.shadowTick === 0) this.r3.shadowMap.needsUpdate = true;
 
     // ---------- فاز ENDLESS-1: جریان بصری قطعه‌ها با بودجهٔ فریمی + زمین دنبال‌کننده ----------
     this.streamVisuals(car);
@@ -2294,8 +2496,12 @@ export class WorldRenderer3D {
     this.updateChaseCamera(car, dt, t);
 
     // ---------- نور خورشید دنبال بازیکن — زاویه پایین‌تر = سایه‌های بلند سینمایی ----------
-    this.sun.position.set(car.x + 520, 640, car.y + 380);
-    this.sun.target.position.set(car.x, 0, car.y);
+    // 🔑 PERF-4: snap به شبکهٔ تکسل (۶۶۰/۲۰۴۸) — نقشهٔ سایه با حرکت ماشین «نلرزد»
+    const sunSnap = 660 / 2048;
+    const sunX = Math.round(car.x / sunSnap) * sunSnap;
+    const sunZ = Math.round(car.y / sunSnap) * sunSnap;
+    this.sun.position.set(sunX + 520, 640, sunZ + 380);
+    this.sun.target.position.set(sunX, 0, sunZ);
     this.sun.target.updateMatrixWorld();
 
     // ---------- فاز CINEMATIC: گنبد آسمان + ابرها + هاله خورشید دنبال دوربین ----------
@@ -2305,7 +2511,7 @@ export class WorldRenderer3D {
     const ct = t * 0.5;
     for (const cl of this.clouds) {
       const off = cl.userData.cloudOffset as THREE.Vector3;
-      const drift = Math.sin(ct + off.x * 0.001) * 260;
+      const drift = Math.sin(ct + off.x * 0.001) * 156;
       cl.position.set(
         this.cam3.position.x + off.x + drift,
         off.y,
@@ -2313,12 +2519,12 @@ export class WorldRenderer3D {
       );
     }
     if (this.sunGlow) {
-      // هاله در جهت نور خورشید نسبت به دوربین
+      // هاله در جهت نور خورشید نسبت به دوربین (۳۲۰۰ — داخل far=3450، اندازهٔ ظاهری ثابت)
       const dir = this.tmpV.set(520, 640, 380).normalize();
       this.sunGlow.position.set(
-        this.cam3.position.x + dir.x * 3600,
-        dir.y * 3600,
-        this.cam3.position.z + dir.z * 3600,
+        this.cam3.position.x + dir.x * 3200,
+        dir.y * 3200,
+        this.cam3.position.z + dir.z * 3200,
       );
     }
 
