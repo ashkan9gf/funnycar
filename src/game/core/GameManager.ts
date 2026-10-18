@@ -157,6 +157,9 @@ export class GameManager {
   private raf = 0;
   private lastFrame = 0;
   private accumulator = 0;
+  /** سقف رندر ۶۰فریم (ادغام از شاخهٔ کاربر) — شبیه‌سازی مستقل ادامه دارد */
+  private lastRenderAt = 0;
+  private visualAccumulator = 0;
   private scale = 1;
   private showFps = false;
   private fpsAccum = 0;
@@ -695,13 +698,17 @@ export class GameManager {
       const sideN = mtv.x * Math.cos(v.angle) + mtv.y * Math.sin(v.angle);
       v.latVel = Math.max(-140, Math.min(140, v.latVel + sideN * Math.min(impact, 200) * 0.28));
 
-      // بازیکن فقط در ضربه واقعی کند می‌شود — ساییدنِ آرام دیگر حالت قفل ندارد
+      // برخورد خودرو به خودرو: پاسخ سرعت بر پایهٔ جهت تماس به‌جای ضریب ثابت (ادغام از شاخهٔ کاربر)
+      const hardImpact = impact > COLLISION.hardCrashSpeed;
+      v.applyCollisionResponse(
+        mtv.x,
+        mtv.y,
+        hardImpact ? COLLISION.hardRestitution : COLLISION.restitution,
+        hardImpact ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
+      );
       if (impact > COLLISION.softCrashSpeed) {
-        v.speed *= 0.55;
-        v.latVel *= 0.4;
         c.stun(TRAFFIC.stunnedSec * 1.4);
       } else {
-        v.speed *= 0.985;
         c.stun(0.5);
       }
 
@@ -880,17 +887,22 @@ export class GameManager {
       v.x += mtv.x * mtv.depth;
       v.y += mtv.y * mtv.depth;
 
-      const impact = Math.abs(v.speed);
+      // شدت برخورد = مؤلفهٔ سرعت روی نرمال تماس (ادغام از شاخهٔ کاربر):
+      // سایشِ کناری با پارکی دیگر سرعت را نمی‌گیرد — فقط ضربهٔ واقعی
+      const contactVx = v.vx + Math.cos(v.angle) * v.latVel;
+      const contactVy = v.vy + Math.sin(v.angle) * v.latVel;
+      const impact = Math.abs(contactVx * mtv.x + contactVy * mtv.y);
       if (impact < PARKED_HIT.softSpeed) {
-        v.speed *= 0.995;
+        v.applyCollisionResponse(mtv.x, mtv.y, 0.025, 0.985);
         continue;
       }
       const hard = impact > PARKED_HIT.hardSpeed;
-      if (hard) {
-        v.speed *= PARKED_HIT.hardKeep;
-      } else {
-        v.speed *= PARKED_HIT.slideKeep;
-      }
+      v.applyCollisionResponse(
+        mtv.x,
+        mtv.y,
+        hard ? COLLISION.hardRestitution : COLLISION.restitution,
+        hard ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
+      );
       if (this.parkedCd > 0) break;
       this.parkedCd = PARKED_HIT.cooldownSec;
       const cx = (v.x + pc.x) / 2;
@@ -993,16 +1005,6 @@ export class GameManager {
       const rawDt = Math.min(0.1, (now - this.lastFrame) / 1000 || 0);
       this.lastFrame = now;
 
-      // FPS
-      this.fpsAccum += rawDt;
-      this.fpsCount++;
-      if (this.fpsAccum >= 0.5) {
-        this.fpsValue = Math.round(this.fpsCount / this.fpsAccum);
-        this.fpsAccum = 0;
-        this.fpsCount = 0;
-        this.adaptDpr3d(); // 🔕 ضدلگ: کاهش نرم رزولوشن روی گوشی ضعیف
-      }
-
       if (this.state === 'playing') {
         this.accumulator += rawDt;
         let steps = 0;
@@ -1015,9 +1017,26 @@ export class GameManager {
         this.voice.update(rawDt);
       }
 
-      this.fx.update(rawDt);
-      this.draw();
-      this.emitHud(rawDt);
+      // سقف رندر ۶۰فریم (ادغام از شاخهٔ کاربر): شبیه‌سازی با گام ثابت ادامه دارد؛
+      // روی نمایشگرهای ۹۰/۱۲۰Hz انرژی/GPU صرفه‌جویی می‌شود، روی ۶۰Hz تغییری حس نمی‌شود.
+      // آستانهٔ ۱۵٫۹ms (به‌جای ۱۶٫۶۷) = بدون پرش فریم روی نمایشگر ۶۰Hz.
+      this.visualAccumulator += rawDt;
+      if (this.lastRenderAt === 0 || now - this.lastRenderAt >= 15.9) {
+        const renderDt = this.lastRenderAt > 0 ? Math.min(0.1, (now - this.lastRenderAt) / 1000) : rawDt;
+        this.fpsAccum += renderDt;
+        this.fpsCount++;
+        if (this.fpsAccum >= 0.5) {
+          this.fpsValue = Math.round(this.fpsCount / this.fpsAccum);
+          this.fpsAccum = 0;
+          this.fpsCount = 0;
+          this.adaptDpr3d(); // 🔕 ضدلگ: کاهش نرم رزولوشن روی گوشی ضعیف
+        }
+        this.fx.update(Math.min(0.1, this.visualAccumulator));
+        this.visualAccumulator = 0;
+        this.draw();
+        this.emitHud(renderDt);
+        this.lastRenderAt = now;
+      }
     } catch (err) {
       // خطای یک فریم هرگز بازی را نمی‌بندد
       console.warn('[Game] frame error:', err);
@@ -1057,7 +1076,8 @@ export class GameManager {
       this.audio.crash(hard);
       this.camera.addShake(hard ? CAM.maxShake : CAM.maxShake * 0.45);
       // نقطه برخورد داینامیک: ذرات + جرقه در نقطه تماس + خرابی بدنه (فاز BIG-IR)
-      this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#9B9B9B' : '#D6D6D6', hard ? 14 : 8);
+      this.fx.spawnBurst(result.impactX, result.impactY, hard ? '#ffd166' : '#D6D6D6', hard ? 18 : 8, hard ? 280 : 140);
+      if (hard) this.fx.spawnBurst(result.impactX, result.impactY, '#ff6b35', 10, 240); // جرقهٔ نارنجی تصادف سخت
       // فاز OVERHAUL: لاشه + شیشه در تصادف سخت
       if (hard) {
         this.fx.spawnDebris?.(result.impactX, result.impactY, '#4a4a48', 10, 300, 10);

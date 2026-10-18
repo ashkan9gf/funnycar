@@ -11,6 +11,7 @@
  */
 
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { AssetManager } from '../core/AssetManager';
 import type { Camera } from '../core/Camera';
@@ -202,6 +203,8 @@ export class WorldRenderer3D {
   private steerVis = 0;
   private pitchVis = 0;
   private rollVis = 0;
+  /** PMREM محیط استودیویی برای انعکاس کنترل‌شده روی رنگ بدنه و نمای ساختمان‌ها (ادغام از شاخهٔ کاربر) */
+  private environmentTarget: THREE.WebGLRenderTarget | null = null;
 
   // دوربین
   private camAngle = 0;
@@ -296,7 +299,24 @@ export class WorldRenderer3D {
 
     // تون‌مپینگ سینمایی سبک GTA (رنگ‌ها غنی‌تر)
     this.r3.toneMapping = THREE.ACESFilmicToneMapping;
-    this.r3.toneMappingExposure = 1.14;
+    this.r3.toneMappingExposure = 1.2;
+
+    // نور محیطی مبتنی بر PMREM: بازتاب نرم روی رنگ خودروها و سطوح PBR —
+    // یک‌بار در boot ساخته می‌شود، صفر هزینهٔ هر-فریم؛ روی موبایل هم فعال می‌ماند
+    // (سایه‌ها دست‌نخورده — برخلاف شاخهٔ کاربر که سایهٔ موبایل را کور می‌کرد)
+    const pmrem = new THREE.PMREMGenerator(this.r3);
+    const studio = new RoomEnvironment();
+    this.environmentTarget = pmrem.fromScene(studio, 0.04);
+    this.scene.environment = this.environmentTarget.texture;
+    this.scene.environmentIntensity = 0.82;
+    pmrem.dispose();
+    studio.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = (mesh as unknown as { material?: THREE.Material | THREE.Material[] }).material;
+      if (Array.isArray(mat)) mat.forEach((mm) => mm.dispose());
+      else if (mat) mat.dispose();
+    });
 
     // نور: خورشید طلایی با سایه‌های بلند + آسمان روشن
     const hemi = new THREE.HemisphereLight('#eaf2f8', '#c9a97a', RENDER3D.hemiIntensity);
@@ -1549,7 +1569,12 @@ export class WorldRenderer3D {
         if (hit) return hit;
         const c = mm.clone();
         const std = c as THREE.MeshStandardMaterial;
-        if (std.isMeshStandardMaterial) { std.metalness = 0; std.roughness = 1; }
+        if (std.isMeshStandardMaterial) {
+          // نمای ساختمان مات می‌ماند، اما کاملاً گچی و تخت دیده نمی‌شود (ادغام از شاخهٔ کاربر)
+          std.metalness = Math.min(std.metalness, 0.12);
+          std.roughness = Math.min(0.92, Math.max(0.48, std.roughness));
+          std.envMapIntensity = 0.55;
+        }
         const cm = c as THREE.MeshLambertMaterial;
         if (cm.color) {
           if (cm.map) cm.color.multiply(tintCG);
@@ -2216,6 +2241,7 @@ export class WorldRenderer3D {
 
   draw3D(opts: Draw3DOptions): void {
     const t = performance.now() / 1000;
+    const frameDt = this.drawDt();
     const car = opts.car;
 
     // 🔕 سایهٔ ۲۰Hz — نقشهٔ سایه فقط هر ۳ فریم بازتولید می‌شود
@@ -2230,7 +2256,7 @@ export class WorldRenderer3D {
     this.playerModel.group.position.set(car.x, 0, car.y);
     this.playerModel.group.rotation.y = -car.angle;
     const wheelR = car.drawH * 0.135;
-    const spin = (car.speed / wheelR) * this.drawDt();
+    const spin = (car.speed / wheelR) * frameDt;
     spinWheels(this.playerModel, spin);
 
     // ---------- فاز OVERHAUL: ترمز/فرمان/رول/پیک بدنه بازیکن ----------
@@ -2243,13 +2269,13 @@ export class WorldRenderer3D {
     }
     // فرمان بصری چرخ‌های جلو — با محور واقعی هر پیوت
     const steerTarget = (opts.steer ?? 0) * 0.42;
-    this.steerVis += (steerTarget - this.steerVis) * Math.min(1, 10 * 0.016);
+    this.steerVis += (steerTarget - this.steerVis) * Math.min(1, 10 * frameDt);
     steerWheels(pmodel, this.steerVis);
     // رول بدنه (خم به بیرون پیچ) + پیک گاز/ترمز
     const rollTarget = Math.max(-0.08, Math.min(0.08, -car.latVel * 0.0006));
-    this.rollVis += (rollTarget - this.rollVis) * Math.min(1, 6 * 0.016);
+    this.rollVis += (rollTarget - this.rollVis) * Math.min(1, 6 * frameDt);
     const pitchTarget = opts.braking ? 0.035 : opts.accelerating ? -0.022 : 0;
-    this.pitchVis += (pitchTarget - this.pitchVis) * Math.min(1, 5 * 0.016);
+    this.pitchVis += (pitchTarget - this.pitchVis) * Math.min(1, 5 * frameDt);
     pmodel.rollZ = this.rollVis;
     pmodel.pitchX = this.pitchVis;
     pmodel.group.rotation.z = (pmodel.damageTiltZ ?? 0) + this.rollVis;
@@ -2490,10 +2516,7 @@ export class WorldRenderer3D {
     if (this.skidMesh.instanceColor) this.skidMesh.instanceColor.needsUpdate = true;
 
     // ---------- دوربین Chase ----------
-    const nowMs = performance.now();
-    const dt = Math.min(0.1, Math.max(0.0001, (nowMs - this.lastDrawMs) / 1000));
-    this.lastDrawMs = nowMs;
-    this.updateChaseCamera(car, dt, t);
+    this.updateChaseCamera(car, frameDt, t);
 
     // ---------- نور خورشید دنبال بازیکن — زاویه پایین‌تر = سایه‌های بلند سینمایی ----------
     // 🔑 PERF-4: snap به شبکهٔ تکسل (۶۶۰/۲۰۴۸) — نقشهٔ سایه با حرکت ماشین «نلرزد»

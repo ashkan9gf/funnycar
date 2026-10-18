@@ -264,8 +264,16 @@ export const COLLISION = {
   /** سرعت بالای این = تصادف جدی (لرزش + آبرو) */
   hardCrashSpeed: 260,
   softCrashSpeed: 90,
-  /** ضریب نگه‌داشت سرعت هنگام لغزش در امتداد مانع (ساییدن به دیوار) */
+  /** ضریب نگه‌داشت سرعت هنگام لغزش در امتداد مانع (ساییدن به دیوار) — سازگاری مسیرهای قدیمی */
   wallSlideFactor: 0.6,
+  /** ضریب جهش عمودی بعد از برخورد (ادغام از شاخهٔ کاربر) — مقدار کم برای حس آرکیدِ سنگین */
+  restitution: 0.12,
+  /** جهش اندکی بیشتر در تصادف شدید */
+  hardRestitution: 0.19,
+  /** حفظ سرعت مماسی هنگام برخورد نرم — دیوار قفل نمی‌شود */
+  tangentRetention: 0.91,
+  /** اصطکاک بیشتر در برخورد شدید؛ از سر خوردن غیرطبیعی جلوگیری می‌کند */
+  hardTangentRetention: 0.78,
 } as const;
 
 /** آبرو (Reputation) — طبق GAME_DESIGN بخش ۶ */
@@ -367,8 +375,8 @@ export const RENDER3D = {
   fogFar: 3300,
   skyColor: '#AEDCEB',
   /** نور */
-  sunIntensity: 1.35,
-  hemiIntensity: 0.85,
+  sunIntensity: 1.42,
+  hemiIntensity: 0.92,
   /** سقف رد لاستیک و ذرات در حالت سه‌بعدی (Pool) */
   skidMax: 180,
   particleMax: 140,

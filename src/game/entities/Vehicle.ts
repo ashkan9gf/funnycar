@@ -212,16 +212,15 @@ export class Vehicle {
         res.front = this.isFrontHit(res.nx, res.ny);
       }
 
-      // ساییدن به مانع: سرعت کم می‌شود ولی حرکت ادامه می‌یابد (لغزش)
-      // 🔕 تصادف واقعی‌تر: کوبشِ سختِ پیشانی = توقف تقریبی + برگشت کوچک، نه سُرخوردن
-      const frontalMag = Math.abs(Math.sin(this.angle) * mtv.x - Math.cos(this.angle) * mtv.y);
-      if (axisImpact > COLLISION.hardCrashSpeed && frontalMag > 0.72) {
-        this.speed = -Math.min(42, axisImpact * 0.14); // کوبش + برگشت ملایم مثل خودروی واقعی
-        this.latVel *= 0.2;
-      } else {
-        this.speed *= COLLISION.wallSlideFactor;
-        this.latVel *= 0.4;
-      }
+      // ضربه: جهش کم در راستای نرمال + اصطکاک روی سطح برخورد (ادغام از شاخهٔ کاربر)؛
+      // کوبشِ سخت = برگشت کوچک، ساییدنِ آرام = لغزش روان — دیگر قفل روی دیوار نیست
+      const hardImpact = axisImpact > COLLISION.hardCrashSpeed;
+      this.applyCollisionResponse(
+        mtv.x,
+        mtv.y,
+        hardImpact ? COLLISION.hardRestitution : COLLISION.restitution,
+        hardImpact ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
+      );
 
       if (axisImpact > COLLISION.softCrashSpeed) {
         res.crashed = true;
@@ -237,5 +236,31 @@ export class Vehicle {
   private dmgFor(impact: number): number {
     const raw = (DAMAGE.worldHitBase + impact * DAMAGE.worldHitScale) * this.tune.armorMul;
     return Math.min(DAMAGE.worldHitMax, raw);
+  }
+
+  /**
+   * پاسخ فیزیکی برخورد (ادغام از شاخهٔ کاربر + پیاده‌سازی گمشده):
+   * سرعت جهانی را به مؤلفهٔ نرمال (عمود بر سطح) و مماسی (موازی سطح) تجزیه می‌کند —
+   * نرمال با ضریب جهش برمی‌گردد، مماس با ضریب اصطکاک حفظ می‌شود؛ سپس به (speed, latVel) بازمی‌سازد.
+   * nx/ny = نرمال جداسازی MTV (به بیرون مانع).
+   */
+  applyCollisionResponse(nx: number, ny: number, restitution: number, tangentRetention: number): void {
+    const wvx = this.vx + this.rightX * this.latVel;
+    const wvy = this.vy + this.rightY * this.latVel;
+    const vn = wvx * nx + wvy * ny; // مؤلفه نرمال (منفی = در حال نفوذ به مانع)
+    const tx = -ny;
+    const ty = nx;
+    const vt = wvx * tx + wvy * ty; // مؤلفه مماسی
+    // فقط وقتی به سمت مانع می‌رویم جهش می‌کنیم؛ اگر در حال جداشدنیم دست نمی‌زنیم
+    const vnNew = vn < 0 ? -vn * restitution : vn;
+    const vtNew = vt * tangentRetention;
+    // بازسازی سرعت جهانی
+    const nwx = nx * vnNew + tx * vtNew;
+    const nwy = ny * vnNew + ty * vtNew;
+    // تجزیه به (طولی، جانبی) نسبت به جهت فعلی ماشین
+    const sinA = Math.sin(this.angle);
+    const cosA = Math.cos(this.angle);
+    this.speed = nwx * sinA - nwy * cosA; // تصویر روی بردار جلو (sin, −cos)
+    this.latVel = nwx * cosA + nwy * sinA; // تصویر روی بردار راست (cos, sin)
   }
 }
