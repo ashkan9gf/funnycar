@@ -16,9 +16,9 @@ concurrency:
 
 jobs:
   web-quality:
-    name: Lint and production build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: Typecheck, lint and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -31,6 +31,9 @@ jobs:
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
 
+      - name: TypeScript check
+        run: bunx tsc --noEmit
+
       - name: Lint
         run: bun run lint
 
@@ -42,8 +45,8 @@ jobs:
 
   android-debug-apk:
     name: Build landscape Android debug APK
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -57,27 +60,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
 
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: "temurin"
           java-version: "21"
+          cache: "gradle"
 
-      - name: Configure preinstalled Android SDK
-        run: |
-          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
-          echo "/usr/local/lib/android/sdk/platform-tools" >> "$GITHUB_PATH"
-          echo "/usr/local/lib/android/sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
+
+      - name: TypeScript check
+        run: bunx tsc --noEmit
 
       - name: Build and verify offline web bundle
         run: bash scripts/build-android-web.sh
@@ -109,7 +112,7 @@ jobs:
           if marker not in manifest:
               raise SystemExit("MainActivity entry not found; refusing to produce a portrait APK")
           if 'android:screenOrientation="landscape"' not in manifest:
-              manifest = manifest.replace(marker, marker + '\n            android:screenOrientation="landscape"', 1)
+              manifest = manifest.replace(marker, marker + '\\n            android:screenOrientation="landscape"', 1)
           path.write_text(manifest)
           if 'android:screenOrientation="landscape"' not in path.read_text():
               raise SystemExit("Landscape orientation was not applied")
@@ -122,10 +125,23 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon --stacktrace assembleDebug
 
-      - name: Verify APK exists
-        run: test -s android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Verify APK and bundled assets
+        run: |
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          test -s out/index.html
+          test -s out/assets/models/vehicles/player.glb
+          GLB_COUNT="$(find out/assets -type f -name '*.glb' -size +0c | wc -l)"
+          echo "Bundled GLB models: $GLB_COUNT"
+          test "$GLB_COUNT" -ge 1
+          APK_BYTES="$(wc -c < "$APK")"
+          echo "APK size: $APK_BYTES bytes"
+          test "$APK_BYTES" -gt 1000000
+          if command -v aapt >/dev/null 2>&1; then
+            aapt dump badging "$APK" | grep -E "^package:|^application-label:"
+          fi
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
@@ -133,3 +149,4 @@ jobs:
           name: funnycar-landscape-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
