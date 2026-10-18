@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build a temporary static web export for the Android wrapper.
+# Build a temporary static export for the offline Android wrapper.
 # Always restore the original Next config and server-only route directories.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -34,7 +34,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "export",
-  typescript: { ignoreBuildErrors: true },
   reactStrictMode: false,
 };
 
@@ -49,4 +48,6 @@ test -s "out/assets/models/vehicles/player.glb" || {
   echo "The main 3D player model is missing from the Android bundle." >&2
   exit 1
 }
-echo "Android web bundle verified: out/index.html and core game assets exist."
+GLB_COUNT="$(find out/assets -type f -name '*.glb' -size +0c | wc -l)"
+echo "Verified static bundle; GLB model count: $GLB_COUNT"
+test "$GLB_COUNT" -ge 1 || { echo "No non-empty GLB models were bundled." >&2; exit 1; }
