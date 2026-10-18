@@ -60,14 +60,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
 
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: "temurin"
           java-version: "21"
-          cache: "gradle"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -112,7 +110,7 @@ jobs:
           if marker not in manifest:
               raise SystemExit("MainActivity entry not found; refusing to produce a portrait APK")
           if 'android:screenOrientation="landscape"' not in manifest:
-              manifest = manifest.replace(marker, marker + '\\n            android:screenOrientation="landscape"', 1)
+              manifest = manifest.replace(marker, marker + '\n            android:screenOrientation="landscape"', 1)
           path.write_text(manifest)
           if 'android:screenOrientation="landscape"' not in path.read_text():
               raise SystemExit("Landscape orientation was not applied")
