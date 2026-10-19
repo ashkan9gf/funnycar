@@ -406,7 +406,6 @@ export class WorldRenderer3D {
   /** 🔑 PERF-3-ج: صف merge پراپ‌های ویژه‌ی یک قطعه — buildProp به‌جای مش تکی، هندسه به صف می‌دهد
    *  و آخر buildChunkVisual per (متریال همسان × امضا) merge می‌شود — صدها درخواست ترسیم → چند ده */
   private propStage: Array<{ key: string; mat: THREE.Material; geo: THREE.BufferGeometry; cast: boolean }> | null = null;
-  private propGroups = new Map<WorldProp, THREE.Group>();
   private repairRings: THREE.Group[] = [];
 
   // ---------- فاز GRAPHICS_OVERHAUL ----------
@@ -2286,7 +2285,6 @@ export class WorldRenderer3D {
     }
     this.scene.add(wrap);
     this.regVisDeep(wrap);
-    if (p.breakable) this.propGroups.set(p, wrap);
   }
 
   /** 🔑 PERF-3-ج: تخلیهٔ صف merge پراپ‌های یک قطعه — per (متریال همسان × امضای اتریبیوت × سایه)
