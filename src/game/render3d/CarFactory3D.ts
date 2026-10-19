@@ -130,7 +130,7 @@ let tireMat: THREE.MeshToonMaterial | null = null;
 let rimMat: THREE.MeshPhongMaterial | null = null;
 let darkMat: THREE.MeshToonMaterial | null = null;
 let chromeMat: THREE.MeshPhongMaterial | null = null;
-let headMat: THREE.MeshBasicMaterial | null = null;
+let headMat: THREE.MeshStandardMaterial | null = null;
 let tailMat: THREE.MeshStandardMaterial | null = null;
 let plateMat: THREE.MeshLambertMaterial | null = null;
 let taxiSignMat: THREE.MeshLambertMaterial | null = null;
@@ -157,7 +157,7 @@ function ensureShared(): void {
   rimMat = new THREE.MeshPhongMaterial({ color: '#cfd3d8', shininess: 90, specular: '#ffffff' });
   darkMat = new THREE.MeshToonMaterial({ color: '#2e2622', gradientMap });
   chromeMat = new THREE.MeshPhongMaterial({ color: '#c2c8ce', shininess: 110, specular: '#ffffff' });
-  headMat = new THREE.MeshBasicMaterial({ color: '#fff6cc' });
+  headMat = new THREE.MeshStandardMaterial({ color: '#fff1b8', emissive: '#ffd76a', emissiveIntensity: 1.15, roughness: 0.24, metalness: 0.08 });
   // چراغ عقب: Standard با emissive — کد ترمز در draw3D روی emissive.set کار می‌کند
   tailMat = new THREE.MeshStandardMaterial({ color: '#e2574c', emissive: '#5a0f08', emissiveIntensity: 0.7, roughness: 0.4 });
   plateMat = new THREE.MeshLambertMaterial({ map: getPlateTexture() });
@@ -378,12 +378,18 @@ export function buildCar3D(
   const ls = LIGHT_SPEC[variant] ?? LIGHT_SPEC.pride;
   const lightFGeo = new THREE.BoxGeometry(s.wid * ls.fW, ls.fH, 4);
   const lightRGeo = new THREE.BoxGeometry(s.wid * ls.rW, ls.rH, 4);
+  const headHousingGeo = new THREE.BoxGeometry(s.wid * ls.fW * 1.16, ls.fH * 1.28, 3);
   for (const x of [-s.wid * 0.33, s.wid * 0.33]) {
-    const h = new THREE.Mesh(lightFGeo, headMat as THREE.MeshBasicMaterial);
-    h.position.set(x, 44, profile[0][0] - 3);
+    // Dark recessed bezel makes the warm, emissive lens read as a separate glass part.
+    const housing = new THREE.Mesh(headHousingGeo, darkMat as THREE.MeshToonMaterial);
+    housing.position.set(x, 44, profile[0][0] - 1.8);
+    const h = new THREE.Mesh(lightFGeo, headMat as THREE.MeshStandardMaterial);
+    h.position.set(x, 44, profile[0][0] - 4.2);
+    h.castShadow = false;
+    h.receiveShadow = false;
     const t = new THREE.Mesh(lightRGeo, tailMat as THREE.MeshStandardMaterial);
     t.position.set(x, 46, profile[profile.length - 1][0] + 3);
-    g.add(h, t);
+    g.add(housing, h, t);
   }
 
   // ---------- پلاک ایرانی ----------
