@@ -2974,6 +2974,11 @@ export class WorldRenderer3D {
 
     // ---------- فاز OVERHAUL: ترمز/فرمان/رول/پیک بدنه بازیکن ----------
     const pmodel = this.playerModel;
+    // Smooth amber indicator pulse; per-car material prevents cross-car flicker.
+    if (pmodel.indicatorMat) {
+      const pulse = 0.55 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3.8));
+      pmodel.indicatorMat.emissiveIntensity += (pulse - pmodel.indicatorMat.emissiveIntensity) * Math.min(1, 9 * frameDt);
+    }
     // چراغ ترمز
     if (pmodel.tailMat?.emissive) {
       const on = opts.braking === true;
@@ -3049,6 +3054,11 @@ export class WorldRenderer3D {
         }
       }
       // چراغ‌گردان پلیس — فلاش متناوب
+      // Subtle amber lens breathing is shared by all procedural traffic models.
+      if (model.indicatorMat) {
+        const pulse = 0.55 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3.8));
+        model.indicatorMat.emissiveIntensity += (pulse - model.indicatorMat.emissiveIntensity) * Math.min(1, 9 * frameDt);
+      }
       if (model.lightBar) {
         const on = Math.sin(t * 9) > 0;
         model.lightBar.red.visible = on;
