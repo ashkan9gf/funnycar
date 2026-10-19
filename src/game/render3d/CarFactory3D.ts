@@ -393,14 +393,55 @@ export function buildCar3D(
   plate.position.set(0, 15, profile[profile.length - 1][0] + 6);
   g.add(plate);
 
-  // ---------- آینه بغل ----------
+  // ---------- آینه بغل — قاب + شیشهٔ بازتابنده ----------
   if (!lite) {
     const mirrorGeo = new THREE.BoxGeometry(10, 7, 8);
-    for (const x of [-s.wid / 2 - 5, s.wid / 2 + 5]) {
-      const m = new THREE.Mesh(mirrorGeo, darkMat as THREE.MeshToonMaterial);
-      m.position.set(x, gy0 + 4, gz0 + 6);
-      g.add(m);
+    const mirrorFaceGeo = new THREE.BoxGeometry(1.2, 4.8, 6.2);
+    const mirrorFaceMat = new THREE.MeshPhongMaterial({
+      color: '#9bb8c8',
+      emissive: '#17242b',
+      emissiveIntensity: 0.08,
+      specular: '#eaf5ff',
+      shininess: 110,
+    });
+    for (const side of [-1, 1]) {
+      const x = side * (s.wid / 2 + 5);
+      const housing = new THREE.Mesh(mirrorGeo, darkMat as THREE.MeshToonMaterial);
+      housing.position.set(x, gy0 + 4, gz0 + 6);
+      housing.castShadow = true;
+      const face = new THREE.Mesh(mirrorFaceGeo, mirrorFaceMat);
+      face.position.set(x + side * 5.2, gy0 + 4.4, gz0 + 5.4);
+      face.rotation.y = side * 0.12;
+      g.add(housing, face);
     }
+
+    // داشبورد باریک، صفحه کیلومتر و فرمان؛ جزئیات فقط در کیفیت کامل
+    // تا نمونه‌های ترافیک سبک و کم‌هزینه باقی بمانند.
+    const dashMat = new THREE.MeshToonMaterial({ color: '#292d31' });
+    const dashTopMat = new THREE.MeshToonMaterial({ color: '#45494b' });
+    const dashboard = new THREE.Mesh(
+      new THREE.BoxGeometry(s.wid * cab * 0.88, 8, 13),
+      dashMat,
+    );
+    dashboard.position.set(0, gy0 + 1, gz0 + 10);
+    dashboard.castShadow = true;
+    const instrument = new THREE.Mesh(
+      new THREE.BoxGeometry(s.wid * cab * 0.28, 4, 2),
+      dashTopMat,
+    );
+    instrument.position.set(-s.wid * 0.17, gy0 + 6, gz0 + 4);
+    const steering = new THREE.Mesh(
+      new THREE.TorusGeometry(7, 1.35, 7, 18),
+      darkMat as THREE.MeshToonMaterial,
+    );
+    // Torus پیش‌فرض در صفحه XY قرار دارد؛ همان صفحهٔ عمودی فرمان
+    steering.position.set(-s.wid * 0.17, gy0 + 7, gz0 + 15);
+    const spoke = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 10, 1.8),
+      darkMat as THREE.MeshToonMaterial,
+    );
+    spoke.position.copy(steering.position);
+    g.add(dashboard, instrument, steering, spoke);
   }
 
   // ---------- اگزوز ----------
