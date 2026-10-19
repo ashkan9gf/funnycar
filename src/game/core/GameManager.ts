@@ -280,13 +280,13 @@ export class GameManager {
   // ============ راه‌اندازی ============
   async boot(onProgress?: (done: number, total: number) => void): Promise<void> {
     try {
-      await this.assets.loadAll(onProgress);
+      await this.assets.loadAll((done, total) => {\n        // Keep the loading screen honest: asset files are only 70% of boot; GLB models follow.\n        onProgress?.(Math.round((done / Math.max(1, total)) * 70), 100);\n      });
     } catch (err) {
       console.warn('[Game] asset boot error (continuing with placeholders):', err);
     }
     // تمام Assetهای دوبعدی و تمام مدل‌های GLB (خودروها، LODها، ساختمان‌ها، پارکی و کیت شهر)
     // باید پیش از بازشدن منو/گاراژ تعیین تکلیف شوند. روی دستگاه کند صبر می‌کنیم؛
-    // timeout کوتاه باعث نمایش مدل موقت یا بارگذاری پس‌زمینه بعد از ورود نمی‌شود.
+    // تا آماده‌شدن همهٔ مدل‌ها صفحهٔ لودینگ فعال می‌ماند؛ زمان لودینگ عمداً محدود نشده است.
     try {
       await this.renderer3d?.whenReady();
     } catch (err) {
