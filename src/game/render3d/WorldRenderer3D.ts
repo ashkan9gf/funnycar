@@ -2326,15 +2326,21 @@ export class WorldRenderer3D {
     const easedDay = daylight * daylight * (3 - 2 * daylight);
     const night = 1 - easedDay;
     this.dayNightFactor = easedDay;
-    // Cinematic night sheen: shared asphalt materials become smoother and pick up
-    // more of the existing environment map, with no extra render pass or lights.
-    const wetSheen = night * 0.82;
+    // Keep asphalt reflections restrained through dusk, then let them build
+    // gradually at night. Reuse existing materials and vectors; no extra pass.
+    const wetSheen = Math.pow(night, 1.25) * 0.82;
     const road = this.roadMat as unknown as THREE.MeshStandardMaterial;
     const crossing = this.crossMat as unknown as THREE.MeshStandardMaterial;
+    // Micro-normal detail stays crisp in daylight and softens slightly under
+    // the smoother night response so highlights read as a surface, not noise.
+    const roadNormal = 0.18 - wetSheen * 0.055;
+    road.normalScale.set(roadNormal, roadNormal);
     road.roughness = 0.94 - wetSheen * 0.43;
     road.metalness = 0.015 + wetSheen * 0.035;
     road.envMapIntensity = 0.22 + wetSheen * 0.62;
     road.color.lerpColors(ROAD_DAY_TINT, ROAD_NIGHT_TINT, wetSheen * 0.36);
+    const crossingNormal = 0.16 - wetSheen * 0.035;
+    crossing.normalScale.set(crossingNormal, crossingNormal);
     crossing.roughness = 0.92 - wetSheen * 0.34;
     crossing.metalness = 0.01 + wetSheen * 0.025;
     crossing.envMapIntensity = 0.20 + wetSheen * 0.48;
