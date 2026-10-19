@@ -106,6 +106,8 @@ export interface CarModel3D {
   bumpers: { front: THREE.Mesh | null; rear: THREE.Mesh | null };
   /** چراغ‌گردان پلیس (فلاش قرمز/آبی) */
   lightBar?: { red: THREE.Mesh; blue: THREE.Mesh };
+  /** متریال چراغ راهنما — کلون هر خودرو برای پالس مستقل */
+  indicatorMat?: THREE.MeshStandardMaterial;
   /** شیشه‌ها — برای خوردگی بصری */
   len: number;
   wid: number;
@@ -125,12 +127,14 @@ export interface CarModel3D {
 }
 
 // ---------- متریال مشترک ----------
-let glassMat: THREE.MeshPhongMaterial | null = null;
+let glassMat: THREE.MeshPhysicalMaterial | null = null;
 let tireMat: THREE.MeshToonMaterial | null = null;
-let rimMat: THREE.MeshPhongMaterial | null = null;
+let rimMat: THREE.MeshStandardMaterial | null = null;
 let darkMat: THREE.MeshToonMaterial | null = null;
 let chromeMat: THREE.MeshPhongMaterial | null = null;
-let headMat: THREE.MeshBasicMaterial | null = null;
+let headMat: THREE.MeshStandardMaterial | null = null;
+let indicatorMat: THREE.MeshStandardMaterial | null = null;
+let fogLensMat: THREE.MeshStandardMaterial | null = null;
 let tailMat: THREE.MeshStandardMaterial | null = null;
 let plateMat: THREE.MeshLambertMaterial | null = null;
 let taxiSignMat: THREE.MeshLambertMaterial | null = null;
@@ -152,12 +156,26 @@ function ensureShared(): void {
   gradientMap.magFilter = THREE.NearestFilter;
   gradientMap.needsUpdate = true;
 
-  glassMat = new THREE.MeshPhongMaterial({ color: '#20303c', shininess: 130, specular: '#9fb6c4', transparent: true, opacity: 0.94 });
+  // PBR glazing: controlled clearcoat highlights give procedural car windows a glass-like response.
+  // Keep opacity and tint close to the original stylized look for readability on mobile.
+  glassMat = new THREE.MeshPhysicalMaterial({
+    color: '#20303c',
+    transparent: true,
+    opacity: 0.94,
+    roughness: 0.2,
+    metalness: 0.08,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 0.7,
+  });
   tireMat = new THREE.MeshToonMaterial({ color: '#23211f', gradientMap });
-  rimMat = new THREE.MeshPhongMaterial({ color: '#cfd3d8', shininess: 90, specular: '#ffffff' });
+  // PBR alloy: metallic response with restrained roughness keeps rims readable without relying on mirror-like reflections.
+  rimMat = new THREE.MeshStandardMaterial({ color: '#cfd3d8', metalness: 0.72, roughness: 0.3, envMapIntensity: 0.65 });
   darkMat = new THREE.MeshToonMaterial({ color: '#2e2622', gradientMap });
   chromeMat = new THREE.MeshPhongMaterial({ color: '#c2c8ce', shininess: 110, specular: '#ffffff' });
-  headMat = new THREE.MeshBasicMaterial({ color: '#fff6cc' });
+  headMat = new THREE.MeshStandardMaterial({ color: '#fff1b8', emissive: '#ffd76a', emissiveIntensity: 1.15, roughness: 0.24, metalness: 0.08 });
+  indicatorMat = new THREE.MeshStandardMaterial({ color: '#ffb347', emissive: '#ff7b18', emissiveIntensity: 0.85, roughness: 0.3, metalness: 0.02 });
+  fogLensMat = new THREE.MeshStandardMaterial({ color: '#dce8e8', emissive: '#6b7d82', emissiveIntensity: 0.18, roughness: 0.32, metalness: 0.04 });
   // چراغ عقب: Standard با emissive — کد ترمز در draw3D روی emissive.set کار می‌کند
   tailMat = new THREE.MeshStandardMaterial({ color: '#e2574c', emissive: '#5a0f08', emissiveIntensity: 0.7, roughness: 0.4 });
   plateMat = new THREE.MeshLambertMaterial({ map: getPlateTexture() });
@@ -288,6 +306,8 @@ export function buildCar3D(
   else if (variant === 'renault4' || variant === 'vintage') body = pickColor(COLORS[variant] ?? ['#d9d9d4']);
 
   const bodyMat = toon(body);
+  // Per-car material lets the indicator glow animate without changing every car at once.
+  const carIndicatorMat = (indicatorMat as THREE.MeshStandardMaterial).clone();
   const g = new THREE.Group();
   const s = spec;
 
@@ -302,7 +322,7 @@ export function buildCar3D(
   const bandH = gy1 - gy0;
   const bandLen = gz1 - gz0;
   const glassBand = new THREE.Mesh(
-    new THREE.BoxGeometry(s.wid * cab, bandH, bandLen),
+    boxGeometryShared(s.wid * cab, bandH, bandLen),
     glassMat as THREE.MeshPhongMaterial,
   );
   glassBand.position.set(0, (gy0 + gy1) / 2, (gz0 + gz1) / 2);
@@ -312,12 +332,12 @@ export function buildCar3D(
 
   // شیشه جلو (کج به جلو)
   const wsZ = (gz0 - 4);
-  const ws = new THREE.Mesh(new THREE.BoxGeometry(s.wid * cab * 0.95, bandH + 8, 6), glassMat as THREE.MeshPhongMaterial);
+  const ws = new THREE.Mesh(boxGeometryShared(s.wid * cab * 0.95, bandH + 8, 6), glassMat as THREE.MeshPhongMaterial);
   ws.position.set(0, (gy0 + gy1) / 2 + 2, wsZ);
   ws.rotation.x = 0.42;
   g.add(ws);
   // شیشه عقب
-  const rw = new THREE.Mesh(new THREE.BoxGeometry(s.wid * cab * 0.92, bandH + 6, 6), glassMat as THREE.MeshPhongMaterial);
+  const rw = new THREE.Mesh(boxGeometryShared(s.wid * cab * 0.92, bandH + 6, 6), glassMat as THREE.MeshPhongMaterial);
   rw.position.set(0, (gy0 + gy1) / 2 + 3, gz1 + 5);
   rw.rotation.x = variant === 'nissan' ? -0.15 : -0.38;
   g.add(rw);
@@ -325,7 +345,7 @@ export function buildCar3D(
   // ---------- خط در + دستگیره (حس GTA) ----------
   if (!lite) {
     const seamMat = darkMat as THREE.MeshToonMaterial;
-    const seamGeo = new THREE.BoxGeometry(1.6, (gy0 - 26), bandLen * 0.42);
+    const seamGeo = boxGeometryShared(1.6, (gy0 - 26), bandLen * 0.42);
     for (const zz of [gz0 + bandLen * 0.42, gz1 - bandLen * 0.05]) {
       for (const sx of [-s.wid / 2 - 0.4, s.wid / 2 + 0.4]) {
         const seam = new THREE.Mesh(seamGeo, seamMat);
@@ -333,7 +353,7 @@ export function buildCar3D(
         g.add(seam);
       }
     }
-    const handleGeo = new THREE.BoxGeometry(2.2, 3.2, 12);
+    const handleGeo = boxGeometryShared(2.2, 3.2, 12);
     for (const sx of [-s.wid / 2 - 1.2, s.wid / 2 + 1.2]) {
       for (const zz of [gz0 + bandLen * 0.55, gz1 - bandLen * 0.18]) {
         const h = new THREE.Mesh(handleGeo, chromeMat as THREE.MeshPhongMaterial);
@@ -341,10 +361,50 @@ export function buildCar3D(
         g.add(h);
       }
     }
+
+    // Subtle body-panel details: hood/trunk shut-lines and wheel-arch lips.
+    // Full-detail only; use one shared material and low-segment tubes to limit cost.
+    const panelMat = darkMat as THREE.MeshToonMaterial;
+    const hoodSeam = new THREE.Mesh(
+      boxGeometryShared(s.wid * 0.76, 1.25, 1.5),
+      panelMat,
+    );
+    hoodSeam.position.set(0, 47, profile[0][0] + s.len * 0.27);
+    const trunkSeam = new THREE.Mesh(
+      boxGeometryShared(s.wid * 0.72, 1.25, 1.5),
+      panelMat,
+    );
+    trunkSeam.position.set(0, 46, profile[profile.length - 1][0] - s.len * 0.19);
+    hoodSeam.castShadow = trunkSeam.castShadow = false;
+    g.add(hoodSeam, trunkSeam);
+
+    const archRadius = Math.max(12, s.wheelR - (s.wid * 0.16) * 0.5 + 1.5);
+    for (const wheelZ of [-s.len * 0.31, s.len * 0.31]) {
+      for (const side of [-1, 1]) {
+        const x = side * (s.wid / 2 + 0.15);
+        const points: THREE.Vector3[] = [];
+        for (let i = 0; i <= 12; i++) {
+          const angle = Math.PI - (Math.PI * i) / 12;
+          points.push(new THREE.Vector3(
+            x,
+            s.wheelR + Math.sin(angle) * archRadius + 0.8,
+            wheelZ + Math.cos(angle) * archRadius,
+          ));
+        }
+        const archCurve = new THREE.CatmullRomCurve3(points);
+        const arch = new THREE.Mesh(
+          new THREE.TubeGeometry(archCurve, 12, 1.05, 5, false),
+          panelMat,
+        );
+        arch.castShadow = false;
+        arch.receiveShadow = false;
+        g.add(arch);
+      }
+    }
   }
 
   // ---------- سپرها (جداشدنی — سیستم آسیب) ----------
-  const bumperGeo = new THREE.BoxGeometry(s.wid + 6, 14, 12);
+  const bumperGeo = boxGeometryShared(s.wid + 6, 14, 12);
   const bumpers: CarModel3D['bumpers'] = { front: null, rear: null };
   const fb = new THREE.Mesh(bumperGeo, darkMat as THREE.MeshToonMaterial);
   fb.position.set(0, 24, profile[0][0] - 4);
@@ -356,10 +416,49 @@ export function buildCar3D(
   bumpers.front = fb;
   bumpers.rear = rb;
 
+  // Refined bumper inserts: restrained satin trim and dark corner impact pads.
+  // These are static shared-material details; no extra textures or frame updates.
+  const bumperTrimMat = chromeMat as THREE.MeshPhongMaterial;
+  const bumperPadMat = darkMat as THREE.MeshToonMaterial;
+  const frontZ = profile[0][0] - 10.4;
+  const rearZ = profile[profile.length - 1][0] + 10.4;
+  const trimGeo = boxGeometryShared(s.wid * 0.62, 2.1, 1.4);
+  const frontTrim = new THREE.Mesh(trimGeo, bumperTrimMat);
+  frontTrim.position.set(0, 25.2, frontZ);
+  const rearTrim = new THREE.Mesh(trimGeo, bumperTrimMat);
+  rearTrim.position.set(0, 25.2, rearZ);
+  frontTrim.castShadow = rearTrim.castShadow = false;
+  g.add(frontTrim, rearTrim);
+
+  const cornerPadGeo = boxGeometryShared(s.wid * 0.105, 8, 1.8);
+  for (const side of [-1, 1]) {
+    const frontPad = new THREE.Mesh(cornerPadGeo, bumperPadMat);
+    frontPad.position.set(side * s.wid * 0.405, 24.5, frontZ - 0.2);
+    const rearPad = new THREE.Mesh(cornerPadGeo, bumperPadMat);
+    rearPad.position.set(side * s.wid * 0.405, 24.5, rearZ + 0.2);
+    frontPad.castShadow = rearPad.castShadow = false;
+    g.add(frontPad, rearPad);
+  }
+
+  // Compact fog lamps below the main headlights; kept dark on low-detail traffic.
+  if (!lite) {
+    const fogHousingMat = darkMat as THREE.MeshToonMaterial;
+    const fogHousingGeo = boxGeometryShared(Math.max(7, s.wid * 0.095), 6, 2.6);
+    const fogLensGeo = boxGeometryShared(Math.max(4, s.wid * 0.065), 3.5, 1.2);
+    for (const side of [-1, 1]) {
+      const fogHousing = new THREE.Mesh(fogHousingGeo, fogHousingMat);
+      fogHousing.position.set(side * s.wid * 0.31, 29.5, frontZ - 1.2);
+      const fogLens = new THREE.Mesh(fogLensGeo, fogLensMat as THREE.MeshStandardMaterial);
+      fogLens.position.set(side * s.wid * 0.31, 29.5, frontZ - 2.7);
+      fogHousing.castShadow = fogLens.castShadow = false;
+      g.add(fogHousing, fogLens);
+    }
+  }
+
   // ---------- جلوپنجره (v5: مخصوص هر مدل — پراید/تیبا پلاستیکی تیره) ----------
   const grille = GRILLE_SPEC[variant] ?? GRILLE_SPEC.pride;
   const grilleMesh = new THREE.Mesh(
-    new THREE.BoxGeometry(s.wid * grille.w, grille.h, 4),
+    boxGeometryShared(s.wid * grille.w, grille.h, 4),
     grille.chrome ? chromeMat as THREE.MeshPhongMaterial : darkMat as THREE.MeshToonMaterial,
   );
   grilleMesh.position.set(0, 44, profile[0][0] - 2.5);
@@ -368,7 +467,7 @@ export function buildCar3D(
     // نوار کروم کنار بدنه سمند — امضای مدل
     const stripLen = profile[profile.length - 1][0] - profile[0][0] - 36;
     for (const sx of [-s.wid / 2 - 0.6, s.wid / 2 + 0.6]) {
-      const sideStrip = new THREE.Mesh(new THREE.BoxGeometry(1.8, 4, stripLen), chromeMat as THREE.MeshPhongMaterial);
+      const sideStrip = new THREE.Mesh(boxGeometryShared(1.8, 4, stripLen), chromeMat as THREE.MeshPhongMaterial);
       sideStrip.position.set(sx, 34, (profile[0][0] + profile[profile.length - 1][0]) / 2);
       g.add(sideStrip);
     }
@@ -376,14 +475,31 @@ export function buildCar3D(
 
   // ---------- چراغ‌ها (v5: شکل مخصوص هر مدل) ----------
   const ls = LIGHT_SPEC[variant] ?? LIGHT_SPEC.pride;
-  const lightFGeo = new THREE.BoxGeometry(s.wid * ls.fW, ls.fH, 4);
-  const lightRGeo = new THREE.BoxGeometry(s.wid * ls.rW, ls.rH, 4);
+  const lightFGeo = boxGeometryShared(s.wid * ls.fW, ls.fH, 4);
+  const lightRGeo = boxGeometryShared(s.wid * ls.rW, ls.rH, 4);
+  const headHousingGeo = boxGeometryShared(s.wid * ls.fW * 1.16, ls.fH * 1.28, 3);
+  const indicatorGeo = boxGeometryShared(Math.max(4, s.wid * 0.075), Math.max(4, ls.fH * 0.62), 3);
   for (const x of [-s.wid * 0.33, s.wid * 0.33]) {
-    const h = new THREE.Mesh(lightFGeo, headMat as THREE.MeshBasicMaterial);
-    h.position.set(x, 44, profile[0][0] - 3);
+    // Dark recessed bezel makes the warm, emissive lens read as a separate glass part.
+    const housing = new THREE.Mesh(headHousingGeo, darkMat as THREE.MeshToonMaterial);
+    housing.position.set(x, 44, profile[0][0] - 1.8);
+    const h = new THREE.Mesh(lightFGeo, headMat as THREE.MeshStandardMaterial);
+    h.position.set(x, 44, profile[0][0] - 4.2);
+    h.castShadow = false;
+    h.receiveShadow = false;
     const t = new THREE.Mesh(lightRGeo, tailMat as THREE.MeshStandardMaterial);
     t.position.set(x, 46, profile[profile.length - 1][0] + 3);
-    g.add(h, t);
+
+    // Separate amber indicator lenses make front and rear corners easier to read.
+    const frontIndicator = new THREE.Mesh(indicatorGeo, carIndicatorMat);
+    frontIndicator.position.set(Math.sign(x) * s.wid * 0.435, 42, profile[0][0] - 4.0);
+    frontIndicator.castShadow = false;
+    frontIndicator.receiveShadow = false;
+    const rearIndicator = new THREE.Mesh(indicatorGeo, indicatorMat as THREE.MeshStandardMaterial);
+    rearIndicator.position.set(Math.sign(x) * s.wid * 0.435, 42, profile[profile.length - 1][0] + 4.5);
+    rearIndicator.castShadow = false;
+    rearIndicator.receiveShadow = false;
+    g.add(housing, h, t, frontIndicator, rearIndicator);
   }
 
   // ---------- پلاک ایرانی ----------
@@ -395,8 +511,8 @@ export function buildCar3D(
 
   // ---------- آینه بغل — قاب + شیشهٔ بازتابنده ----------
   if (!lite) {
-    const mirrorGeo = new THREE.BoxGeometry(10, 7, 8);
-    const mirrorFaceGeo = new THREE.BoxGeometry(1.2, 4.8, 6.2);
+    const mirrorGeo = boxGeometryShared(10, 7, 8);
+    const mirrorFaceGeo = boxGeometryShared(1.2, 4.8, 6.2);
     const mirrorFaceMat = new THREE.MeshPhongMaterial({
       color: '#9bb8c8',
       emissive: '#17242b',
@@ -420,13 +536,13 @@ export function buildCar3D(
     const dashMat = new THREE.MeshToonMaterial({ color: '#292d31' });
     const dashTopMat = new THREE.MeshToonMaterial({ color: '#45494b' });
     const dashboard = new THREE.Mesh(
-      new THREE.BoxGeometry(s.wid * cab * 0.88, 8, 13),
+      boxGeometryShared(s.wid * cab * 0.88, 8, 13),
       dashMat,
     );
     dashboard.position.set(0, gy0 + 1, gz0 + 10);
     dashboard.castShadow = true;
     const instrument = new THREE.Mesh(
-      new THREE.BoxGeometry(s.wid * cab * 0.28, 4, 2),
+      boxGeometryShared(s.wid * cab * 0.28, 4, 2),
       dashTopMat,
     );
     instrument.position.set(-s.wid * 0.17, gy0 + 6, gz0 + 4);
@@ -437,7 +553,7 @@ export function buildCar3D(
     // Torus پیش‌فرض در صفحه XY قرار دارد؛ همان صفحهٔ عمودی فرمان
     steering.position.set(-s.wid * 0.17, gy0 + 7, gz0 + 15);
     const spoke = new THREE.Mesh(
-      new THREE.BoxGeometry(1.8, 10, 1.8),
+      boxGeometryShared(1.8, 10, 1.8),
       darkMat as THREE.MeshToonMaterial,
     );
     spoke.position.copy(steering.position);
@@ -453,7 +569,7 @@ export function buildCar3D(
   // ---------- راننده داخل کابین (کاراکترها زنده شدند!) ----------
   if (!lite && variant !== 'nissan') {
     const driver = new THREE.Group();
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(18, 16, 12), driverShirtMat as THREE.MeshToonMaterial);
+    const torso = new THREE.Mesh(boxGeometryShared(18, 16, 12), driverShirtMat as THREE.MeshToonMaterial);
     torso.position.y = 6;
     const head = new THREE.Mesh(new THREE.SphereGeometry(8.5, 10, 8), skinMat as THREE.MeshToonMaterial);
     head.position.y = 19;
@@ -469,11 +585,11 @@ export function buildCar3D(
   // ---------- واریانت‌های خاص ----------
   const topY = gy1 + 6;
   if (variant === 'taxi') {
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.34, 15, 24), taxiSignMat as THREE.MeshLambertMaterial);
+    const sign = new THREE.Mesh(boxGeometryShared(s.wid * 0.34, 15, 24), taxiSignMat as THREE.MeshLambertMaterial);
     sign.position.set(0, topY + 6, (gz0 + gz1) / 2);
     g.add(sign);
     // نوار شطرنجی تاکسی روی بدنه
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(s.wid + 1, 6, bandLen * 0.9), darkMat as THREE.MeshToonMaterial);
+    const strip = new THREE.Mesh(boxGeometryShared(s.wid + 1, 6, bandLen * 0.9), darkMat as THREE.MeshToonMaterial);
     strip.position.set(0, 34, (gz0 + gz1) / 2);
     g.add(strip);
     const ant = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 32, 6), darkMat as THREE.MeshToonMaterial);
@@ -481,15 +597,15 @@ export function buildCar3D(
     g.add(ant);
   } else if (variant === 'police') {
     // نوار سبز پلیس ایران
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(s.wid + 1, 12, s.len * 0.55), toon('#2e8b57'));
+    const stripe = new THREE.Mesh(boxGeometryShared(s.wid + 1, 12, s.len * 0.55), toon('#2e8b57'));
     stripe.position.set(0, 40, (gz0 + gz1) / 2);
     g.add(stripe);
     // چراغ‌گردان (فلاش در رندر)
-    const barBase = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.5, 4, 16), darkMat as THREE.MeshToonMaterial);
+    const barBase = new THREE.Mesh(boxGeometryShared(s.wid * 0.5, 4, 16), darkMat as THREE.MeshToonMaterial);
     barBase.position.set(0, topY + 2, (gz0 + gz1) / 2);
-    const red = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.2, 9, 14), new THREE.MeshBasicMaterial({ color: '#ff2d2d' }));
+    const red = new THREE.Mesh(boxGeometryShared(s.wid * 0.2, 9, 14), new THREE.MeshBasicMaterial({ color: '#ff2d2d' }));
     red.position.set(-s.wid * 0.13, topY + 8, (gz0 + gz1) / 2);
-    const blue = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.2, 9, 14), new THREE.MeshBasicMaterial({ color: '#2d6bff' }));
+    const blue = new THREE.Mesh(boxGeometryShared(s.wid * 0.2, 9, 14), new THREE.MeshBasicMaterial({ color: '#2d6bff' }));
     blue.position.set(s.wid * 0.13, topY + 8, (gz0 + gz1) / 2);
     g.add(barBase, red, blue);
     (g as unknown as { lightBar?: CarModel3D['lightBar'] }).lightBar = { red, blue };
@@ -497,7 +613,7 @@ export function buildCar3D(
     // نوار قرمز ورزشی روی کاپوت/سقف/صندوق
     const stripeMat = toon('#c62828');
     for (const zz of [profile[0][0] + 34, (gz0 + gz1) / 2, profile[profile.length - 1][0] - 24]) {
-      const st = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.15, 2.5, 34), stripeMat);
+      const st = new THREE.Mesh(boxGeometryShared(s.wid * 0.15, 2.5, 34), stripeMat);
       st.position.set(0, zz === (gz0 + gz1) / 2 ? topY + 1 : 53, zz);
       g.add(st);
     }
@@ -506,12 +622,12 @@ export function buildCar3D(
     g.add(ant);
   } else if (variant === 'peugeot405') {
     // اسپویلر لب صندوق — امضای ۴۰۵
-    const spoiler = new THREE.Mesh(new THREE.BoxGeometry(s.wid * 0.78, 4, 10), darkMat as THREE.MeshToonMaterial);
+    const spoiler = new THREE.Mesh(boxGeometryShared(s.wid * 0.78, 4, 10), darkMat as THREE.MeshToonMaterial);
     spoiler.position.set(0, profile[profile.length - 1][1] + 1, profile[profile.length - 1][0] - 2);
     g.add(spoiler);
   } else if (variant === 'pride' && Math.random() < 0.3) {
     // باربند سقف — خیلی ایرانی!
-    const rack = new THREE.Mesh(new THREE.BoxGeometry(s.wid * cab * 0.8, 5, bandLen * 0.6), chromeMat as THREE.MeshPhongMaterial);
+    const rack = new THREE.Mesh(boxGeometryShared(s.wid * cab * 0.8, 5, bandLen * 0.6), chromeMat as THREE.MeshPhongMaterial);
     rack.position.set(0, topY + 3, (gz0 + gz1) / 2);
     g.add(rack);
   }
@@ -522,23 +638,30 @@ export function buildCar3D(
   const wheels: THREE.Mesh[] = [];
   const tireW = s.wid * 0.16;
   const wr = s.wheelR;
-  const R = wr - tireW / 2 + 2; // شعاع حلقه تایر
+  const wheelGeo = wheelGeometriesShared(wr, tireW);
   for (const x of [-s.wid / 2 + tireW * 0.1, s.wid / 2 - tireW * 0.1]) {
     for (const z of [-s.len * 0.31, s.len * 0.31]) {
-      const tire = new THREE.Mesh(
-        new THREE.TorusGeometry(R, tireW / 2, 8, 14),
-        tireMat as THREE.MeshToonMaterial,
-      );
+      const tire = new THREE.Mesh(wheelGeo.tire, tireMat as THREE.MeshToonMaterial);
       tire.rotation.y = Math.PI / 2; // محور چرخ = X
       tire.position.set(x, wr, z);
       tire.castShadow = true;
-      // پره‌های ضربدری + کلاهک — در فضای محلی تایر (صفحه XY، محور سوراخ = Z)
-      const spokeLen = R * 1.75;
-      const sp1 = new THREE.Mesh(new THREE.BoxGeometry(spokeLen, tireW * 0.34, tireW * 1.15), rimMat as THREE.MeshPhongMaterial);
-      const sp2 = new THREE.Mesh(new THREE.BoxGeometry(tireW * 0.34, spokeLen, tireW * 1.15), rimMat as THREE.MeshPhongMaterial);
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(wr * 0.3, wr * 0.3, tireW * 1.3, 10), rimMat as THREE.MeshPhongMaterial);
+      // Geometry cache مشترک؛ فقط آبجکت‌ها/ترنسفورم‌های هر چرخ جدا می‌مانند.
+      const sp1 = new THREE.Mesh(wheelGeo.spokeHorizontal, rimMat as THREE.MeshStandardMaterial);
+      const sp2 = new THREE.Mesh(wheelGeo.spokeVertical, rimMat as THREE.MeshStandardMaterial);
+      const hub = new THREE.Mesh(wheelGeo.hub, rimMat as THREE.MeshStandardMaterial);
       hub.rotation.x = Math.PI / 2; // محور استوانه → Z محلی (= X جهانی بعد از چرخش تایر)
-      tire.add(sp1, sp2, hub);
+      const rimLip = new THREE.Mesh(wheelGeo.rimLip, rimMat as THREE.MeshStandardMaterial);
+      const lugRadius = wr * 0.235;
+      const lugGeo = wheelGeo.lug;
+      const lugNuts: THREE.Mesh[] = [];
+      for (let lug = 0; lug < 4; lug++) {
+        const a = (Math.PI * 2 * lug) / 4 + Math.PI / 4;
+        const nut = new THREE.Mesh(lugGeo, rimMat as THREE.MeshStandardMaterial);
+        nut.rotation.x = Math.PI / 2;
+        nut.position.set(Math.cos(a) * lugRadius, Math.sin(a) * lugRadius, tireW * 0.48);
+        lugNuts.push(nut);
+      }
+      tire.add(sp1, sp2, hub, rimLip, ...lugNuts);
       wheels.push(tire);
       g.add(tire);
     }
@@ -563,16 +686,58 @@ export function buildCar3D(
     wid: s.wid,
     steerable: [],
     tailMat: tailClone,
+    indicatorMat: carIndicatorMat,
     damageTiltZ: 0,
     rollZ: 0,
     pitchX: 0,
   };
 }
 
+/** کش هندسه‌های ثابت چرخ؛ برای خودروهای هم‌اندازه فقط یک نسخهٔ GPU/CPU از هر هندسه نگه می‌داریم. */
+interface SharedWheelGeometries {
+  tire: THREE.TorusGeometry;
+  spokeHorizontal: THREE.BoxGeometry;
+  spokeVertical: THREE.BoxGeometry;
+  hub: THREE.CylinderGeometry;
+  rimLip: THREE.TorusGeometry;
+  lug: THREE.CylinderGeometry;
+}
+const wheelGeometryCache = new Map<string, SharedWheelGeometries>();
+
+function wheelGeometriesShared(wr: number, tireW: number): SharedWheelGeometries {
+  const key = `${wr}:${tireW.toFixed(3)}`;
+  const cached = wheelGeometryCache.get(key);
+  if (cached) return cached;
+  const R = wr - tireW / 2 + 2;
+  const spokeLen = R * 1.75;
+  const created: SharedWheelGeometries = {
+    tire: new THREE.TorusGeometry(R, tireW / 2, 10, 24),
+    spokeHorizontal: boxGeometryShared(spokeLen, tireW * 0.34, tireW * 1.15),
+    spokeVertical: boxGeometryShared(tireW * 0.34, spokeLen, tireW * 1.15),
+    hub: new THREE.CylinderGeometry(wr * 0.3, wr * 0.3, tireW * 1.3, 12),
+    rimLip: new THREE.TorusGeometry(R * 0.72, 1.35, 6, 24),
+    lug: new THREE.CylinderGeometry(1.45, 1.45, tireW * 0.72, 6),
+  };
+  wheelGeometryCache.set(key, created);
+  return created;
+}
+
+/** Cache immutable box geometries used by repeated car trim, panels and accessories.
+ * Exact dimension keys avoid silently changing authored proportions through rounding. */
+const boxGeometryCache = new Map<string, THREE.BoxGeometry>();
+function boxGeometryShared(width: number, height: number, depth: number): THREE.BoxGeometry {
+  const key = `${width}|${height}|${depth}`;
+  const cached = boxGeometryCache.get(key);
+  if (cached) return cached;
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  boxGeometryCache.set(key, geometry);
+  return geometry;
+}
+
 /** هندسه مشترک پلاک (یک‌بار ساخته می‌شود) */
 let plateGeo: THREE.BoxGeometry | null = null;
 function plateGeoShared(): THREE.BoxGeometry {
-  if (!plateGeo) plateGeo = new THREE.BoxGeometry(1, 1, 1);
+  if (!plateGeo) plateGeo = boxGeometryShared(1, 1, 1);
   return plateGeo;
 }
 

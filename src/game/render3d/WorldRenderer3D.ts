@@ -117,6 +117,12 @@ const ROAD_NIGHT_TINT = new THREE.Color('#aab8d0');
 const SUN_NIGHT = new THREE.Color('#7c91c5');
 const SKY_DOME_DAY = new THREE.Color('#ffffff');
 const SKY_DOME_NIGHT = new THREE.Color('#53658d');
+// Shared instance colors for procedural motorcycles; InstancedMesh copies these values.
+const MOTO_COLORS = [
+  new THREE.Color('#c0392b'),
+  new THREE.Color('#2e6da4'),
+  new THREE.Color('#3a3a3a'),
+] as const;
 const FACADE_RAIL_MAT = new THREE.MeshStandardMaterial({ color: '#41484a', roughness: 0.42, metalness: 0.62 });
 
 function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: number, apartment: boolean): THREE.BufferGeometry[] {
@@ -818,7 +824,13 @@ export class WorldRenderer3D {
       roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
     });
     const sidewalkSurface = new THREE.MeshStandardMaterial({
-      map: sidewalkTex, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.16,
+      map: sidewalkTex,
+      // Fine surface relief helps concrete slabs read as material, not flat color.
+      // Reuse the cached tileable micro maps to avoid extra textures or per-frame work.
+      normalMap: roadMicroMaps.normalMap,
+      normalScale: new THREE.Vector2(0.075, 0.075),
+      roughnessMap: roadMicroMaps.roughnessMap,
+      roughness: 0.91, metalness: 0.0, envMapIntensity: 0.14,
     });
     const grassSurface = new THREE.MeshStandardMaterial({
       map: grassTex, roughness: 1.0, metalness: 0.0, envMapIntensity: 0.04,
@@ -1092,11 +1104,8 @@ export class WorldRenderer3D {
     }
     for (const g of vis.geos) g.dispose();
     for (const m of vis.mats) m.dispose();
-    // شکستنی‌های این قطعه از نگاشت سراسری خارج
-    for (const [prop, ref] of [...this.breakableInst]) {
-      if (vis.breakableProps.includes(prop)) this.breakableInst.delete(prop);
-      void ref;
-    }
+    // شکستنی‌های همین قطعه را مستقیم حذف کن؛ از کپی‌کردن کل Map و includes تکراری پرهیز می‌شود.
+    for (const prop of vis.breakableProps) this.breakableInst.delete(prop);
     // اسلات چراغ
     this.releaseLightSlot(key);
     this.chunkVis.delete(key);
@@ -1137,13 +1146,21 @@ export class WorldRenderer3D {
 
   /** فاز GLB-READY: انتظار برای همهٔ پیش‌بارگذاری‌های GLB (ساختمان/خودرو/پارکی/کیت)
    *  گارد timeout — با شبکهٔ کند/فایل خراب boot هرگز قفل نمی‌شود (fallback فعال می‌ماند) */
-  whenReady(timeoutMs = 12000): Promise<void> {
+  whenReady(): Promise<void> {
     // 🔕 هرگز reject نمی‌شود: شکست تک‌کار فقط آن یک ویژگی را fallback می‌کند،
     // نه اینکه کل boot را بکشد (باگ v0.2.28 — گیر کردن در صفحهٔ لودینگ روی گوشی)
     const done = Promise.all(
       this.readyJobs.map((p) => Promise.resolve(p).catch(() => undefined)),
     ).then(() => undefined);
-    return Promise.race([done, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
+    // سقف ۷۵ ثانیه‌ای: اگر fetch/parse یک GLB بی‌خطا hang شود، boot قفل نمی‌ماند.
+    // Promiseهای اصلی در پس‌زمینه می‌توانند کامل شوند؛ فقط انتظار boot محدود می‌شود.
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timeoutId = setTimeout(resolve, 75_000);
+    });
+    return Promise.race([done, timeout]).finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    });
   }
 
   /** پیش‌بارگذاری GLB همه واریانت‌ها + تعویض بازیکن/ترافیک پس از آماده‌شدن */
@@ -1524,15 +1541,20 @@ export class WorldRenderer3D {
       const mesh = new THREE.InstancedMesh(geo, kitGeo ? (this.kitMat ?? mat) : mat, props.length);
       mesh.castShadow = true;
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(props.length * 3).fill(1), 3);
+      // All props in this group share one geometry: compute its horizontal span once,
+      // rather than allocating a Vector3 and measuring the same bounds for every instance.
+      let kitSpan = 1;
+      if (kitGeo) {
+        if (!geo.boundingBox) geo.computeBoundingBox();
+        const boundsSize = geo.boundingBox!.getSize(new THREE.Vector3());
+        kitSpan = Math.max(boundsSize.x, boundsSize.z, 1);
+      }
       props.forEach((p, i) => {
         const cx = p.x + p.w / 2;
         const cz = p.y + p.h / 2;
         if (kitGeo) {
           // مقیاس فیت در پلن + چرخش صریح پراپ (فاز CITY-FULL)
-          if (!geo.boundingBox) geo.computeBoundingBox();
-          const s = geo.boundingBox!.getSize(new THREE.Vector3());
-          const span = Math.max(s.x, s.z, 1);
-          const sc = Math.max(0.5, Math.min(1.6, Math.min(p.w, p.h) / span));
+          const sc = Math.max(0.5, Math.min(1.6, Math.min(p.w, p.h) / kitSpan));
           tmpQ.setFromEuler(tmpE.set(0, p.rot ?? 0, 0));
           this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ, this.tmpS.setScalar(sc));
         } else if (p.kind === 'tree') {
@@ -1541,7 +1563,7 @@ export class WorldRenderer3D {
         } else if (p.kind === 'pole') {
           this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.identity(), this.tmpS.setScalar(1));
         } else if (p.kind === 'moto') {
-          const cc = new THREE.Color(['#c0392b', '#2e6da4', '#3a3a3a'][Math.abs(Math.round(cx + cz)) % 3]);
+          const cc = MOTO_COLORS[Math.abs(Math.round(cx + cz)) % MOTO_COLORS.length];
           mesh.setColorAt(i, cc);
           this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.setFromEuler(tmpE.set(0, r(cx) * Math.PI * 2, 0)), this.tmpS.setScalar(1));
         } else {
@@ -1681,6 +1703,8 @@ export class WorldRenderer3D {
     return n * n;
   }
   private lightSlots = new Map<string, number>();
+  /** Cached intersection coordinates avoid parsing `i_j` keys during every rendered frame. */
+  private lightSlotCoordinates = new Map<number, { i: number; j: number }>();
   private freeLightSlots: number[] = [];
 
   private buildTrafficLights(): void {
@@ -1725,6 +1749,7 @@ export class WorldRenderer3D {
     const slot = this.freeLightSlots.pop();
     if (slot === undefined) return; // ظرفیت پر — قطعه دور دیده نمی‌شود
     this.lightSlots.set(key, slot);
+    this.lightSlotCoordinates.set(slot, { i, j });
     const half = WR.roadW / 2;
     const tmpQ = new THREE.Quaternion();
     this.tmpM.compose(
@@ -1743,6 +1768,7 @@ export class WorldRenderer3D {
     const slot = this.lightSlots.get(key);
     if (slot === undefined) return;
     this.lightSlots.delete(key);
+    this.lightSlotCoordinates.delete(slot);
     const zero = new THREE.Matrix4().compose(
       new THREE.Vector3(0, -9999, 0), new THREE.Quaternion(), new THREE.Vector3(0.0001, 0.0001, 0.0001),
     );
@@ -1797,9 +1823,8 @@ export class WorldRenderer3D {
   /** هر فریم — وضعیت لامپ تقاطع‌های اسلات‌دار (حداکثر ۲۵) */
   private updateTrafficLightLamps(): void {
     if (!this.lightPoleMesh || this.lightLamps.length !== 3) return;
-    for (const [key, slot] of this.lightSlots) {
-      const p = key.split('_');
-      this.updateLightSlotLamps(slot, Number(p[0]), Number(p[1]));
+    for (const [slot, coordinates] of this.lightSlotCoordinates) {
+      this.updateLightSlotLamps(slot, coordinates.i, coordinates.j);
     }
   }
 
@@ -2802,7 +2827,16 @@ export class WorldRenderer3D {
         anyAlive = true;
       }
     }
-    if (anyDead) this.particles = this.particles.filter((p) => p.active);
+    if (anyDead) {
+      // Compact in place: filter() allocated a fresh array whenever any particle expired.
+      // Preserve the existing order while dropping inactive entries without per-cleanup allocation.
+      let write = 0;
+      for (let read = 0; read < this.particles.length; read++) {
+        const particle = this.particles[read];
+        if (particle.active) this.particles[write++] = particle;
+      }
+      this.particles.length = write;
+    }
     // رد لاستیک
     for (const s of this.skidData) {
       if (s.life > 0) s.life -= dt;
@@ -2884,8 +2918,7 @@ export class WorldRenderer3D {
         dummy.updateMatrix();
         this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
         this.tireSmokeOpacity.setX(i, 0);
-        this.tireSmokeColor.setRGB(0.42, 0.42, 0.42);
-        this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
+        // Zero opacity fully hides inactive slots; their instance color need not be rewritten each frame.
         continue;
       }
       const age = 1 - p.life / p.maxLife;
@@ -2968,6 +3001,11 @@ export class WorldRenderer3D {
 
     // ---------- فاز OVERHAUL: ترمز/فرمان/رول/پیک بدنه بازیکن ----------
     const pmodel = this.playerModel;
+    // Smooth amber indicator pulse; per-car material prevents cross-car flicker.
+    if (pmodel.indicatorMat) {
+      const pulse = 0.55 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3.8));
+      pmodel.indicatorMat.emissiveIntensity += (pulse - pmodel.indicatorMat.emissiveIntensity) * Math.min(1, 9 * frameDt);
+    }
     // چراغ ترمز
     if (pmodel.tailMat?.emissive) {
       const on = opts.braking === true;
@@ -3043,6 +3081,11 @@ export class WorldRenderer3D {
         }
       }
       // چراغ‌گردان پلیس — فلاش متناوب
+      // Subtle amber lens breathing is shared by all procedural traffic models.
+      if (model.indicatorMat) {
+        const pulse = 0.55 + 0.65 * (0.5 + 0.5 * Math.sin(t * 3.8));
+        model.indicatorMat.emissiveIntensity += (pulse - model.indicatorMat.emissiveIntensity) * Math.min(1, 9 * frameDt);
+      }
       if (model.lightBar) {
         const on = Math.sin(t * 9) > 0;
         model.lightBar.red.visible = on;
@@ -3827,7 +3870,7 @@ export class WorldRenderer3D {
       : Number.NaN;
     const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
 
-    // Conservative caps: low-end 1.45 MP, standard 2.3 MP, high-end 3.6 MP.
+    // Original quality budgets: low-end 1.45 MP, standard 2.3 MP, high-end 3.6 MP.
     // Unknown memory never qualifies as high-end; never upscale small screens.
     const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
     const highEnd = cores >= 8 && memory !== null && memory >= 8;
@@ -3864,12 +3907,22 @@ export class WorldRenderer3D {
   dispose(): void {
     this.r3.domElement.removeEventListener('webglcontextlost', this.handleWebGLContextLost);
     this.r3.domElement.removeEventListener('webglcontextrestored', this.handleWebGLContextRestored);
+    // منابع هندسی/متریال ممکن است بین چند Mesh مشترک باشند؛ هر منبع را فقط یک‌بار آزاد کن.
+    const disposedGeometries = new Set<THREE.BufferGeometry>();
+    const disposedMaterials = new Set<THREE.Material>();
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
-      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.geometry && !disposedGeometries.has(mesh.geometry)) {
+        disposedGeometries.add(mesh.geometry);
+        mesh.geometry.dispose();
+      }
       const mat = (mesh as unknown as { material?: THREE.Material | THREE.Material[] }).material;
-      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-      else if (mat) mat.dispose();
+      const materials = Array.isArray(mat) ? mat : mat ? [mat] : [];
+      for (const material of materials) {
+        if (disposedMaterials.has(material)) continue;
+        disposedMaterials.add(material);
+        material.dispose();
+      }
     });
     // توجه: کانتکت WebGL را نمی‌بندیم (loseContext) — چون کانواس در
     // StrictMode/HMR دوباره استفاده می‌شود و کانتکت همان است.

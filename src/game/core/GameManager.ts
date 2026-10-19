@@ -280,22 +280,21 @@ export class GameManager {
   // ============ راه‌اندازی ============
   async boot(onProgress?: (done: number, total: number) => void): Promise<void> {
     try {
-      await this.assets.loadAll(onProgress);
+      await this.assets.loadAll((done, total) => {
+        // Keep the loading screen honest: asset files are only 70% of boot; GLB models follow.
+        onProgress?.(Math.round((done / Math.max(1, total)) * 70), 100);
+      });
     } catch (err) {
       console.warn('[Game] asset boot error (continuing with placeholders):', err);
     }
-    // فاز GLB-READY (بهینه‌سازی): انتظار برای همهٔ GLBها (ساختمان/خودرو/پارکی/کیت) —
-    // شهر از اولین فریم نسخهٔ «سینمایی» نهایی است و نسخهٔ رنگی placeholder (پازلی)
-    // هرگز به صحنه نمی‌رسد. گارد ۱۲ ثانیه‌ای داخل whenReady — boot هرگز قفل نمی‌شود.
-    // پیش‌بارگذاری‌ها هم‌زمان با assets.loadAll اجرا شده‌اند → فقط مابقی منتظر می‌مانیم.
-    // 🔕 لایهٔ محافظ ۲: حتی اگر whenReady به هر دلیل خطا بدهد، boot ادامه می‌یابد
-    // (باگ v0.2.28: یک reject تنها = گیر ابدی در صفحهٔ لودینگ — منبع «خطای آخرین بیلد»)
-    // ⏱ سقف ۳۰ ثانیه: گوشی کند بیشتر منتظر می‌ماند تا شهر سینمایی کامل برسد؛
-    // اگر باز دیر شد، flush دیرهنگام در رندرر بصری‌های جایگزین را با GLB بازمی‌سازد
+    // تمام Assetهای دوبعدی و تمام مدل‌های GLB (خودروها، LODها، ساختمان‌ها، پارکی و کیت شهر)
+    // باید پیش از بازشدن منو/گاراژ تعیین تکلیف شوند. روی دستگاه کند صبر می‌کنیم؛
+    // تا آماده‌شدن همهٔ مدل‌ها صفحهٔ لودینگ فعال می‌ماند؛ زمان لودینگ عمداً محدود نشده است.
     try {
-      await this.renderer3d?.whenReady(30000);
+      await this.renderer3d?.whenReady();
+      onProgress?.(100, 100);
     } catch (err) {
-      console.warn('[Game] GLB preload wait failed (continuing with fallbacks):', err);
+      console.warn('[Game] GLB preload failed:', err);
     }
     // مقیاس رسم ماشین از اندازه Asset واقعی/Placeholder — نسبت ثابت 4:7
     const size = this.assets.getSize('veh_player_01');
@@ -1392,6 +1391,7 @@ export class GameManager {
     this.dprCheck = 0;
     const fps = this.fpsValue;
     let nd = this.dpr3d;
+    // React sooner to sustained frame drops, and allow sub-1 DPR on very weak GPUs.
     if (fps < 38) nd = Math.max(1.1, this.dpr3d - 0.3);
     else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.2);
     if (Math.abs(nd - this.dpr3d) > 0.01) {
