@@ -314,6 +314,7 @@ export class WorldRenderer3D {
   private particleMesh: THREE.InstancedMesh;
   private skidMesh: THREE.InstancedMesh;
   private skidIdx = 0;
+  private skidEmitTimer = 0;
   private skidData: Array<{ x: number; z: number; rot: number; life: number; width: number; length: number }> = [];
   private bubbles: AmbientBubble[] = [];
 
@@ -2685,6 +2686,23 @@ export class WorldRenderer3D {
     const frameDt = this.drawDt();
     const car = opts.car;
     this.updateDayNight(t);
+
+    // Emit physical brake/drift marks at a bounded cadence, not once per render frame.
+    // Coordinates target the rear axle; marks appear only under meaningful load/speed.
+    const brakingLoad = opts.braking === true && Math.abs(car.speed) > 240;
+    const driftLoad = Math.abs(car.latVel) > 48 && Math.abs(car.speed) > 180;
+    if (brakingLoad || driftLoad) {
+      this.skidEmitTimer -= frameDt;
+      if (this.skidEmitTimer <= 0) {
+        const rearOffset = car.drawH * 0.36;
+        const rearX = car.x - Math.sin(car.angle) * rearOffset;
+        const rearY = car.y + Math.cos(car.angle) * rearOffset;
+        this.addSkidMark(rearX, rearY, car.angle);
+        this.skidEmitTimer = driftLoad ? 0.075 : 0.105;
+      }
+    } else {
+      this.skidEmitTimer = Math.min(this.skidEmitTimer, 0.04);
+    }
 
     // 🔕 سایهٔ ۲۰Hz — نقشهٔ سایه فقط هر ۳ فریم بازتولید می‌شود
     this.shadowTick = (this.shadowTick + 1) % 3;
