@@ -117,6 +117,12 @@ const ROAD_NIGHT_TINT = new THREE.Color('#aab8d0');
 const SUN_NIGHT = new THREE.Color('#7c91c5');
 const SKY_DOME_DAY = new THREE.Color('#ffffff');
 const SKY_DOME_NIGHT = new THREE.Color('#53658d');
+// Shared instance colors for procedural motorcycles; InstancedMesh copies these values.
+const MOTO_COLORS = [
+  new THREE.Color('#c0392b'),
+  new THREE.Color('#2e6da4'),
+  new THREE.Color('#3a3a3a'),
+] as const;
 const FACADE_RAIL_MAT = new THREE.MeshStandardMaterial({ color: '#41484a', roughness: 0.42, metalness: 0.62 });
 
 function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: number, apartment: boolean): THREE.BufferGeometry[] {
@@ -1538,15 +1544,20 @@ export class WorldRenderer3D {
       const mesh = new THREE.InstancedMesh(geo, kitGeo ? (this.kitMat ?? mat) : mat, props.length);
       mesh.castShadow = true;
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(props.length * 3).fill(1), 3);
+      // All props in this group share one geometry: compute its horizontal span once,
+      // rather than allocating a Vector3 and measuring the same bounds for every instance.
+      let kitSpan = 1;
+      if (kitGeo) {
+        if (!geo.boundingBox) geo.computeBoundingBox();
+        const boundsSize = geo.boundingBox!.getSize(new THREE.Vector3());
+        kitSpan = Math.max(boundsSize.x, boundsSize.z, 1);
+      }
       props.forEach((p, i) => {
         const cx = p.x + p.w / 2;
         const cz = p.y + p.h / 2;
         if (kitGeo) {
           // مقیاس فیت در پلن + چرخش صریح پراپ (فاز CITY-FULL)
-          if (!geo.boundingBox) geo.computeBoundingBox();
-          const s = geo.boundingBox!.getSize(new THREE.Vector3());
-          const span = Math.max(s.x, s.z, 1);
-          const sc = Math.max(0.5, Math.min(1.6, Math.min(p.w, p.h) / span));
+          const sc = Math.max(0.5, Math.min(1.6, Math.min(p.w, p.h) / kitSpan));
           tmpQ.setFromEuler(tmpE.set(0, p.rot ?? 0, 0));
           this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ, this.tmpS.setScalar(sc));
         } else if (p.kind === 'tree') {
@@ -1555,7 +1566,7 @@ export class WorldRenderer3D {
         } else if (p.kind === 'pole') {
           this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.identity(), this.tmpS.setScalar(1));
         } else if (p.kind === 'moto') {
-          const cc = new THREE.Color(['#c0392b', '#2e6da4', '#3a3a3a'][Math.abs(Math.round(cx + cz)) % 3]);
+          const cc = MOTO_COLORS[Math.abs(Math.round(cx + cz)) % MOTO_COLORS.length];
           mesh.setColorAt(i, cc);
           this.tmpM.compose(this.tmpV.set(cx, 0, cz), tmpQ.setFromEuler(tmpE.set(0, r(cx) * Math.PI * 2, 0)), this.tmpS.setScalar(1));
         } else {
