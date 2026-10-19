@@ -72,8 +72,8 @@ jobs:
           import re
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
-          pattern = r'(<activity\\b(?=[^>]*android:name="\\.MainActivity")[^>]*)(>)'
-          s2, count = re.subn(pattern, lambda m: re.sub(r'\\s+android:screenOrientation="[^"]*"', '', m.group(1)) + ' android:screenOrientation="landscape"' + m.group(2), s, count=1)
+          pattern = r'(<activity\b(?=[^>]*android:name="\.MainActivity")[^>]*)(>)'
+          s2, count = re.subn(pattern, lambda m: re.sub(r'\s+android:screenOrientation="[^"]*"', '', m.group(1)) + ' android:screenOrientation="landscape"' + m.group(2), s, count=1)
           if count != 1:
               raise SystemExit("Could not locate MainActivity in generated AndroidManifest.xml")
           p.write_text(s2)
