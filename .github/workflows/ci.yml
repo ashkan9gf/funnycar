@@ -57,8 +57,6 @@ jobs:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
       - name: Install locked project dependencies
         run: bun install --frozen-lockfile
-      - name: Optimize GLB models for Android WebView
-        run: bash scripts/optimize-android-models.sh
       - name: Build and verify offline web bundle
         run: bash scripts/build-android-web.sh
       - name: Install Capacitor tooling
