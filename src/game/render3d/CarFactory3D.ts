@@ -294,16 +294,16 @@ export function buildCar3D(
   const profile = PROFILES[variant] ?? PROFILES.pride;
   const lite = opts.lite === true;
 
-  // رنگ بدنه (فاز ۶ گاراژ: رنگ انتخابی بازیکن فقط برای ماشین بازیکن)
+  // رنگ بدنه؛ رنگ انتخابی گاراژ روی خودروهای قابل‌خرید اعمال می‌شود.
   let body = '#f4f4f0';
-  if (variant === 'player') {
-    body = typeof opts.paint === 'string' && opts.paint.startsWith('#') ? opts.paint : '#f4f4f0';
-  } else if (variant === 'pride' || variant === 'tiba' || variant === 'peugeot405' || variant === 'samand') {
+  if (variant === 'player') body = '#f4f4f0';
+  else if (variant === 'pride' || variant === 'tiba' || variant === 'peugeot405' || variant === 'samand') {
     body = pickColor(COLORS[variant]);
   } else if (variant === 'taxi') body = '#f2c230';
   else if (variant === 'police') body = '#f7f7f2';
   else if (variant === 'nissan') body = '#2f6fae'; // نیسان آبی معروف!
   else if (variant === 'renault4' || variant === 'vintage') body = pickColor(COLORS[variant] ?? ['#d9d9d4']);
+  if (typeof opts.paint === 'string' && /^#[0-9a-f]{6}$/i.test(opts.paint)) body = opts.paint;
 
   const bodyMat = toon(body);
   // Per-car material lets the indicator glow animate without changing every car at once.
