@@ -24,10 +24,9 @@ for file in "${MODELS[@]}"; do
   size_before=$(stat -c '%s' "$file")
   before=$((before + size_before))
 
-  # Preserve scene hierarchy and geometry detail. WebP + 1024px texture cap
-  # reduces download/decode/VRAM cost; Meshopt is decoded by the existing GLTFLoader.
+  # Preserve full-resolution textures and geometry detail. Meshopt is decoded by GLTFLoader.
   if bunx --no-install gltf-transform optimize "$file" "$out" \
-      --compress meshopt --texture-compress webp --texture-size 1024 \
+      --compress meshopt \
       --simplify false --flatten false --join false --palette false --instance false; then
     if [ -s "$out" ]; then
       size_after=$(stat -c '%s' "$out")
