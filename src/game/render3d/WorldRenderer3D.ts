@@ -325,6 +325,8 @@ export class WorldRenderer3D {
   /** Reused, bounded tire-smoke pool; no per-frame mesh/material allocation. */
   private readonly tireSmokeCapacity = 24;
   private tireSmokeMesh!: THREE.InstancedMesh;
+  private tireSmokeDummy = new THREE.Object3D();
+  private tireSmokeColor = new THREE.Color();
   private tireSmokePuffs: TireSmokePuff[] = Array.from({ length: 24 }, () => ({
     x: 0, z: 0, y: 2.5, vx: 0, vz: 0, vy: 0, life: 0, maxLife: 0.7, size: 1, active: false, rot: 0,
   }));
@@ -2758,7 +2760,7 @@ export class WorldRenderer3D {
       this.tireSmokeEmitTimer = Math.min(this.tireSmokeEmitTimer, 0.05);
     }
 
-    const dummy = this.trafficShadowDummy;
+    const dummy = this.tireSmokeDummy;
     for (let i = 0; i < this.tireSmokeCapacity; i++) {
       const p = this.tireSmokePuffs[i];
       if (!p.active) {
@@ -2767,7 +2769,8 @@ export class WorldRenderer3D {
         dummy.scale.set(0, 0, 0);
         dummy.updateMatrix();
         this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
-        this.tireSmokeMesh.setColorAt(i, new THREE.Color('#777777'));
+        this.tireSmokeColor.setRGB(0.42, 0.42, 0.42);
+        this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
         continue;
       }
       const age = 1 - p.life / p.maxLife;
@@ -2778,7 +2781,8 @@ export class WorldRenderer3D {
       dummy.updateMatrix();
       this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
       const shade = 0.82 - age * 0.3;
-      this.tireSmokeMesh.setColorAt(i, new THREE.Color(shade, shade, shade));
+      this.tireSmokeColor.setRGB(shade, shade, shade);
+      this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
     }
     this.tireSmokeMesh.instanceMatrix.needsUpdate = true;
     if (this.tireSmokeMesh.instanceColor) this.tireSmokeMesh.instanceColor.needsUpdate = true;
