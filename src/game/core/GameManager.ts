@@ -24,10 +24,12 @@ import { World, type WorldProp } from '../world/World';
 import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
+import type { CarVariant } from '../render3d/CarFactory3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
+import { PLAYER_VEHICLES, vehicleById } from '../data/vehicles';
 import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
@@ -84,6 +86,16 @@ export interface GameCallbacks {
 /** نمای کامل گاراژ برای پوسته React (فاز ۶) */
 export interface GarageView {
   coins: number;
+  vehicles: Array<{
+    id: string;
+    name: string;
+    variant: string;
+    price: number;
+    description: string;
+    flavor: string;
+    owned: boolean;
+    selected: boolean;
+  }>;
   upgrades: Array<{
     id: UpgradeId;
     title: string;
@@ -309,6 +321,8 @@ export class GameManager {
     this.applyGarageToVehicle();
     const savedPaint = paintById(this.save.get().paint);
     if (savedPaint && this.renderer3d) this.renderer3d.setPlayerPaint(savedPaint.hex);
+    const savedVehicle = vehicleById(this.save.get().selectedVehicle);
+    if (savedVehicle && this.renderer3d) this.renderer3d.setPlayerVehicle(savedVehicle.variant as CarVariant);
     this.setState('menu');
     this.loop(performance.now());
   }
@@ -326,6 +340,16 @@ export class GameManager {
     const d = this.save.get();
     return {
       coins: d.coins,
+      vehicles: PLAYER_VEHICLES.map((v) => ({
+        id: v.id,
+        name: v.name,
+        variant: v.variant,
+        price: v.price,
+        description: v.description,
+        flavor: v.flavor,
+        owned: d.unlockedVehicles.includes(v.id),
+        selected: d.selectedVehicle === v.id,
+      })),
       upgrades: UPGRADES.map((u) => {
         const level = d.upgrades[u.id] ?? 0;
         return {
@@ -355,6 +379,39 @@ export class GameManager {
         selected: d.horn === h.id,
       })),
     };
+  }
+
+  /** خرید خودروی جدید با سکه و انتخاب آن */
+  buyVehicle(id: string): { ok: boolean; coins: number; msg: string } {
+    const vehicle = vehicleById(id);
+    const d = this.save.get();
+    if (!vehicle) return { ok: false, coins: d.coins, msg: 'این ماشین تو نمایشگاه عمو نقی نیست!' };
+    if (d.unlockedVehicles.includes(id)) return this.selectVehicle(id);
+    if (d.coins < vehicle.price) return { ok: false, coins: d.coins, msg: 'سکه‌ات کمه؛ چند مسافر دیگه ببر!' };
+    this.save.mutate((s) => {
+      s.coins -= vehicle.price;
+      s.unlockedVehicles.push(id);
+      s.selectedVehicle = id;
+    });
+    this.renderer3d?.setPlayerVehicle(vehicle.variant as CarVariant);
+    const paint = paintById(this.save.get().paint);
+    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    this.audio.coin();
+    return { ok: true, coins: this.save.get().coins, msg: `ماشین «${vehicle.name}» خریدی؛ عمو نقی هم یه دور افتخار زد!` };
+  }
+
+  /** انتخاب خودرویی که قبلاً خریداری شده */
+  selectVehicle(id: string): { ok: boolean; coins: number; msg: string } {
+    const vehicle = vehicleById(id);
+    const d = this.save.get();
+    if (!vehicle || !d.unlockedVehicles.includes(id)) {
+      return { ok: false, coins: d.coins, msg: 'اول باید این ماشین رو بخری!' };
+    }
+    this.save.mutate((s) => { s.selectedVehicle = id; });
+    this.renderer3d?.setPlayerVehicle(vehicle.variant as CarVariant);
+    const paint = paintById(this.save.get().paint);
+    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    return { ok: true, coins: this.save.get().coins, msg: `ماشین «${vehicle.name}» آمادهٔ حرکته!` };
   }
 
   /** خرید یک سطح آپگرید — خروجی برای toast پوسته */
