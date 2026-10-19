@@ -1172,7 +1172,7 @@ export class WorldRenderer3D {
 
   /** پیش‌بارگذاری GLB همه واریانت‌ها + تعویض بازیکن/ترافیک پس از آماده‌شدن */
   private preloadCars(): void {
-    const variants: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police'];
+    const variants: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police', 'renault4', 'vintage'];
     for (const v of variants) {
       this.readyJobs.push(
         this.glb.loadCar(v, false).then((scene) => {
