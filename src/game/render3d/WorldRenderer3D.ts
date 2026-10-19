@@ -117,10 +117,10 @@ function addIranianRooftopDetails(g: THREE.Group, bounds: THREE.Box3, variance: 
   if (variance % 2 === 0) {
     const stand = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_BASE_MAT);
     stand.scale.set(width * 0.105, height * 0.025, depth * 0.105);
-    stand.position.set(width * 0.23, roofY + height * 0.012, depth * 0.2);
+    stand.position.set(bounds.min.x + width * 0.23, roofY + height * 0.012, bounds.min.z + depth * 0.2);
     const tank = new THREE.Mesh(ROOFTOP_TANK_GEO, ROOFTOP_TANK_MAT);
     tank.scale.set(width * 0.12, height * 0.17, depth * 0.12);
-    tank.position.set(width * 0.23, roofY + height * 0.105, depth * 0.2);
+    tank.position.set(bounds.min.x + width * 0.23, roofY + height * 0.105, bounds.min.z + depth * 0.2);
     tank.castShadow = true;
     detailGroup.add(stand, tank);
   }
@@ -129,7 +129,7 @@ function addIranianRooftopDetails(g: THREE.Group, bounds: THREE.Box3, variance: 
     for (const side of [-1, 1]) {
       const ac = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_AC_MAT);
       ac.scale.set(width * 0.095, height * 0.055, depth * 0.09);
-      ac.position.set(width * (0.12 + (side > 0 ? 0.52 : 0)), roofY + height * 0.027, -depth * 0.22);
+      ac.position.set(bounds.min.x + width * (0.12 + (side > 0 ? 0.52 : 0)), roofY + height * 0.027, bounds.min.z + depth * 0.72);
       ac.castShadow = true;
       const vent = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_DARK_MAT);
       vent.scale.set(width * 0.052, height * 0.032, depth * 0.008);
