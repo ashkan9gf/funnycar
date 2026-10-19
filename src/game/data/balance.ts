@@ -416,9 +416,9 @@ export const ENDLESS = {
   /** حاشیه تخلیه بصری (قطعه تا radius+margin زنده می‌ماند — ضد لرزش در مرز) */
   unloadMargin: 1,
   /** ⏱ بودجه فریمی ساخت بصری (میلی‌ثانیه در هر فریم) */
-  buildBudgetMs: 1.8,
+  buildBudgetMs: 3.5,
   /** حداکثر قطعه ساخته‌شده در یک فریم */
-  maxChunkBuildsPerFrame: 1,
+  maxChunkBuildsPerFrame: 2,
   /** بازیافت ترافیک: دورتر از این فاصله از بازیکن → اسپاون دوباره نزدیک بازیکن */
   trafficRecycleDist: 2900,
   /** بازیافت عابرها */
