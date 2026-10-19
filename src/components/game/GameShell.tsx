@@ -477,8 +477,7 @@ export default function GameShell() {
                 className={`fc-btn fc-panel flex w-full flex-col items-start gap-1 p-4 text-right ${
                   locked ? "bg-[#FFF9EC]/60 opacity-75" : "bg-[#FFF9EC]"
                 }`}
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   if (locked) return;
                   gameRef.current?.startMission(m.id);
                   setShowMissions(false);
@@ -528,7 +527,7 @@ export default function GameShell() {
 
       {/* ============ گاراژ عمو نقی (فاز ۶) ============ */}
       {phase === "menu" && showGarage && garage && (
-        <div className="absolute inset-0 z-40 flex flex-col overflow-y-auto bg-[#3a2e2a]/70 px-4 py-6 backdrop-blur-[2px]">
+        <div className="absolute inset-0 z-40 flex flex-col overflow-y-auto overscroll-y-contain touch-pan-y bg-[#3a2e2a]/70 px-4 py-6 backdrop-blur-[2px]">
           <div className="fc-pop mx-auto flex w-full max-w-md flex-col gap-3 pb-4">
             {/* هدر */}
             <div className="flex items-center justify-between">
@@ -549,6 +548,45 @@ export default function GameShell() {
                   <X className="h-6 w-6" />
                 </TapButton>
               </div>
+            </div>
+
+            {/* نمایشگاه خودرو — خرید و تعویض با سکه */}
+            <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-white/85">
+              <Car className="h-4 w-4 text-[#F2B705]" /> نمایشگاه ماشین‌ها — با سکه بخر و هر وقت خواستی عوض کن:
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {garage.vehicles.map((v) => {
+                const affordable = garage.coins >= v.price;
+                return (
+                  <div key={v.id} className={`fc-panel p-3 ${v.selected ? "bg-[#DDF5B4]" : "bg-[#FFF9EC]"}`}>
+                    <div className="flex items-start gap-2">
+                      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${v.selected ? "bg-[#8AC926]" : "bg-[#FFF3D6]"} text-[#3a2e2a]`}>
+                        <Car className="h-6 w-6" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-sm font-extrabold text-[#3a2e2a]">{v.name}</span>
+                          {v.selected && <Check className="h-4 w-4 shrink-0 text-[#2A7A23]" />}
+                        </div>
+                        <p className="mt-0.5 text-[10px] leading-4 text-[#3a2e2a]/70">{v.description}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={v.selected}
+                      className={`fc-btn mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-extrabold ${
+                        v.selected ? "bg-[#3a2e2a]/10 text-[#3a2e2a]/60" : v.owned ? "bg-[#8AC926] text-[#3a2e2a]" : affordable ? "bg-[#F2B705] text-[#3a2e2a]" : "bg-[#FFF3D6] text-[#3a2e2a]/60"
+                      }`}
+                      onClick={() => {
+                        if (v.selected) return;
+                        purchase(() => v.owned ? gameRef.current!.selectVehicle(v.id) : gameRef.current!.buyVehicle(v.id));
+                      }}
+                    >
+                      {v.selected ? "ماشین فعلی ✓" : v.owned ? "انتخاب این ماشین" : <><Coins className="h-4 w-4" />{fa(v.price)} سکه — خرید</>}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
 
             {/* آپگریدها */}
@@ -591,8 +629,7 @@ export default function GameShell() {
                             ? "bg-[#8AC926] text-[#3a2e2a]"
                             : "bg-[#FFF3D6] text-[#3a2e2a]/60"
                       }`}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
+                      onClick={() => {
                         if (maxed) return;
                         purchase(() => gameRef.current!.buyUpgrade(u.id));
                       }}
@@ -624,8 +661,7 @@ export default function GameShell() {
                   className={`fc-btn flex flex-col items-center gap-1 rounded-2xl p-2 ${
                     p.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
                   }`}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
+                  onClick={() => {
                     if (p.owned) {
                       if (!p.selected) purchase(() => gameRef.current!.selectPaint(p.id));
                     } else {
@@ -668,8 +704,7 @@ export default function GameShell() {
                   className={`fc-btn flex items-center gap-2 rounded-2xl p-2.5 text-right ${
                     h.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
                   }`}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
+                  onClick={() => {
                     if (h.owned) {
                       if (!h.selected) purchase(() => gameRef.current!.selectHorn(h.id));
                     } else {
