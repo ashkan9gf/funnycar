@@ -103,6 +103,18 @@ const FACADE_FRAME_MAT = new THREE.MeshStandardMaterial({ color: '#e7dfce', roug
 const FACADE_GLASS_MAT = new THREE.MeshStandardMaterial({ color: '#426d82', roughness: 0.26, metalness: 0.16, envMapIntensity: 0.72 });
 // Selective warm apartment windows add urban life without spawning expensive point lights.
 const FACADE_LIT_WINDOW_MAT = new THREE.MeshStandardMaterial({ color: '#f4bd70', emissive: '#ff9e3d', emissiveIntensity: 0.52, roughness: 0.42, metalness: 0.02 });
+// Day/night palette constants are shared to avoid allocating colors in the render loop.
+const SKY_DAY = new THREE.Color('#eaf2f8');
+const SKY_NIGHT = new THREE.Color('#18243d');
+const GROUND_DAY = new THREE.Color('#c9a97a');
+const GROUND_NIGHT = new THREE.Color('#18202c');
+const FOG_DAY = new THREE.Color('#e6dcc4');
+const FOG_NIGHT = new THREE.Color('#202a3b');
+const SUN_DAY = new THREE.Color('#ffdfb0');
+const SUN_DUSK = new THREE.Color('#ff8b55');
+const SUN_NIGHT = new THREE.Color('#7c91c5');
+const SKY_DOME_DAY = new THREE.Color('#ffffff');
+const SKY_DOME_NIGHT = new THREE.Color('#53658d');
 const FACADE_RAIL_MAT = new THREE.MeshStandardMaterial({ color: '#41484a', roughness: 0.42, metalness: 0.62 });
 
 function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: number, apartment: boolean): THREE.BufferGeometry[] {
@@ -237,6 +249,8 @@ export class WorldRenderer3D {
   private scene = new THREE.Scene();
   private cam3: THREE.PerspectiveCamera;
   private sun: THREE.DirectionalLight;
+  private hemi!: THREE.HemisphereLight;
+  private dayNightFactor = 0;
   private octx: CanvasRenderingContext2D;
 
   // افکت‌ها
@@ -421,8 +435,8 @@ export class WorldRenderer3D {
     });
 
     // نور: خورشید طلایی با سایه‌های بلند + آسمان روشن
-    const hemi = new THREE.HemisphereLight('#eaf2f8', '#c9a97a', RENDER3D.hemiIntensity);
-    this.scene.add(hemi);
+    this.hemi = new THREE.HemisphereLight(SKY_DAY, GROUND_DAY, RENDER3D.hemiIntensity);
+    this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight('#ffdfb0', RENDER3D.sunIntensity);
     this.sun.castShadow = true;
     // 🔑 PERF-4 (لگ حین رانندگی): کادر قبلی ±۶۲۰ با نقشهٔ ۱۰۲۴ — حین رانندگی صدها
@@ -2130,6 +2144,51 @@ export class WorldRenderer3D {
   private sunGlow: THREE.Sprite | null = null;
   private vignette: HTMLCanvasElement | null = null;
 
+  /** Smooth 6-minute day/night cycle. Updates existing lights/materials only (no per-lamp lights). */
+  private updateDayNight(t: number): void {
+    const phase = (t % 360) / 360;
+    // Sunrise at cycle start, noon at 90s, sunset at 180s, then night.
+    const daylight = Math.max(0, Math.sin(phase * Math.PI * 2));
+    const easedDay = daylight * daylight * (3 - 2 * daylight);
+    const night = 1 - easedDay;
+    this.dayNightFactor = easedDay;
+
+    this.hemi.color.lerpColors(SKY_NIGHT, SKY_DAY, easedDay);
+    this.hemi.groundColor.lerpColors(GROUND_NIGHT, GROUND_DAY, easedDay);
+    this.hemi.intensity = RENDER3D.hemiIntensity * (0.34 + easedDay * 0.66);
+
+    // Warm sunrise/sunset, cool night ambience, full warm daylight.
+    const dusk = Math.max(0, 1 - Math.abs(daylight - 0.22) / 0.22) * (daylight > 0 ? 1 : 0);
+    this.sun.color.copy(SUN_NIGHT).lerp(SUN_DAY, easedDay).lerp(SUN_DUSK, dusk * 0.48);
+    this.sun.intensity = RENDER3D.sunIntensity * (0.035 + easedDay * 0.965);
+
+    const fog = this.scene.fog;
+    if (fog instanceof THREE.Fog) {
+      fog.color.lerpColors(FOG_NIGHT, FOG_DAY, easedDay);
+      fog.near = 920 + easedDay * 380;
+      fog.far = RENDER3D.fogFar;
+    }
+
+    if (this.skyDome) {
+      const material = this.skyDome.material;
+      if (material instanceof THREE.MeshBasicMaterial) {
+        material.color.lerpColors(SKY_DOME_NIGHT, SKY_DOME_DAY, easedDay);
+      }
+    }
+    for (const cloud of this.clouds) {
+      cloud.material.opacity = 0.22 + easedDay * 0.58;
+      cloud.material.color.copy(SKY_NIGHT).lerp(SKY_DAY, easedDay);
+    }
+    if (this.sunGlow) {
+      const glow = this.sunGlow.material;
+      glow.opacity = 0.015 + easedDay * 0.245;
+      glow.color.copy(SUN_NIGHT).lerp(SUN_DAY, easedDay).lerp(SUN_DUSK, dusk * 0.55);
+    }
+
+    this.scene.environmentIntensity = 0.48 + easedDay * 0.34;
+    this.r3.toneMappingExposure = 0.82 + easedDay * 0.38;
+  }
+
   /** گنبد آسمان گرادیانی — دنبال دوربین، بدون مه
    *  🔑 PERF-3: شعاع ۳۳۰۰ = هم‌تراز fogFar — هر چیز دورتر ۱۰۰٪ هم‌رنگ مِه است و دیده نمی‌شود؛
    *  دوربین far=3450 آن‌ها را رایگان حذف می‌کند (قبلاً ۵۲۰۰ بود = رندر پیکسل‌های نامرئی) */
@@ -2413,6 +2472,7 @@ export class WorldRenderer3D {
     const t = performance.now() / 1000;
     const frameDt = this.drawDt();
     const car = opts.car;
+    this.updateDayNight(t);
 
     // 🔕 سایهٔ ۲۰Hz — نقشهٔ سایه فقط هر ۳ فریم بازتولید می‌شود
     this.shadowTick = (this.shadowTick + 1) % 3;
@@ -2693,7 +2753,10 @@ export class WorldRenderer3D {
     const sunSnap = 660 / 2048;
     const sunX = Math.round(car.x / sunSnap) * sunSnap;
     const sunZ = Math.round(car.y / sunSnap) * sunSnap;
-    this.sun.position.set(sunX + 520, 640, sunZ + 380);
+    const cyclePhase = (t % 360) / 360;
+    const sunAngle = cyclePhase * Math.PI * 2;
+    const sunHeight = 140 + this.dayNightFactor * 500;
+    this.sun.position.set(sunX + Math.cos(sunAngle) * 520, sunHeight, sunZ + Math.sin(sunAngle) * 380);
     this.sun.target.position.set(sunX, 0, sunZ);
     this.sun.target.updateMatrixWorld();
 
@@ -2713,7 +2776,7 @@ export class WorldRenderer3D {
     }
     if (this.sunGlow) {
       // هاله در جهت نور خورشید نسبت به دوربین (۳۲۰۰ — داخل far=3450، اندازهٔ ظاهری ثابت)
-      const dir = this.tmpV.set(520, 640, 380).normalize();
+      const dir = this.tmpV.copy(this.sun.position).sub(this.sun.target.position).normalize();
       this.sunGlow.position.set(
         this.cam3.position.x + dir.x * 3200,
         dir.y * 3200,
