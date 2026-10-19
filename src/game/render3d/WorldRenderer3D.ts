@@ -2142,6 +2142,9 @@ export class WorldRenderer3D {
   private skyDome: THREE.Mesh | null = null;
   private clouds: THREE.Sprite[] = [];
   private sunGlow: THREE.Sprite | null = null;
+  private starField: THREE.Points | null = null;
+  private moon: THREE.Mesh | null = null;
+  private moonGlow: THREE.Sprite | null = null;
   private vignette: HTMLCanvasElement | null = null;
 
   /** Smooth 6-minute day/night cycle. Updates existing lights/materials only (no per-lamp lights). */
@@ -2152,6 +2155,10 @@ export class WorldRenderer3D {
     const easedDay = daylight * daylight * (3 - 2 * daylight);
     const night = 1 - easedDay;
     this.dayNightFactor = easedDay;
+    const nightVisibility = Math.min(1, Math.max(0, (night - 0.12) / 0.72));
+    if (this.starField) (this.starField.material as THREE.PointsMaterial).opacity = nightVisibility * 0.92;
+    if (this.moon) (this.moon.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.96;
+    if (this.moonGlow) (this.moonGlow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.22;
 
     this.hemi.color.lerpColors(SKY_NIGHT, SKY_DAY, easedDay);
     this.hemi.groundColor.lerpColors(GROUND_NIGHT, GROUND_DAY, easedDay);
@@ -2225,6 +2232,49 @@ export class WorldRenderer3D {
     this.sunGlow = new THREE.Sprite(glowMat);
     this.sunGlow.scale.set(1022, 1022, 1);
     this.scene.add(this.sunGlow);
+
+    // One batched point cloud replaces hundreds of individual star meshes.
+    // A fixed seed keeps the sky stable between runs and costs no per-frame allocations.
+    const starPositions = new Float32Array(260 * 3);
+    let seed = 0x51f15e;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    for (let i = 0; i < 260; i++) {
+      const azimuth = random() * Math.PI * 2;
+      const elevation = 0.12 + random() * 1.25;
+      const radius = 3000;
+      starPositions[i * 3] = Math.cos(azimuth) * Math.cos(elevation) * radius;
+      starPositions[i * 3 + 1] = Math.sin(elevation) * radius;
+      starPositions[i * 3 + 2] = Math.sin(azimuth) * Math.cos(elevation) * radius;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: '#dce7ff', size: 2.2, sizeAttenuation: false,
+      transparent: true, opacity: 0, depthWrite: false, fog: false,
+    });
+    this.starField = new THREE.Points(starGeo, starMat);
+    this.starField.renderOrder = -8;
+    this.scene.add(this.starField);
+
+    // A simple low-poly moon and a soft, shared-texture halo: no extra lights.
+    const moonMat = new THREE.MeshBasicMaterial({
+      color: '#d8e5ff', transparent: true, opacity: 0, fog: false,
+      depthWrite: false,
+    });
+    this.moon = new THREE.Mesh(new THREE.SphereGeometry(34, 16, 12), moonMat);
+    this.moon.renderOrder = -7;
+    this.scene.add(this.moon);
+    const moonGlowMat = new THREE.SpriteMaterial({
+      map: getCloudTexture(), color: '#9ebaff', transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+    });
+    this.moonGlow = new THREE.Sprite(moonGlowMat);
+    this.moonGlow.scale.set(310, 310, 1);
+    this.moonGlow.renderOrder = -7;
+    this.scene.add(this.moonGlow);
   }
 
   /** وینیت سینمایی — یک‌بار ساخته می‌شود، هر فریم روی اورلی کشیده می‌شود */
@@ -2763,6 +2813,15 @@ export class WorldRenderer3D {
     // ---------- فاز CINEMATIC: گنبد آسمان + ابرها + هاله خورشید دنبال دوربین ----------
     if (this.skyDome) {
       this.skyDome.position.set(this.cam3.position.x, 0, this.cam3.position.z);
+    }
+    if (this.starField) this.starField.position.copy(this.cam3.position);
+    if (this.moon && this.moonGlow) {
+      const moonAngle = ((t % 360) / 360) * Math.PI * 2 + Math.PI;
+      const moonX = this.cam3.position.x + Math.cos(moonAngle) * 2350;
+      const moonY = this.cam3.position.y + 520 + Math.max(0, Math.sin(moonAngle)) * 850;
+      const moonZ = this.cam3.position.z + Math.sin(moonAngle + 0.65) * 2200;
+      this.moon.position.set(moonX, moonY, moonZ);
+      this.moonGlow.position.set(moonX, moonY, moonZ);
     }
     const ct = t * 0.5;
     for (const cl of this.clouds) {
