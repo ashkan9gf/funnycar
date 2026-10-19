@@ -63,6 +63,8 @@ export interface HudData {
 /** نتیجه مأموریت برای پوسته React (فاز 4) */
 export interface MissionResultData {
   success: boolean;
+  /** رتبهٔ عملکرد مأموریت: صفر در شکست، ۱ تا ۳ ستاره در پیروزی */
+  stars: number;
   missionId: string;
   title: string;
   /** جایزه نهایی سکه (با بونوس آبروی بالا) */
@@ -670,10 +672,25 @@ export class GameManager {
 
     let coins = 0;
     let rep = 0;
+    let stars = 0;
     if (success) {
+      // رتبه‌بندی سه‌ستاره: زمان، تصادف و برخورد با چاله روی پاداش اثر می‌گذارند.
+      const s = stats && typeof stats === 'object' ? stats as { elapsedSec?: number; hardCrashes?: number; potholeHits?: number } : {};
+      const elapsed = Math.max(0, s.elapsedSec ?? 0);
+      const crashes = Math.max(0, s.hardCrashes ?? 0);
+      const potholes = Math.max(0, s.potholeHits ?? 0);
+      const limit = def?.timeLimitSec ?? 0;
+      stars = crashes === 0 && potholes === 0 && (limit <= 0 || elapsed <= limit * 0.7)
+        ? 3
+        : crashes <= 1 && (limit <= 0 || elapsed <= limit)
+          ? 2
+          : 1;
+      // بونوس عملکرد: ۳ ستاره +۱۵٪، ۲ ستاره +۷٪؛ بدون تغییر پاداش پایه.
+      const performanceBonus = stars === 3 ? 0.15 : stars === 2 ? 0.07 : 0;
       // بونوس آبروی بالا (سند بخش ۷: ×1.25 وقتی آبرو ≥ ۸۰)
       const repNow = this.save.get().reputation;
       coins = Math.round(baseCoins * (repNow >= MISSIONS.bonusRepThreshold ? MISSIONS.bonusFactor : 1));
+      coins += Math.round(baseCoins * performanceBonus);
       // فاز ۵: انعام تاکسی (اگر سریع برسی)
       const statsBonus = stats && typeof stats === 'object' && 'bonusCoins' in stats
         ? (stats as { bonusCoins?: number }).bonusCoins ?? 0
@@ -709,7 +726,7 @@ export class GameManager {
       if (next) unlockedNext = next.title;
     }
 
-    this.callbacks.onMissionEnd?.({ success, missionId, title, coins, rep, reason, line, unlockedNext });
+    this.callbacks.onMissionEnd?.({ success, stars, missionId, title, coins, rep, reason, line, unlockedNext });
   }
 
   // ============ ترافیک و رویدادها (فاز 2) ============
