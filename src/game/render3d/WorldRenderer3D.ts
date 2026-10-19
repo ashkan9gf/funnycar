@@ -214,6 +214,48 @@ function addIranianRooftopDetails(g: THREE.Group, bounds: THREE.Box3, variance: 
 
 const SKID_LIFE = 3.4;
 
+/** One small procedural alpha texture gives tire marks feathered edges without external assets. */
+function createSkidMarkTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const edge = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(0.18, 'rgba(0,0,0,0.45)');
+  edge.addColorStop(0.5, 'rgba(0,0,0,0.72)');
+  edge.addColorStop(0.82, 'rgba(0,0,0,0.45)');
+  edge.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Fade both ends so marks blend into the road instead of ending as hard rectangles.
+  ctx.globalCompositeOperation = 'destination-in';
+  const ends = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  ends.addColorStop(0, 'rgba(0,0,0,0)');
+  ends.addColorStop(0.12, 'rgba(0,0,0,0.75)');
+  ends.addColorStop(0.5, 'rgba(0,0,0,1)');
+  ends.addColorStop(0.88, 'rgba(0,0,0,0.75)');
+  ends.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = ends;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.globalCompositeOperation = 'source-over';
+  // Fine, broken rubber streaks add subtle surface variation.
+  for (let i = 0; i < 9; i++) {
+    const x = 22 + ((i * 17) % 21);
+    const y = 5 + ((i * 29) % 116);
+    ctx.fillStyle = `rgba(0,0,0,${0.05 + (i % 3) * 0.025})`;
+    ctx.fillRect(x, y, 1 + (i % 2), 5 + (i % 4) * 3);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  return texture;
+}
+
 /** ویزوال یک قطعهٔ فعال — فاز ENDLESS-1 */
 interface ChunkVisual {
   key: string;
@@ -586,7 +628,7 @@ export class WorldRenderer3D {
     skidGeo.rotateX(-Math.PI / 2);
     this.skidMesh = new THREE.InstancedMesh(
       skidGeo,
-      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ map: createSkidMarkTexture(), color: '#292b2f', transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide }),
       RENDER3D.skidMax,
     );
     this.skidMesh.count = 0;
