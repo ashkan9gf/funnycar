@@ -327,6 +327,7 @@ export class WorldRenderer3D {
   private tireSmokeMesh!: THREE.InstancedMesh;
   private tireSmokeDummy = new THREE.Object3D();
   private tireSmokeColor = new THREE.Color();
+  private tireSmokeOpacity!: THREE.InstancedBufferAttribute;
   private tireSmokePuffs: TireSmokePuff[] = Array.from({ length: 24 }, () => ({
     x: 0, z: 0, y: 2.5, vx: 0, vz: 0, vy: 0, life: 0, maxLife: 0.7, size: 1, active: false, rot: 0,
   }));
@@ -658,14 +659,23 @@ export class WorldRenderer3D {
     // Soft tire smoke uses one cached radial texture and a fixed instanced pool.
     const smokeGeo = new THREE.PlaneGeometry(1, 1);
     smokeGeo.rotateX(-Math.PI / 2);
-    this.tireSmokeMesh = new THREE.InstancedMesh(
-      smokeGeo,
-      new THREE.MeshBasicMaterial({
-        map: getCloudTexture(), color: '#d5d7d9', transparent: true,
-        opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
-      }),
-      this.tireSmokeCapacity,
-    );
+    const smokeOpacity = new THREE.InstancedBufferAttribute(new Float32Array(this.tireSmokeCapacity).fill(1), 1);
+    smokeOpacity.setUsage(THREE.DynamicDrawUsage);
+    smokeGeo.setAttribute('instanceSmokeOpacity', smokeOpacity);
+    this.tireSmokeOpacity = smokeOpacity;
+    const smokeMaterial = new THREE.MeshBasicMaterial({
+      map: getCloudTexture(), color: '#d5d7d9', transparent: true,
+      opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+    });
+    smokeMaterial.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float instanceSmokeOpacity;\nvarying float vSmokeOpacity;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSmokeOpacity = instanceSmokeOpacity;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vSmokeOpacity;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vSmokeOpacity;');
+    };
+    this.tireSmokeMesh = new THREE.InstancedMesh(smokeGeo, smokeMaterial, this.tireSmokeCapacity);
     this.tireSmokeMesh.count = this.tireSmokeCapacity;
     this.tireSmokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.tireSmokeMesh.frustumCulled = false;
@@ -2769,22 +2779,26 @@ export class WorldRenderer3D {
         dummy.scale.set(0, 0, 0);
         dummy.updateMatrix();
         this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
+        this.tireSmokeOpacity.setX(i, 0);
         this.tireSmokeColor.setRGB(0.42, 0.42, 0.42);
         this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
         continue;
       }
       const age = 1 - p.life / p.maxLife;
       const size = p.size * (0.72 + age * 0.8);
+      const fade = age <= 0.42 ? 1 : Math.max(0, 1 - (age - 0.42) / 0.58);
+      this.tireSmokeOpacity.setX(i, fade);
       dummy.position.set(p.x, p.y, p.z);
       dummy.rotation.set(0, p.rot + age * 0.35, 0);
       dummy.scale.set(size, size, 1);
       dummy.updateMatrix();
       this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
-      const shade = 0.82 - age * 0.3;
+      const shade = 0.82 - age * 0.12;
       this.tireSmokeColor.setRGB(shade, shade, shade);
       this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
     }
     this.tireSmokeMesh.instanceMatrix.needsUpdate = true;
+    this.tireSmokeOpacity.needsUpdate = true;
     if (this.tireSmokeMesh.instanceColor) this.tireSmokeMesh.instanceColor.needsUpdate = true;
   }
 
