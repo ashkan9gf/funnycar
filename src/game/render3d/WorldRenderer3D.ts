@@ -1864,18 +1864,42 @@ export class WorldRenderer3D {
         break;
       }
       case 'pole': {
+        // Modern Iranian streetlight: galvanized mast, short outreach arm and warm LED head.
+        // Geometry stays local to the prop and is merged by the existing chunk staging pass.
+        const steel = new THREE.MeshLambertMaterial({ color: '#68777d' });
+        const darkSteel = new THREE.MeshLambertMaterial({ color: '#35444a' });
+        const poleHeight = r * 4.2;
         const pole = new THREE.Mesh(
-          new THREE.CylinderGeometry(r * 0.14, r * 0.16, r * 4.2, 8),
-          new THREE.MeshLambertMaterial({ color: '#8D99AE' }),
+          new THREE.CylinderGeometry(r * 0.105, r * 0.16, poleHeight, 8),
+          steel,
         );
-        pole.position.y = r * 2.1;
+        pole.position.y = poleHeight * 0.5;
         pole.castShadow = true;
-        const lamp = new THREE.Mesh(
-          new THREE.SphereGeometry(r * 0.3, 10, 8),
-          new THREE.MeshBasicMaterial({ color: '#EF476F' }),
+
+        const arm = new THREE.Mesh(
+          new THREE.CylinderGeometry(r * 0.055, r * 0.065, r * 0.95, 7),
+          steel,
         );
-        lamp.position.y = r * 4.3;
-        wrap.add(pole, lamp);
+        arm.rotation.z = -Math.PI / 2;
+        arm.position.set(r * 0.35, poleHeight * 0.96, 0);
+
+        const head = new THREE.Mesh(
+          new THREE.BoxGeometry(r * 0.72, r * 0.2, r * 0.34),
+          darkSteel,
+        );
+        head.position.set(r * 0.78, poleHeight * 0.94, 0);
+        head.castShadow = true;
+
+        const diffuser = new THREE.Mesh(
+          new THREE.BoxGeometry(r * 0.56, r * 0.045, r * 0.25),
+          new THREE.MeshLambertMaterial({
+            color: '#ffe5a6',
+            emissive: '#ffb84d',
+            emissiveIntensity: 0.42,
+          }),
+        );
+        diffuser.position.set(r * 0.78, poleHeight * 0.94 - r * 0.105, 0);
+        wrap.add(pole, arm, head, diffuser);
         break;
       }
       case 'cone': {
