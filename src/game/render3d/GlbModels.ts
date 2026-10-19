@@ -304,6 +304,19 @@ export function assembleCarFromGLB(
         if (!(source instanceof THREE.MeshStandardMaterial) || source.transparent) return source;
         const materialName = source.name.toLowerCase();
         let material: THREE.MeshStandardMaterial = source.clone();
+        if (/glass|window|windshield|windscreen/.test(materialName)) {
+          // Vehicle glazing: tighter highlights and a subtle clearcoat without
+          // forcing transparency on assets whose GLB author intentionally omitted it.
+          const glazing = new THREE.MeshPhysicalMaterial();
+          Object.assign(glazing, material);
+          glazing.roughness = Math.max(0.12, Math.min(0.3, material.roughness));
+          glazing.metalness = Math.min(0.06, material.metalness);
+          glazing.clearcoat = 0.42;
+          glazing.clearcoatRoughness = 0.16;
+          glazing.envMapIntensity = 1.25;
+          material.dispose();
+          return glazing;
+        }
         if (/tire|tyre|rubber|plastic/.test(materialName)) {
           // Rubber and unpainted plastic stay matte and non-metallic.
           material.roughness = Math.max(0.76, material.roughness);
