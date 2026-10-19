@@ -964,3 +964,18 @@ Stage Summary:
 - تمام ۲۶ پاس گرافیکی کاربر با یک ادغام سبز شد؛ کیفیت بصری جهش کرد (شب‌روز، نمای ایرانی، نور خودرو) با معماری محترم به PERF-3/4
 - تنها هزینه واقعی: +۲۶۰ draw call از نماها/بام‌ها — اگر روی گوشی لگ دید، کاندید اول merge بام‌هاست
 - درس: CI این ریپو نوع‌ها را چک نمی‌کند (ignoreBuildErrors) — tsc محلی تنها نگهبان است؛ خروجی AI را همیشه با tsc + اجرای واقعی بسنج
+
+---
+Task ID: 49-CI116-DELIVER
+Agent: main
+Task: دانلود artifact از CI run #116 (PR #40) و ارسال برای تست
+
+Work Log:
+- GET artifacts API برای run 39265516742 → artifact «funnycar-debug-apk» (24,340,955 bytes)
+- دانلود با token → استخراج app-debug.apk (25,303,057 bytes) → نام FunnyCarIR-CI116-PR40.apk
+- aapt2 dump: com.funnycar.ir / versionCode=1 / versionName=1.0 (بیلد خام CI، نسخه‌گذاری سفارشی ندارد)
+- zip → آپلود uploadkon → HEAD 200 + content-length مطابق
+
+Stage Summary:
+- لینک تحویل: https://uploadkon.ir/uploads/903f19_26FunnyCarIR-CI116-PR40.zip
+- run #116 از PR #40 (graphics/phase-40-release-build-hardening) سبز بوده؛ بیلد debug خام CI است نه v0.2.x نسخه‌دار
