@@ -346,6 +346,33 @@ export function assembleCarFromGLB(
       });
       mesh.material = Array.isArray(mesh.material) ? tunedMaterials : tunedMaterials[0];
       const name = (mesh.name || '').toLowerCase();
+
+      // Improve named automotive light lenses while preserving their GLB maps.
+      // Keep emission restrained: the renderer has no guaranteed bloom pass.
+      const lightKind = /headlight|head_light|lights_front|front_light/.test(name)
+        ? 'front'
+        : /taillight|tail_light|lights_rear|rear_light|brake_light/.test(name)
+          ? 'rear'
+          : /indicator|turn_signal|turnsignal|blinker/.test(name)
+            ? 'indicator'
+            : null;
+      if (lightKind) {
+        const lightMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const lightMaterial of lightMaterials) {
+          if (!(lightMaterial instanceof THREE.MeshStandardMaterial)) continue;
+          if (lightKind === 'front') {
+            lightMaterial.emissive.set('#ffe2a3');
+            lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.28);
+          } else if (lightKind === 'rear') {
+            lightMaterial.emissive.set('#d71920');
+            lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.42);
+          } else {
+            lightMaterial.emissive.set('#ff9d24');
+            lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.32);
+          }
+          lightMaterial.needsUpdate = true;
+        }
+      }
       if (name.includes('wheel') || name.includes('tire') || name.includes('tyre')) {
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
         const bb = mesh.geometry.boundingBox;
