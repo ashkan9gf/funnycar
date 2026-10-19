@@ -43,6 +43,72 @@ let speedBumpTex: THREE.CanvasTexture | null = null;
 const facadeTexCache = new Map<string, THREE.CanvasTexture[]>();
 const labelTexCache = new Map<string, THREE.CanvasTexture>();
 
+// Cached, tileable asphalt micro-detail maps. Generated once (never per frame).
+let roadNormalTex: THREE.CanvasTexture | null = null;
+let roadRoughnessTex: THREE.CanvasTexture | null = null;
+
+function buildRoadMicroMaps(): void {
+  if (roadNormalTex && roadRoughnessTex) return;
+  const size = 256;
+  const { c: normalCanvas, ctx: normalCtx } = makeCanvas(size, size);
+  const normalImage = normalCtx.createImageData(size, size);
+  const { c: roughCanvas, ctx: roughCtx } = makeCanvas(size, size);
+  const roughImage = roughCtx.createImageData(size, size);
+  const heightAt = (x: number, y: number): number => {
+    const a = (Math.PI * 2 * x) / 8;
+    const b = (Math.PI * 2 * y) / 16;
+    const d = (Math.PI * 2 * (x + y)) / 32;
+    return Math.sin(a) * Math.sin(b) * 0.42
+      + Math.sin((Math.PI * 2 * x) / 4) * Math.sin((Math.PI * 2 * y) / 8) * 0.12
+      + Math.sin(d) * 0.18
+      + Math.sin((Math.PI * 2 * (x - y)) / 16) * 0.10;
+  };
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const dx = heightAt((x + 1) % size, y) - heightAt((x + size - 1) % size, y);
+      const dy = heightAt(x, (y + 1) % size) - heightAt(x, (y + size - 1) % size);
+      const nx = -dx * 3.2;
+      const ny = -dy * 3.2;
+      const nz = 1;
+      const invLen = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+      normalImage.data[i] = Math.round((nx * invLen * 0.5 + 0.5) * 255);
+      normalImage.data[i + 1] = Math.round((ny * invLen * 0.5 + 0.5) * 255);
+      normalImage.data[i + 2] = Math.round((nz * invLen * 0.5 + 0.5) * 255);
+      normalImage.data[i + 3] = 255;
+      const grain = Math.sin((Math.PI * 2 * x) / 8) * Math.sin((Math.PI * 2 * y) / 16);
+      const fine = Math.sin((Math.PI * 2 * (x + y)) / 32);
+      const rough = Math.max(0, Math.min(255, Math.round(231 + grain * 8 + fine * 5)));
+      roughImage.data[i] = rough;
+      roughImage.data[i + 1] = rough;
+      roughImage.data[i + 2] = rough;
+      roughImage.data[i + 3] = 255;
+    }
+  }
+  normalCtx.putImageData(normalImage, 0, 0);
+  roughCtx.putImageData(roughImage, 0, 0);
+  roadNormalTex = new THREE.CanvasTexture(normalCanvas);
+  roadNormalTex.wrapS = roadNormalTex.wrapT = THREE.RepeatWrapping;
+  roadNormalTex.colorSpace = THREE.NoColorSpace;
+  roadNormalTex.generateMipmaps = true;
+  roadNormalTex.minFilter = THREE.LinearMipmapLinearFilter;
+  roadNormalTex.magFilter = THREE.LinearFilter;
+  roadRoughnessTex = new THREE.CanvasTexture(roughCanvas);
+  roadRoughnessTex.wrapS = roadRoughnessTex.wrapT = THREE.RepeatWrapping;
+  roadRoughnessTex.colorSpace = THREE.NoColorSpace;
+  roadRoughnessTex.generateMipmaps = true;
+  roadRoughnessTex.minFilter = THREE.LinearMipmapLinearFilter;
+  roadRoughnessTex.magFilter = THREE.LinearFilter;
+}
+
+/** Tileable micro-normal + roughness maps for asphalt PBR. */
+export function getRoadMicroMaps(): { normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+  buildRoadMicroMaps();
+  if (!roadNormalTex || !roadRoughnessTex) throw new Error('Road micro maps were not initialized');
+  return { normalMap: roadNormalTex, roughnessMap: roadRoughnessTex };
+}
+
+
 /** خطوط ترک آسفالت (پلی‌لاین‌های باریک تیره) */
 function drawCracks(ctx: CanvasRenderingContext2D, w: number, h: number, count: number): void {
   for (let i = 0; i < count; i++) {
