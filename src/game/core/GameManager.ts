@@ -92,6 +92,10 @@ export interface GarageView {
     id: string;
     name: string;
     variant: string;
+    speed: number;
+    acceleration: number;
+    handling: number;
+    durability: number;
     price: number;
     description: string;
     flavor: string;
@@ -367,16 +371,23 @@ export class GameManager {
     const d = this.save.get();
     return {
       coins: d.coins,
-      vehicles: PLAYER_VEHICLES.map((v) => ({
+      vehicles: PLAYER_VEHICLES.map((v) => {
+        const handling = this.vehicleHandling(v.variant);
+        return {
         id: v.id,
         name: v.name,
         variant: v.variant,
+        speed: Math.round(handling.maxSpeedMul * 100),
+        acceleration: Math.round(handling.accelMul * 100),
+        handling: Math.round(((handling.gripMul + handling.steerMul) / 2) * 100),
+        durability: Math.round(handling.armorMul * 100),
         price: v.price,
         description: v.description,
         flavor: v.flavor,
         owned: d.unlockedVehicles.includes(v.id),
         selected: d.selectedVehicle === v.id,
-      })),
+      };
+      }),
       upgrades: UPGRADES.map((u) => {
         const level = d.upgrades[u.id] ?? 0;
         return {
