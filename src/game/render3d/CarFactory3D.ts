@@ -638,7 +638,6 @@ export function buildCar3D(
   const wheels: THREE.Mesh[] = [];
   const tireW = s.wid * 0.16;
   const wr = s.wheelR;
-  const R = wr - tireW / 2 + 2; // شعاع حلقه تایر
   const wheelGeo = wheelGeometriesShared(wr, tireW);
   for (const x of [-s.wid / 2 + tireW * 0.1, s.wid / 2 - tireW * 0.1]) {
     for (const z of [-s.len * 0.31, s.len * 0.31]) {
