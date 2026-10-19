@@ -323,7 +323,7 @@ export function buildCar3D(
   const bandLen = gz1 - gz0;
   const glassBand = new THREE.Mesh(
     boxGeometryShared(s.wid * cab, bandH, bandLen),
-    glassMat as THREE.MeshPhongMaterial,
+    glassMat as THREE.MeshPhysicalMaterial,
   );
   glassBand.position.set(0, (gy0 + gy1) / 2, (gz0 + gz1) / 2);
   g.add(glassBand);
@@ -332,12 +332,12 @@ export function buildCar3D(
 
   // شیشه جلو (کج به جلو)
   const wsZ = (gz0 - 4);
-  const ws = new THREE.Mesh(boxGeometryShared(s.wid * cab * 0.95, bandH + 8, 6), glassMat as THREE.MeshPhongMaterial);
+  const ws = new THREE.Mesh(boxGeometryShared(s.wid * cab * 0.95, bandH + 8, 6), glassMat as THREE.MeshPhysicalMaterial);
   ws.position.set(0, (gy0 + gy1) / 2 + 2, wsZ);
   ws.rotation.x = 0.42;
   g.add(ws);
   // شیشه عقب
-  const rw = new THREE.Mesh(boxGeometryShared(s.wid * cab * 0.92, bandH + 6, 6), glassMat as THREE.MeshPhongMaterial);
+  const rw = new THREE.Mesh(boxGeometryShared(s.wid * cab * 0.92, bandH + 6, 6), glassMat as THREE.MeshPhysicalMaterial);
   rw.position.set(0, (gy0 + gy1) / 2 + 3, gz1 + 5);
   rw.rotation.x = variant === 'nissan' ? -0.15 : -0.38;
   g.add(rw);
