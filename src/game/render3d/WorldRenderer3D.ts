@@ -2918,8 +2918,7 @@ export class WorldRenderer3D {
         dummy.updateMatrix();
         this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
         this.tireSmokeOpacity.setX(i, 0);
-        this.tireSmokeColor.setRGB(0.42, 0.42, 0.42);
-        this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
+        // Zero opacity fully hides inactive slots; their instance color need not be rewritten each frame.
         continue;
       }
       const age = 1 - p.life / p.maxLife;
