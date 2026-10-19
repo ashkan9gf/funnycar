@@ -290,6 +290,8 @@ interface Particle3D {
   life: number; maxLife: number; size: number; active: boolean; color: THREE.Color;
   /** لاشه: با جهش و چرخش روی زمین می‌ماند (فاز OVERHAUL) */
   debris?: boolean;
+  /** برخورد: ذرهٔ کشیده با سرعت اولیهٔ جهت‌دار و عمر کوتاه */
+  spark?: boolean;
   spin?: number; spinRate?: number; rested?: boolean;
 }
 
@@ -2678,6 +2680,30 @@ export class WorldRenderer3D {
     return this.playerPaint;
   }
 
+  /** جرقه‌های جهت‌دار تصادف؛ از pool ذرات فعلی استفاده می‌کند و mesh جدید نمی‌سازد. */
+  private spawnImpactSparks(x: number, z: number, front: boolean, intensity: number): void {
+    const count = Math.max(4, Math.min(12, Math.round(4 + intensity * 8)));
+    const baseAngle = front ? Math.PI / 2 : -Math.PI / 2;
+    const colors = ['#fff1b0', '#ffb347', '#ff7b38'];
+    for (let i = 0; i < count; i++) {
+      if (this.particles.length >= RENDER3D.particleMax) break;
+      const angle = baseAngle + (Math.random() - 0.5) * Math.PI * 1.35;
+      const power = 150 + Math.random() * (180 + intensity * 180);
+      const life = 0.16 + Math.random() * 0.22;
+      this.particles.push({
+        x, z, y: 28 + Math.random() * 24,
+        vx: Math.cos(angle) * power,
+        vz: Math.sin(angle) * power,
+        vy: 45 + Math.random() * (70 + intensity * 80),
+        life, maxLife: life,
+        size: 3.5 + Math.random() * 3.5,
+        active: true,
+        color: parseColor(colors[i % colors.length]).color,
+        spark: true,
+      });
+    }
+  }
+
   /**
    * آسیب بازیکن — نقطه برخورد داینامیک (فاز BIG-IR):
    * تیرگی بدنه + کج شدن + جدا شدن سپر با پرتاب ذرات در نقطه سپر
@@ -2695,8 +2721,10 @@ export class WorldRenderer3D {
         this.spawnBurst(this.tmpV.x, this.tmpV.z, '#3a3a3a', 10, 220);
       }
     }
-    // جرقه در نقطه تماس
-    this.spawnBurst(contactX, contactY, front ? '#ffd27a' : '#c9c9c9', 6, 200);
+    // افکت برخورد چندلایه: جرقه‌های جهت‌دار کوتاه + ذرات روشن پخش‌شونده.
+    const impactIntensity = Math.max(0.25, Math.min(1, damage / 30));
+    this.spawnImpactSparks(contactX, contactY, front, impactIntensity);
+    this.spawnBurst(contactX, contactY, front ? '#ffd27a' : '#c9c9c9', 4 + Math.round(impactIntensity * 4), 150 + impactIntensity * 90);
   }
   private playerFrontHits = 0;
   private playerRearHits = 0;
@@ -2747,10 +2775,15 @@ export class WorldRenderer3D {
         p.x += p.vx * dt;
         p.z += p.vz * dt;
         p.y += p.vy * dt;
-        p.vy -= 560 * dt;
-        p.vx *= 0.94;
-        p.vz *= 0.94;
-        if (p.y < 12) { p.y = 12; p.vy *= -0.3; }
+        p.vy -= p.spark ? 880 * dt : 560 * dt;
+        const drag = p.spark ? Math.exp(-2.8 * dt) : Math.pow(0.94, dt * 60);
+        p.vx *= drag;
+        p.vz *= drag;
+        if (p.y < 12) {
+          p.y = 12;
+          p.vy *= p.spark ? -0.12 : -0.3;
+          if (p.spark) p.life = Math.min(p.life, 0.07);
+        }
         anyAlive = true;
       }
     }
@@ -3363,6 +3396,15 @@ export class WorldRenderer3D {
           this.tmpV.set(p.x, p.y, p.z),
           this.tmpQ,
           this.tmpS.set(p.size, p.size * 0.55, p.size * 0.8).multiplyScalar(0.4 + fade * 0.6),
+        );
+      } else if (p.spark) {
+        // جرقه‌ها کشیده و هم‌جهت حرکت دیده می‌شوند، بدون متریال یا draw call تازه.
+        const angle = Math.atan2(p.vz, p.vx);
+        this.tmpQ.setFromEuler(this.eul.set(0, -angle, Math.max(-0.8, Math.min(0.8, p.vy * 0.002))));
+        this.tmpM.compose(
+          this.tmpV.set(p.x, p.y, p.z),
+          this.tmpQ,
+          this.tmpS.set(p.size * (1.3 + k), p.size * 0.24 * (0.35 + k * 0.65), p.size * 0.24),
         );
       } else {
         this.tmpQ.identity();
