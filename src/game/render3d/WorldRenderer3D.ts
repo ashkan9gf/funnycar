@@ -2590,15 +2590,17 @@ export class WorldRenderer3D {
   }
 
   /** Twin tire tracks for a more grounded drift trail; the fixed ring buffer avoids allocations. */
-  addSkidMark(x: number, y: number, angle: number): void {
+  addSkidMark(x: number, y: number, angle: number, driftIntensity = 0): void {
     const halfTrack = 14;
     const sideX = Math.cos(angle) * halfTrack;
     const sideZ = -Math.sin(angle) * halfTrack;
+    const width = 9 + Math.max(0, Math.min(1, driftIntensity)) * 2.2;
+    const length = 26 + Math.max(0, Math.min(1, driftIntensity)) * 5;
     for (const side of [-1, 1]) {
       const idx = this.skidIdx;
       this.skidData[idx] = {
         x: x + sideX * side, z: y + sideZ * side, rot: -angle,
-        life: SKID_LIFE, width: 9, length: 26,
+        life: SKID_LIFE, width, length,
       };
       this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
     }
@@ -2823,7 +2825,12 @@ export class WorldRenderer3D {
         const rearOffset = car.drawH * 0.36;
         const rearX = car.x - Math.sin(car.angle) * rearOffset;
         const rearY = car.y + Math.cos(car.angle) * rearOffset;
-        this.addSkidMark(rearX, rearY, car.angle);
+        // Align marks with the car's slip angle during a drift instead of locking
+        // every segment to the body heading; clamp the correction to avoid spikes.
+        const slipAngle = Math.atan2(car.latVel, Math.max(1, Math.abs(car.speed)));
+        const slipCorrection = driftLoad ? Math.max(-0.32, Math.min(0.32, slipAngle)) : 0;
+        const driftIntensity = driftLoad ? Math.min(1, Math.abs(car.latVel) / 130) : 0;
+        this.addSkidMark(rearX, rearY, car.angle + slipCorrection, driftIntensity);
         this.skidEmitTimer = driftLoad ? 0.075 : 0.105;
       }
     } else {
