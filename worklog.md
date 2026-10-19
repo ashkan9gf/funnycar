@@ -998,3 +998,33 @@ Work Log:
 Stage Summary:
 - تحویل: FunnyCarIR-v0.2.35-test.apk (شامل ۸ فاز گرافیک جدید: سایه تطبیقی، render budget، فنربندی/دوربین، جرقه تصادف، context recovery، build hardening)
 - نکته: فاز ۳۸ رندر بافر موبایل را سقف‌گذاری می‌کند — پاسخ به نگرانی clearcoat قدیمی
+
+---
+Task ID: 51
+Agent: main (Z.ai)
+Task: ادغام phases 41-60 در main + بیلد و تحویل APK v0.2.36 («ادغام کن بیلد بگیر»)
+
+Work Log:
+- fetch origin: 8 شاخه جدید performance/phase-53..60 کشف شد (stack روی phase-52)
+- بازبینی diff خالص 649078d..00b95f2 (CarFactory3D + WorldRenderer3D):
+  - phase-53/54: کش هندسه مشترک چرخ (wheelGeometryCache) و باکس (boxGeometryShared) — کلید ابعاد دقیق، bounded با جدول SPECS ثابت ۹ واریانت
+  - phase-55: hoist boundingBox/kitSpan per-group + MOTO_COLORS مشترک (setColorAt کپی می‌کند — امن)
+  - phase-56: فشرده‌سازی in-place ذرات (بدون allocation)
+  - phase-57: skip setColorAt برای اسلات‌های غیرفعال دود — needsUpdate بیرون حلقه (L2941) — امن
+  - phase-58: کش مختصات تقاطع lightSlotCoordinates — sync در هر دو نقطه mutation (set/delete جفت)
+  - phase-59: ساده‌سازی cleanup شکستنی‌ها (O(props) به‌جای کپی Map)
+  - phase-60: dispose یکتای geometry/material با Set — مکمل حیاتی کش‌های مشترک
+- همه پاس ✅ — این فازها دقیقاً پیشنهادهای بازبینی قبلی من بودند (کش geometry per-car)
+- merge --no-ff phase-60 → ee225dd (8 فایل، 416+، بدون تداخل)
+- tsc: 3 خطای جدید (cast قدیمی glassMat به MeshPhongMaterial از قبل PBR phase-46) → fix به MeshPhysicalMaterial → commit e157f65 → tsc صفر + lint سبز
+- بیلد v0.2.36 (scripts/build_apk_v0236.sh، VER=0.2.36/VCODE=36): 7 مرحله، SIGN OK، 20,585,040 بایت
+- E2E (خروجی export وب روی :8899 + agent-browser): منو→رانندگی آزاد، keydown CDP گاز → 11→28→50 km/h، health=100، dead=false، بدون error کنسول (فقط warning adaptive render scale — طبیعی سیستم بودجه رندر)
+- اسکرین‌شات: scripts/e2e_v0236_drive.png — صحنه ایرانی کامل سالم (پراید/پلاک/تابلو فارسی/چراغ راهنما/تاکسی/ترک آسفالت)
+- push main: 9a8bd78..e157f65
+- zip (20,042,299 بایت) → uploadkon → HEAD 200 + content-length دقیق
+
+Stage Summary:
+- main = e157f65 (شامل همه phases 33-60)
+- APK: download/FunnyCarIR-v0.2.36-test.apk (20,585,040 bytes)
+- لینک: https://uploadkon.ir/uploads/896919_26FunnyCarIR-v0-2-36-test.zip
+- نکته برای بعد: probe سرعت صحیح E2E = __funnycar.vehicle.speed/3 (فرمول HUD)، نه __funnycar.speed که undefined است
