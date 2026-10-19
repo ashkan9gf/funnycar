@@ -3907,12 +3907,22 @@ export class WorldRenderer3D {
   dispose(): void {
     this.r3.domElement.removeEventListener('webglcontextlost', this.handleWebGLContextLost);
     this.r3.domElement.removeEventListener('webglcontextrestored', this.handleWebGLContextRestored);
+    // منابع هندسی/متریال ممکن است بین چند Mesh مشترک باشند؛ هر منبع را فقط یک‌بار آزاد کن.
+    const disposedGeometries = new Set<THREE.BufferGeometry>();
+    const disposedMaterials = new Set<THREE.Material>();
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
-      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.geometry && !disposedGeometries.has(mesh.geometry)) {
+        disposedGeometries.add(mesh.geometry);
+        mesh.geometry.dispose();
+      }
       const mat = (mesh as unknown as { material?: THREE.Material | THREE.Material[] }).material;
-      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-      else if (mat) mat.dispose();
+      const materials = Array.isArray(mat) ? mat : mat ? [mat] : [];
+      for (const material of materials) {
+        if (disposedMaterials.has(material)) continue;
+        disposedMaterials.add(material);
+        material.dispose();
+      }
     });
     // توجه: کانتکت WebGL را نمی‌بندیم (loseContext) — چون کانواس در
     // StrictMode/HMR دوباره استفاده می‌شود و کانتکت همان است.
