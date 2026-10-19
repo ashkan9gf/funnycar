@@ -979,3 +979,22 @@ Work Log:
 Stage Summary:
 - لینک تحویل: https://uploadkon.ir/uploads/903f19_26FunnyCarIR-CI116-PR40.zip
 - run #116 از PR #40 (graphics/phase-40-release-build-hardening) سبز بوده؛ بیلد debug خام CI است نه v0.2.x نسخه‌دار
+
+---
+Task ID: 50-V0235-PHASES-33-40
+Agent: main
+Task: بررسی همهٔ تغییرات فازهای ۳۳-۴۰ + بیلد نهایی v0.2.35 و تحویل
+
+Work Log:
+- PRهای #33-#40 زنجیره‌ای/انباشتی (merge-base همه 3b6298e) → دیفی کامل ۱۷ کامیت بررسی شد
+- ادغام local merge فاز-۴۰ در main (بدون تداخل)؛ CI artifact run#116 قبلاً سبز
+- بازسازی android-build از /tmp leftover و تطبیق بایت‌به‌بایت با wrapper مرجع گیت (87831ae)
+- eslint: ignores += android-build/** (باندل‌های مینیفای‌شده)
+- Object.assign در GlbModels بررسی شد → عمداً درست است (copy() فیلد undefined clearcoat را خراب می‌کرد)
+- tsc پاک (فقط خطای skill نامربوط)؛ lint پاک
+- E2E: menu → playing، ۴۵ km/h، صفر خطای صفحه، اسکرین‌شات سالم
+- build_apk_v0235.sh: VCODE=35/VER=0.2.35 → APK 20,580,944 بایت، SIGN OK
+
+Stage Summary:
+- تحویل: FunnyCarIR-v0.2.35-test.apk (شامل ۸ فاز گرافیک جدید: سایه تطبیقی، render budget، فنربندی/دوربین، جرقه تصادف، context recovery، build hardening)
+- نکته: فاز ۳۸ رندر بافر موبایل را سقف‌گذاری می‌کند — پاسخ به نگرانی clearcoat قدیمی
