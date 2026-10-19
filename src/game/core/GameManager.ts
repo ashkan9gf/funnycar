@@ -281,7 +281,9 @@ export class GameManager {
   async boot(onProgress?: (done: number, total: number) => void): Promise<void> {
     try {
       await this.assets.loadAll((done, total) => {
-        // Keep the loading screen honest: asset files are only 70% of boot; GLB models follow.\n        onProgress?.(Math.round((done / Math.max(1, total)) * 70), 100);\n      });
+        // Keep the loading screen honest: asset files are only 70% of boot; GLB models follow.
+        onProgress?.(Math.round((done / Math.max(1, total)) * 70), 100);
+      });
     } catch (err) {
       console.warn('[Game] asset boot error (continuing with placeholders):', err);
     }
