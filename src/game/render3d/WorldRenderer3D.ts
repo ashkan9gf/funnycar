@@ -98,71 +98,60 @@ function parseColor(c: string): { color: THREE.Color; alpha: number } {
 
 // Shared low-cost rooftop props: Iranian water tanks and condenser units.
 // Shared geometry/materials avoid per-building GPU-resource churn in the endless city.
-// Shared façade-detail kit: restrained window frames, blue-tinted glazing and balcony rails.
-// Geometry/material reuse is important because the endless city streams many building chunks.
-const FACADE_FRAME_GEO = new THREE.BoxGeometry(1, 1, 1);
-const FACADE_GLASS_GEO = new THREE.BoxGeometry(1, 1, 1);
-const FACADE_RAIL_GEO = new THREE.BoxGeometry(1, 1, 1);
+// Shared façade materials; details are merged into three meshes per building.
 const FACADE_FRAME_MAT = new THREE.MeshStandardMaterial({ color: '#e7dfce', roughness: 0.78, metalness: 0.04 });
 const FACADE_GLASS_MAT = new THREE.MeshStandardMaterial({ color: '#426d82', roughness: 0.26, metalness: 0.16, envMapIntensity: 0.72 });
 const FACADE_RAIL_MAT = new THREE.MeshStandardMaterial({ color: '#41484a', roughness: 0.42, metalness: 0.62 });
 
-function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: number, apartment: boolean): void {
+function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: number, apartment: boolean): THREE.BufferGeometry[] {
   const size = bounds.getSize(new THREE.Vector3());
   const w = Math.max(1, size.x), h = Math.max(1, size.y), d = Math.max(1, size.z);
-  // Choose a modest grid per building so neighboring facades do not look cloned.
   const columns = 2 + (variance % 3);
   const floors = Math.max(2, Math.min(5, Math.round(h / Math.max(w, d) * 2.8)));
   const winW = Math.min(w / (columns * 2.8), w * 0.19);
   const winH = Math.min(h / (floors * 3.0), h * 0.17);
-  const frameDepth = Math.max(0.8, Math.min(w, d) * 0.012);
-  const frontZ = bounds.max.z + frameDepth * 0.55;
-  const sideX = bounds.max.x + frameDepth * 0.55;
-  const startY = bounds.min.y + h * 0.13;
-  const floorGap = h * 0.72 / floors;
-  const centerX = (bounds.min.x + bounds.max.x) * 0.5;
-  const centerZ = (bounds.min.z + bounds.max.z) * 0.5;
-  const makeWindow = (x: number, y: number, z: number, width: number, height: number, side: boolean) => {
-    const frame = new THREE.Mesh(FACADE_FRAME_GEO, FACADE_FRAME_MAT);
-    frame.scale.set(side ? frameDepth : width * 1.16, height * 1.16, side ? width * 1.16 : frameDepth);
-    frame.position.set(x, y, z);
-    const pane = new THREE.Mesh(FACADE_GLASS_GEO, FACADE_GLASS_MAT);
-    pane.scale.set(side ? frameDepth * 0.45 : width, height, side ? width : frameDepth * 0.45);
-    pane.position.set(x + (side ? frameDepth * 0.32 : 0), y, z + (side ? 0 : frameDepth * 0.32));
-    g.add(frame, pane);
+  const depth = Math.max(0.8, Math.min(w, d) * 0.012);
+  const frontZ = bounds.max.z + depth * 0.55, sideX = bounds.max.x + depth * 0.55;
+  const startY = bounds.min.y + h * 0.13, floorGap = h * 0.72 / floors;
+  const buckets: THREE.BufferGeometry[][] = [[], [], []];
+  const temp = new THREE.Object3D();
+  const addBox = (bucket: number, sx: number, sy: number, sz: number, x: number, y: number, z: number) => {
+    temp.position.set(x, y, z); temp.rotation.set(0, 0, 0); temp.scale.set(sx, sy, sz); temp.updateMatrix();
+    const geo = ROOFTOP_BOX_GEO.clone(); geo.applyMatrix4(temp.matrix); buckets[bucket].push(geo);
   };
   for (let floor = 0; floor < floors; floor++) {
     const y = startY + floor * floorGap + floorGap * 0.52;
     for (let col = 0; col < columns; col++) {
       const x = bounds.min.x + w * ((col + 0.5) / columns);
-      makeWindow(x, y, frontZ, winW, winH, false);
-      // Selective balcony ledges/rails are common on apartment blocks.
+      addBox(0, winW * 1.16, winH * 1.16, depth, x, y, frontZ);
+      addBox(1, winW, winH, depth * 0.45, x, y, frontZ + depth * 0.32);
       if (apartment && (floor + col + variance) % 3 === 0) {
-        const balconyW = winW * 1.48;
-        const balconyY = y - winH * 0.66;
-        const slab = new THREE.Mesh(FACADE_FRAME_GEO, FACADE_FRAME_MAT);
-        slab.scale.set(balconyW, Math.max(1, winH * 0.1), frameDepth * 2.4);
-        slab.position.set(x, balconyY, frontZ + frameDepth * 1.5);
-        const rail = new THREE.Mesh(FACADE_RAIL_GEO, FACADE_RAIL_MAT);
-        rail.scale.set(balconyW, winH * 0.32, Math.max(1, frameDepth * 0.22));
-        rail.position.set(x, balconyY + winH * 0.2, frontZ + frameDepth * 2.5);
-        const leftPost = new THREE.Mesh(FACADE_RAIL_GEO, FACADE_RAIL_MAT);
-        leftPost.scale.set(Math.max(1, frameDepth * 0.18), winH * 0.34, Math.max(1, frameDepth * 0.22));
-        leftPost.position.set(x - balconyW * 0.48, balconyY + winH * 0.18, frontZ + frameDepth * 2.5);
-        const rightPost = leftPost.clone();
-        rightPost.position.x = x + balconyW * 0.48;
-        g.add(slab, rail, leftPost, rightPost);
+        const bw = winW * 1.48, by = y - winH * 0.66;
+        addBox(0, bw, Math.max(1, winH * 0.1), depth * 2.4, x, by, frontZ + depth * 1.5);
+        addBox(2, bw, winH * 0.32, Math.max(1, depth * 0.22), x, by + winH * 0.2, frontZ + depth * 2.5);
+        addBox(2, Math.max(1, depth * 0.18), winH * 0.34, Math.max(1, depth * 0.22), x - bw * 0.48, by + winH * 0.18, frontZ + depth * 2.5);
+        addBox(2, Math.max(1, depth * 0.18), winH * 0.34, Math.max(1, depth * 0.22), x + bw * 0.48, by + winH * 0.18, frontZ + depth * 2.5);
       }
     }
-    // A smaller row on the perpendicular face adds depth when driving past corners.
     const sideColumns = Math.max(2, Math.min(3, columns));
     for (let col = 0; col < sideColumns; col++) {
-      const z = bounds.min.z + d * ((col + 0.5) / sideColumns);
-      makeWindow(sideX, y, z, Math.min(winW, d / (sideColumns * 2.6)), winH, true);
+      const z = bounds.min.z + d * ((col + 0.5) / sideColumns), sw = Math.min(winW, d / (sideColumns * 2.6));
+      addBox(0, depth, winH * 1.16, sw * 1.16, sideX, y, z);
+      addBox(1, depth * 0.45, winH, sw, sideX + depth * 0.32, y, z);
     }
   }
+  const materials = [FACADE_FRAME_MAT, FACADE_GLASS_MAT, FACADE_RAIL_MAT];
+  const owned: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < buckets.length; i++) {
+    if (!buckets[i].length) continue;
+    const merged = mergeGeometries(buckets[i], false);
+    for (const geo of buckets[i]) geo.dispose();
+    if (!merged) continue;
+    owned.push(merged);
+    const mesh = new THREE.Mesh(merged, materials[i]); mesh.castShadow = i !== 1; mesh.receiveShadow = true; g.add(mesh);
+  }
+  return owned;
 }
-
 const ROOFTOP_BOX_GEO = new THREE.BoxGeometry(1, 1, 1);
 const ROOFTOP_TANK_GEO = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
 const ROOFTOP_BASE_MAT = new THREE.MeshStandardMaterial({ color: '#777b7c', metalness: 0.58, roughness: 0.62 });
@@ -1735,7 +1724,8 @@ export class WorldRenderer3D {
     // فاز IR-FACADES: قاب پنجره، شیشهٔ آبی کم‌انعکاس و بالکن‌های پراکنده روی نماهای ایرانی.
     // تزئینات پیش از تبدیل مختصات به مقیاس نهایی ساخته می‌شوند تا با GLB هم‌مقیاس بمانند.
     if (type === 'home' || type === 'apartment') {
-      addIranianFacadeDetails(g, gb, variance, type === 'apartment');
+      const facadeGeometries = addIranianFacadeDetails(g, gb, variance, type === 'apartment');
+      if (this.visCollector) this.visCollector.geos.push(...facadeGeometries);
     }
     // فاز IR-ROOFTOPS: مخزن آب و کندانسور کولرهای رایج در بام ساختمان‌های ایرانی.
     // فقط برای خانه/آپارتمان و با پراکندگی قطعی؛ جزئیات سبک‌اند و از منابع مشترک استفاده می‌کنند.
