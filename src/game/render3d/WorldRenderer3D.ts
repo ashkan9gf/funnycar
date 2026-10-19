@@ -3827,13 +3827,14 @@ export class WorldRenderer3D {
       : Number.NaN;
     const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
 
-    // Conservative caps: low-end 1.45 MP, standard 2.3 MP, high-end 3.6 MP.
-    // Unknown memory never qualifies as high-end; never upscale small screens.
+    // Conservative mobile raster budgets: low-end 0.8 MP, standard 1.35 MP, high-end 2.4 MP.
+    // The old 0.72 floor could exceed the target budget on tall/high-DPR phones.
+    // Unknown devices use the standard profile, never the flagship profile.
     const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
     const highEnd = cores >= 8 && memory !== null && memory >= 8;
-    const maxPixels = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    const maxPixels = lowEnd ? 800_000 : highEnd ? 2_400_000 : 1_350_000;
     if (pixels <= maxPixels) return 1;
-    return Math.max(0.72, Math.min(1, Math.sqrt(maxPixels / pixels)));
+    return Math.max(0.5, Math.min(1, Math.sqrt(maxPixels / pixels)));
   }
 
   /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی.
