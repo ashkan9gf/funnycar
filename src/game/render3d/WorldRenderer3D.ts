@@ -1149,7 +1149,15 @@ export class WorldRenderer3D {
     const done = Promise.all(
       this.readyJobs.map((p) => Promise.resolve(p).catch(() => undefined)),
     ).then(() => undefined);
-    return done;
+    // سقف ۷۵ ثانیه‌ای: اگر fetch/parse یک GLB بی‌خطا hang شود، boot قفل نمی‌ماند.
+    // Promiseهای اصلی در پس‌زمینه می‌توانند کامل شوند؛ فقط انتظار boot محدود می‌شود.
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timeoutId = setTimeout(resolve, 75_000);
+    });
+    return Promise.race([done, timeout]).finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    });
   }
 
   /** پیش‌بارگذاری GLB همه واریانت‌ها + تعویض بازیکن/ترافیک پس از آماده‌شدن */
