@@ -431,11 +431,12 @@ export class WorldRenderer3D {
   /** جمع‌کننده فعلی — buildBuilding/buildProp اشیاء را ثبت می‌کنند */
   private visCollector: ChunkVisual | null = null;
   // منابع مشترک قطعه‌ها (یک‌بار ساخته — هرگز dispose نمی‌شوند)
-  private roadMat!: THREE.MeshLambertMaterial;
-  private crossMat!: THREE.MeshLambertMaterial;
-  private swMat!: THREE.MeshLambertMaterial;
-  private grassMat!: THREE.MeshLambertMaterial;
-  private yardMat!: THREE.MeshLambertMaterial;
+  // MERGE-GRAPHICS: سطوح PBR شدند (Standard با نرمال/زبری) — نوع اعلان هم‌پا شد
+  private roadMat!: THREE.MeshStandardMaterial;
+  private crossMat!: THREE.MeshStandardMaterial;
+  private swMat!: THREE.MeshStandardMaterial;
+  private grassMat!: THREE.MeshStandardMaterial;
+  private yardMat!: THREE.MeshStandardMaterial;
   private chunkRoadGeo!: THREE.BufferGeometry;
   private chunkCrossGeo!: THREE.BufferGeometry;
   private chunkSwGeo!: THREE.BufferGeometry;
@@ -2329,8 +2330,8 @@ export class WorldRenderer3D {
     // Keep asphalt reflections restrained through dusk, then let them build
     // gradually at night. Reuse existing materials and vectors; no extra pass.
     const wetSheen = Math.pow(night, 1.25) * 0.82;
-    const road = this.roadMat as unknown as THREE.MeshStandardMaterial;
-    const crossing = this.crossMat as unknown as THREE.MeshStandardMaterial;
+    const road = this.roadMat;
+    const crossing = this.crossMat;
     // Micro-normal detail stays crisp in daylight and softens slightly under
     // the smoother night response so highlights read as a surface, not noise.
     const roadNormal = 0.18 - wetSheen * 0.055;
