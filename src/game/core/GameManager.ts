@@ -1392,8 +1392,9 @@ export class GameManager {
     this.dprCheck = 0;
     const fps = this.fpsValue;
     let nd = this.dpr3d;
-    if (fps < 38) nd = Math.max(1.1, this.dpr3d - 0.3);
-    else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.2);
+    // React sooner to sustained frame drops, and allow sub-1 DPR on very weak GPUs.
+    if (fps < 42) nd = Math.max(0.75, this.dpr3d - 0.25);
+    else if (fps > 55 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.1);
     if (Math.abs(nd - this.dpr3d) > 0.01) {
       this.dpr3d = Math.round(nd * 100) / 100;
       this.handleResize();
