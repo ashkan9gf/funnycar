@@ -255,6 +255,8 @@ export class WorldRenderer3D {
   private dayNightFactor = 0;
   /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
   private playerHeadlightGlows: THREE.Sprite[] = [];
+  /** Wide, low-cost headlight spill projected onto the road; one transparent mesh, no extra light. */
+  private playerHeadlightSpill: THREE.Mesh | null = null;
   private playerBrakeGlows: THREE.Sprite[] = [];
   private brakeGlowLevel = 0;
   private octx: CanvasRenderingContext2D;
@@ -495,6 +497,20 @@ export class WorldRenderer3D {
       this.playerModel.group.add(glow);
       this.playerHeadlightGlows.push(glow);
     }
+    // A soft ground-projected beam adds visible light spill ahead of the car without
+    // creating dynamic lights or extra render passes. It follows the player's heading.
+    const spillGeo = new THREE.PlaneGeometry(300, 720, 1, 1);
+    spillGeo.rotateX(-Math.PI / 2);
+    const spillMat = new THREE.MeshBasicMaterial({
+      map: getCloudTexture(), color: '#ffe7ad', transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true, fog: false,
+      side: THREE.DoubleSide,
+    });
+    this.playerHeadlightSpill = new THREE.Mesh(spillGeo, spillMat);
+    this.playerHeadlightSpill.position.set(0, 2.2, -390);
+    this.playerHeadlightSpill.renderOrder = 1;
+    this.playerModel.group.add(this.playerHeadlightSpill);
+
     // Rear brake halos respond to the actual braking input and reuse the cached texture.
     // Kept as sprites rather than lights to avoid multiplying lighting cost on mobile.
     for (const side of [-1, 1]) {
@@ -2205,6 +2221,10 @@ export class WorldRenderer3D {
     // Fade headlamp halos smoothly through dusk; no per-frame allocations.
     for (const glow of this.playerHeadlightGlows) {
       (glow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.46;
+    }
+    // Keep the beam subtle at dusk and stronger at night; material/geometry are reused.
+    if (this.playerHeadlightSpill) {
+      (this.playerHeadlightSpill.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.16;
     }
     if (this.starField) (this.starField.material as THREE.PointsMaterial).opacity = nightVisibility * 0.92;
     if (this.moon) (this.moon.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.96;
