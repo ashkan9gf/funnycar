@@ -310,11 +310,12 @@ function getShadowQualityProfile(
   const maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 2048;
   const nav = typeof navigator !== 'undefined' ? navigator : null;
   const cores = nav?.hardwareConcurrency || 4;
-  const memory = nav && 'deviceMemory' in nav
-    ? Number((nav as Navigator & { deviceMemory?: number }).deviceMemory) || 4
-    : 4;
-  const lowEnd = cores <= 4 || memory <= 4 || maxTextureSize < 4096;
-  const highEnd = cores >= 8 && memory >= 8 && maxTextureSize >= 8192;
+  const reportedMemory = nav && 'deviceMemory' in nav
+    ? Number((nav as Navigator & { deviceMemory?: number }).deviceMemory)
+    : Number.NaN;
+  const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
+  const lowEnd = cores <= 4 || (memory !== null && memory <= 4) || maxTextureSize < 4096;
+  const highEnd = cores >= 8 && memory !== null && memory >= 8 && maxTextureSize >= 8192;
 
   if (lowEnd) {
     return { mapSize: 1024, refreshEvery: 4, normalBias: 0.022, radius: 1.25 };
