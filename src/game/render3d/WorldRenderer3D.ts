@@ -1102,8 +1102,10 @@ export class WorldRenderer3D {
       const idx = this.repairRings.indexOf(obj as THREE.Group);
       if (idx >= 0) this.repairRings.splice(idx, 1);
     }
-    for (const g of vis.geos) g.dispose();
-    for (const m of vis.mats) m.dispose();
+    // یک هندسه یا متریال ممکن است توسط چند Mesh همین قطعه ثبت شده باشد.
+    // منابع هر قطعه را یکتا آزاد کن تا dispose تکراری رخ ندهد.
+    for (const g of new Set(vis.geos)) g.dispose();
+    for (const m of new Set(vis.mats)) m.dispose();
     // شکستنی‌های همین قطعه را مستقیم حذف کن؛ از کپی‌کردن کل Map و includes تکراری پرهیز می‌شود.
     for (const prop of vis.breakableProps) this.breakableInst.delete(prop);
     // اسلات چراغ
