@@ -96,6 +96,50 @@ function parseColor(c: string): { color: THREE.Color; alpha: number } {
   return { color: new THREE.Color(c), alpha: 1 };
 }
 
+// Shared low-cost rooftop props: Iranian water tanks and condenser units.
+// Shared geometry/materials avoid per-building GPU-resource churn in the endless city.
+const ROOFTOP_BOX_GEO = new THREE.BoxGeometry(1, 1, 1);
+const ROOFTOP_TANK_GEO = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
+const ROOFTOP_BASE_MAT = new THREE.MeshStandardMaterial({ color: '#777b7c', metalness: 0.58, roughness: 0.62 });
+const ROOFTOP_TANK_MAT = new THREE.MeshStandardMaterial({ color: '#356d79', metalness: 0.12, roughness: 0.48 });
+const ROOFTOP_AC_MAT = new THREE.MeshStandardMaterial({ color: '#e7e0d1', metalness: 0.08, roughness: 0.72 });
+const ROOFTOP_DARK_MAT = new THREE.MeshStandardMaterial({ color: '#343a3c', metalness: 0.35, roughness: 0.66 });
+
+function addIranianRooftopDetails(g: THREE.Group, bounds: THREE.Box3, variance: number): void {
+  // Not every building receives every prop: preserve a varied skyline and mobile budget.
+  const size = bounds.getSize(new THREE.Vector3());
+  const width = Math.max(1, size.x);
+  const depth = Math.max(1, size.z);
+  const height = Math.max(1, size.y);
+  const roofY = bounds.max.y;
+  const detailGroup = new THREE.Group();
+  // Typical rooftop water tank on a short metal stand.
+  if (variance % 2 === 0) {
+    const stand = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_BASE_MAT);
+    stand.scale.set(width * 0.105, height * 0.025, depth * 0.105);
+    stand.position.set(width * 0.23, roofY + height * 0.012, depth * 0.2);
+    const tank = new THREE.Mesh(ROOFTOP_TANK_GEO, ROOFTOP_TANK_MAT);
+    tank.scale.set(width * 0.12, height * 0.17, depth * 0.12);
+    tank.position.set(width * 0.23, roofY + height * 0.105, depth * 0.2);
+    tank.castShadow = true;
+    detailGroup.add(stand, tank);
+  }
+  // Split AC condensers, a familiar detail on Iranian apartment facades/roofs.
+  if (variance % 3 !== 1) {
+    for (const side of [-1, 1]) {
+      const ac = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_AC_MAT);
+      ac.scale.set(width * 0.095, height * 0.055, depth * 0.09);
+      ac.position.set(width * (0.12 + (side > 0 ? 0.52 : 0)), roofY + height * 0.027, -depth * 0.22);
+      ac.castShadow = true;
+      const vent = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_DARK_MAT);
+      vent.scale.set(width * 0.052, height * 0.032, depth * 0.008);
+      vent.position.set(ac.position.x, ac.position.y, ac.position.z + depth * 0.046);
+      detailGroup.add(ac, vent);
+    }
+  }
+  if (detailGroup.children.length) g.add(detailGroup);
+}
+
 const SKID_LIFE = 3.4;
 
 /** ویزوال یک قطعهٔ فعال — فاز ENDLESS-1 */
@@ -1623,6 +1667,11 @@ export class WorldRenderer3D {
     // GLB: مرکز پلن + پایه روی زمین + بدون چرخش (پلن مستطیلی تراز می‌ماند)
     g.position.set(cx, -gb.min.y * sy, cz);
     g.scale.set(fit, sy, fit);
+    // فاز IR-ROOFTOPS: مخزن آب و کندانسور کولرهای رایج در بام ساختمان‌های ایرانی.
+    // فقط برای خانه/آپارتمان و با پراکندگی قطعی؛ جزئیات سبک‌اند و از منابع مشترک استفاده می‌کنند.
+    if ((type === 'home' || type === 'apartment') && variance % 3 !== 1) {
+      addIranianRooftopDetails(g, gb, variance);
+    }
     // فاز CITY-BEAUTY/IR-SIGNS: مغازه‌ها سایه‌بان راه‌راه + تابلوی اسم اختصاصی
     if (type === 'shop' || type === 'garage') {
       this.decorateShopFront(g, variance, p.label);
