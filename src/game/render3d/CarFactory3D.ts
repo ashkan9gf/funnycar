@@ -552,10 +552,27 @@ export function buildCar3D(
       // پره‌های ضربدری + کلاهک — در فضای محلی تایر (صفحه XY، محور سوراخ = Z)
       const spokeLen = R * 1.75;
       const sp1 = new THREE.Mesh(new THREE.BoxGeometry(spokeLen, tireW * 0.34, tireW * 1.15), rimMat as THREE.MeshStandardMaterial);
-      const sp2 = new THREE.Mesh(new THREE.BoxGeometry(tireW * 0.34, spokeLen, tireW * 1.15), rimMat as THREE.MeshPhongMaterial);
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(wr * 0.3, wr * 0.3, tireW * 1.3, 10), rimMat as THREE.MeshPhongMaterial);
+      const sp2 = new THREE.Mesh(new THREE.BoxGeometry(tireW * 0.34, spokeLen, tireW * 1.15), rimMat as THREE.MeshStandardMaterial);
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(wr * 0.3, wr * 0.3, tireW * 1.3, 12), rimMat as THREE.MeshStandardMaterial);
       hub.rotation.x = Math.PI / 2; // محور استوانه → Z محلی (= X جهانی بعد از چرخش تایر)
-      tire.add(sp1, sp2, hub);
+
+      // Machined outer lip gives the stylized alloy rim a readable metallic edge.
+      const rimLip = new THREE.Mesh(
+        new THREE.TorusGeometry(R * 0.72, 1.35, 6, 24),
+        rimMat as THREE.MeshStandardMaterial,
+      );
+      // Small hexagonal lug nuts add wheel-scale detail without textures or per-frame work.
+      const lugRadius = wr * 0.235;
+      const lugGeo = new THREE.CylinderGeometry(1.45, 1.45, tireW * 0.72, 6);
+      const lugNuts: THREE.Mesh[] = [];
+      for (let lug = 0; lug < 4; lug++) {
+        const a = (Math.PI * 2 * lug) / 4 + Math.PI / 4;
+        const nut = new THREE.Mesh(lugGeo, rimMat as THREE.MeshStandardMaterial);
+        nut.rotation.x = Math.PI / 2;
+        nut.position.set(Math.cos(a) * lugRadius, Math.sin(a) * lugRadius, tireW * 0.48);
+        lugNuts.push(nut);
+      }
+      tire.add(sp1, sp2, hub, rimLip, ...lugNuts);
       wheels.push(tire);
       g.add(tire);
     }
