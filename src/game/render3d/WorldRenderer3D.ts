@@ -2953,7 +2953,8 @@ export class WorldRenderer3D {
         this.trafficContactShadows.setMatrixAt(trafficShadowIndex++, shadow.matrix);
       }
       const wr = c.drawH * 0.135;
-      spinWheels(model, (c.speed / wr) * this.drawDt());
+      // Reuse the frame delta already sampled at draw3D entry; avoid per-vehicle clock reads.
+      spinWheels(model, (c.speed / wr) * frameDt);
       // چراغ ترمز ترافیک: کند شدن ناگهانی
       const prev = (model as unknown as { __prevSpeed?: number }).__prevSpeed ?? c.speed;
       const braking = c.speed < prev - 1.5 || (c.speed < 8 && prev < 8 && c.atLight);
@@ -3091,16 +3092,38 @@ export class WorldRenderer3D {
       const ch = this.world.chunks.get(vis.key);
       if (!ch) continue;
       let visible = false;
+      let matrixDirty = false;
+      // Cache collected state per instanced coin. A collected coin is hidden once,
+      // rather than rewriting its matrix on every frame; uncollected coins retain
+      // the same rotation/bob animation and full visual quality.
+      let takenState = mesh.userData.coinTakenState as Uint8Array | undefined;
+      if (!takenState || takenState.length !== ch.coins.length) {
+        takenState = new Uint8Array(ch.coins.length);
+        mesh.userData.coinTakenState = takenState;
+      }
       for (let i = 0; i < ch.coins.length; i++) {
         const c = ch.coins[i];
+        if (c.taken) {
+          if (takenState[i] !== 1) {
+            this.tmpS.setScalar(0.0001);
+            this.tmpQ.identity();
+            this.tmpM.compose(this.tmpV.set(c.x, 26, c.y), this.tmpQ, this.tmpS);
+            mesh.setMatrixAt(i, this.tmpM);
+            takenState[i] = 1;
+            matrixDirty = true;
+          }
+          continue;
+        }
+        takenState[i] = 0;
+        visible = true;
         const bob = Math.sin(t * 3 + c.seed) * 5;
-        this.tmpS.setScalar(c.taken ? 0.0001 : 1);
-        if (!c.taken) visible = true;
+        this.tmpS.setScalar(1);
         this.tmpQ.setFromEuler(this.eul.set(0, t * 2.6 + c.seed, 0));
         this.tmpM.compose(this.tmpV.set(c.x, 26 + bob, c.y), this.tmpQ, this.tmpS);
         mesh.setMatrixAt(i, this.tmpM);
+        matrixDirty = true;
       }
-      mesh.instanceMatrix.needsUpdate = true;
+      if (matrixDirty) mesh.instanceMatrix.needsUpdate = true;
       mesh.visible = visible;
     }
 
