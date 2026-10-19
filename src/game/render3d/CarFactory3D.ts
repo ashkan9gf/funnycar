@@ -106,6 +106,8 @@ export interface CarModel3D {
   bumpers: { front: THREE.Mesh | null; rear: THREE.Mesh | null };
   /** چراغ‌گردان پلیس (فلاش قرمز/آبی) */
   lightBar?: { red: THREE.Mesh; blue: THREE.Mesh };
+  /** متریال چراغ راهنما — کلون هر خودرو برای پالس مستقل */
+  indicatorMat?: THREE.MeshStandardMaterial;
   /** شیشه‌ها — برای خوردگی بصری */
   len: number;
   wid: number;
@@ -304,6 +306,8 @@ export function buildCar3D(
   else if (variant === 'renault4' || variant === 'vintage') body = pickColor(COLORS[variant] ?? ['#d9d9d4']);
 
   const bodyMat = toon(body);
+  // Per-car material lets the indicator glow animate without changing every car at once.
+  const carIndicatorMat = (indicatorMat as THREE.MeshStandardMaterial).clone();
   const g = new THREE.Group();
   const s = spec;
 
@@ -447,7 +451,7 @@ export function buildCar3D(
     t.position.set(x, 46, profile[profile.length - 1][0] + 3);
 
     // Separate amber indicator lenses make front and rear corners easier to read.
-    const frontIndicator = new THREE.Mesh(indicatorGeo, indicatorMat as THREE.MeshStandardMaterial);
+    const frontIndicator = new THREE.Mesh(indicatorGeo, carIndicatorMat);
     frontIndicator.position.set(Math.sign(x) * s.wid * 0.435, 42, profile[0][0] - 4.0);
     frontIndicator.castShadow = false;
     frontIndicator.receiveShadow = false;
@@ -652,6 +656,7 @@ export function buildCar3D(
     wid: s.wid,
     steerable: [],
     tailMat: tailClone,
+    indicatorMat: carIndicatorMat,
     damageTiltZ: 0,
     rollZ: 0,
     pitchX: 0,
