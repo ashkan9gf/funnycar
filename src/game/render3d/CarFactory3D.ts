@@ -127,7 +127,7 @@ export interface CarModel3D {
 // ---------- متریال مشترک ----------
 let glassMat: THREE.MeshPhysicalMaterial | null = null;
 let tireMat: THREE.MeshToonMaterial | null = null;
-let rimMat: THREE.MeshPhongMaterial | null = null;
+let rimMat: THREE.MeshStandardMaterial | null = null;
 let darkMat: THREE.MeshToonMaterial | null = null;
 let chromeMat: THREE.MeshPhongMaterial | null = null;
 let headMat: THREE.MeshStandardMaterial | null = null;
@@ -165,7 +165,7 @@ function ensureShared(): void {
     envMapIntensity: 0.7,
   });
   tireMat = new THREE.MeshToonMaterial({ color: '#23211f', gradientMap });
-  rimMat = new THREE.MeshPhongMaterial({ color: '#cfd3d8', shininess: 90, specular: '#ffffff' });
+  // PBR alloy: metallic response with restrained roughness keeps rims readable without relying on mirror-like reflections.\n  rimMat = new THREE.MeshStandardMaterial({ color: '#cfd3d8', metalness: 0.72, roughness: 0.3, envMapIntensity: 0.65 });
   darkMat = new THREE.MeshToonMaterial({ color: '#2e2622', gradientMap });
   chromeMat = new THREE.MeshPhongMaterial({ color: '#c2c8ce', shininess: 110, specular: '#ffffff' });
   headMat = new THREE.MeshStandardMaterial({ color: '#fff1b8', emissive: '#ffd76a', emissiveIntensity: 1.15, roughness: 0.24, metalness: 0.08 });
@@ -543,7 +543,7 @@ export function buildCar3D(
   for (const x of [-s.wid / 2 + tireW * 0.1, s.wid / 2 - tireW * 0.1]) {
     for (const z of [-s.len * 0.31, s.len * 0.31]) {
       const tire = new THREE.Mesh(
-        new THREE.TorusGeometry(R, tireW / 2, 8, 14),
+        new THREE.TorusGeometry(R, tireW / 2, 10, 24),
         tireMat as THREE.MeshToonMaterial,
       );
       tire.rotation.y = Math.PI / 2; // محور چرخ = X
@@ -551,7 +551,7 @@ export function buildCar3D(
       tire.castShadow = true;
       // پره‌های ضربدری + کلاهک — در فضای محلی تایر (صفحه XY، محور سوراخ = Z)
       const spokeLen = R * 1.75;
-      const sp1 = new THREE.Mesh(new THREE.BoxGeometry(spokeLen, tireW * 0.34, tireW * 1.15), rimMat as THREE.MeshPhongMaterial);
+      const sp1 = new THREE.Mesh(new THREE.BoxGeometry(spokeLen, tireW * 0.34, tireW * 1.15), rimMat as THREE.MeshStandardMaterial);
       const sp2 = new THREE.Mesh(new THREE.BoxGeometry(tireW * 0.34, spokeLen, tireW * 1.15), rimMat as THREE.MeshPhongMaterial);
       const hub = new THREE.Mesh(new THREE.CylinderGeometry(wr * 0.3, wr * 0.3, tireW * 1.3, 10), rimMat as THREE.MeshPhongMaterial);
       hub.rotation.x = Math.PI / 2; // محور استوانه → Z محلی (= X جهانی بعد از چرخش تایر)
