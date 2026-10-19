@@ -320,12 +320,12 @@ function getShadowQualityProfile(
   const highEnd = cores >= 8 && memory !== null && memory >= 8 && maxTextureSize >= 8192;
 
   if (lowEnd) {
-    return { mapSize: 1024, refreshEvery: 4, normalBias: 0.022, radius: 1.25 };
+    return { mapSize: 512, refreshEvery: 6, normalBias: 0.026, radius: 1.0 };
   }
   if (highEnd) {
-    return { mapSize: 2048, refreshEvery: 2, normalBias: 0.014, radius: 1.75 };
+    return { mapSize: 1536, refreshEvery: 3, normalBias: 0.016, radius: 1.35 };
   }
-  return { mapSize: 2048, refreshEvery: 3, normalBias: 0.018, radius: 1.5 };
+  return { mapSize: 1024, refreshEvery: 4, normalBias: 0.020, radius: 1.2 };
 }
 
 export class WorldRenderer3D {
@@ -798,7 +798,7 @@ export class WorldRenderer3D {
     const sidewalkTex = getSidewalkTexture();
     const grassTex = getGrassTexture();
     // Better oblique-angle texture clarity without unbounded mobile GPU cost.
-    const anisotropy = Math.min(8, this.r3.capabilities.getMaxAnisotropy());
+    const anisotropy = Math.min(4, this.r3.capabilities.getMaxAnisotropy());
     for (const texture of [roadTex, crossTex, sidewalkTex, grassTex, roadMicroMaps.normalMap, roadMicroMaps.roughnessMap]) {
       texture.anisotropy = anisotropy;
       texture.needsUpdate = true;
@@ -1137,7 +1137,7 @@ export class WorldRenderer3D {
 
   /** فاز GLB-READY: انتظار برای همهٔ پیش‌بارگذاری‌های GLB (ساختمان/خودرو/پارکی/کیت)
    *  گارد timeout — با شبکهٔ کند/فایل خراب boot هرگز قفل نمی‌شود (fallback فعال می‌ماند) */
-  whenReady(timeoutMs = 12000): Promise<void> {
+  whenReady(timeoutMs = 8000): Promise<void> {
     // 🔕 هرگز reject نمی‌شود: شکست تک‌کار فقط آن یک ویژگی را fallback می‌کند،
     // نه اینکه کل boot را بکشد (باگ v0.2.28 — گیر کردن در صفحهٔ لودینگ روی گوشی)
     const done = Promise.all(
