@@ -2827,7 +2827,16 @@ export class WorldRenderer3D {
         anyAlive = true;
       }
     }
-    if (anyDead) this.particles = this.particles.filter((p) => p.active);
+    if (anyDead) {
+      // Compact in place: filter() allocated a fresh array whenever any particle expired.
+      // Preserve the existing order while dropping inactive entries without per-cleanup allocation.
+      let write = 0;
+      for (let read = 0; read < this.particles.length; read++) {
+        const particle = this.particles[read];
+        if (particle.active) this.particles[write++] = particle;
+      }
+      this.particles.length = write;
+    }
     // رد لاستیک
     for (const s of this.skidData) {
       if (s.life > 0) s.life -= dt;
