@@ -112,6 +112,8 @@ const FOG_DAY = new THREE.Color('#e6dcc4');
 const FOG_NIGHT = new THREE.Color('#202a3b');
 const SUN_DAY = new THREE.Color('#ffdfb0');
 const SUN_DUSK = new THREE.Color('#ff8b55');
+const ROAD_DAY_TINT = new THREE.Color('#ffffff');
+const ROAD_NIGHT_TINT = new THREE.Color('#aab8d0');
 const SUN_NIGHT = new THREE.Color('#7c91c5');
 const SKY_DOME_DAY = new THREE.Color('#ffffff');
 const SKY_DOME_NIGHT = new THREE.Color('#53658d');
@@ -2155,6 +2157,19 @@ export class WorldRenderer3D {
     const easedDay = daylight * daylight * (3 - 2 * daylight);
     const night = 1 - easedDay;
     this.dayNightFactor = easedDay;
+    // Cinematic night sheen: shared asphalt materials become smoother and pick up
+    // more of the existing environment map, with no extra render pass or lights.
+    const wetSheen = night * 0.82;
+    const road = this.roadMat as unknown as THREE.MeshStandardMaterial;
+    const crossing = this.crossMat as unknown as THREE.MeshStandardMaterial;
+    road.roughness = 0.94 - wetSheen * 0.43;
+    road.metalness = 0.015 + wetSheen * 0.035;
+    road.envMapIntensity = 0.22 + wetSheen * 0.62;
+    road.color.lerpColors(ROAD_DAY_TINT, ROAD_NIGHT_TINT, wetSheen * 0.36);
+    crossing.roughness = 0.92 - wetSheen * 0.34;
+    crossing.metalness = 0.01 + wetSheen * 0.025;
+    crossing.envMapIntensity = 0.20 + wetSheen * 0.48;
+    crossing.color.lerpColors(ROAD_DAY_TINT, ROAD_NIGHT_TINT, wetSheen * 0.24);
     const nightVisibility = Math.min(1, Math.max(0, (night - 0.12) / 0.72));
     if (this.starField) (this.starField.material as THREE.PointsMaterial).opacity = nightVisibility * 0.92;
     if (this.moon) (this.moon.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.96;
