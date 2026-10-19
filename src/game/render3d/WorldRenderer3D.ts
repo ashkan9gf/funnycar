@@ -354,6 +354,8 @@ export class WorldRenderer3D {
   private dayNightFactor = 0;
   /** Adaptive shadow refresh cadence selected once at renderer startup. */
   private shadowRefreshEvery = 3;
+  /** Device-specific quality ceiling captured from the startup GPU profile. */
+  private shadowRefreshDefault = 3;
   /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
   private playerHeadlightGlows: THREE.Sprite[] = [];
   /** Wide, low-cost headlight spill projected onto the road; one transparent mesh, no extra light. */
@@ -583,6 +585,7 @@ export class WorldRenderer3D {
     // حالا کادر ±۳۳۰ دور ماشین + نقشهٔ ۲۰۴۸ → سایهٔ «شارپ‌تر» (کیفیت بالاتر) با کسری از هزینه.
     const shadowProfile = getShadowQualityProfile(gl);
     this.shadowRefreshEvery = shadowProfile.refreshEvery;
+    this.shadowRefreshDefault = shadowProfile.refreshEvery;
     this.sun.shadow.mapSize.set(shadowProfile.mapSize, shadowProfile.mapSize);
     this.sun.shadow.camera.left = -330;
     this.sun.shadow.camera.right = 330;
@@ -3894,6 +3897,19 @@ export class WorldRenderer3D {
       ctx.fillText(ln, textAreaCenter, by + bubbleH / 2 + (i - (lines.length - 1) / 2) * lineH);
     });
     ctx.restore();
+  }
+
+  /**
+   * Adapt shadow refresh work to sustained frame rate without rebuilding the shadow map.
+   * Low FPS skips more shadow refreshes; stable headroom restores the device's startup profile.
+   */
+  setPerformanceHint(fps: number): void {
+    if (!Number.isFinite(fps) || fps <= 0) return;
+    if (fps < 32) this.shadowRefreshEvery = 6;
+    else if (fps < 40) this.shadowRefreshEvery = 5;
+    else if (fps < 46) this.shadowRefreshEvery = 4;
+    else if (fps > 50) this.shadowRefreshEvery = this.shadowRefreshDefault;
+    // Between 46 and 50 FPS, retain the current cadence to avoid quality oscillation.
   }
 
   // ============ اندازه و پاک‌سازی ============
