@@ -257,6 +257,8 @@ export class WorldRenderer3D {
   private playerHeadlightGlows: THREE.Sprite[] = [];
   /** Wide, low-cost headlight spill projected onto the road; one transparent mesh, no extra light. */
   private playerHeadlightSpill: THREE.Mesh | null = null;
+  /** Soft contact shadow under the player car, reused with the cached radial cloud texture. */
+  private playerContactShadow: THREE.Mesh | null = null;
   private playerBrakeGlows: THREE.Sprite[] = [];
   private brakeGlowLevel = 0;
   private octx: CanvasRenderingContext2D;
@@ -497,6 +499,19 @@ export class WorldRenderer3D {
       this.playerModel.group.add(glow);
       this.playerHeadlightGlows.push(glow);
     }
+    // A soft contact shadow grounds the car visually without a second shadow-map pass.
+    // The existing cached radial texture is reused; this mesh is created once.
+    const contactShadowGeo = new THREE.PlaneGeometry(190, 370, 1, 1);
+    contactShadowGeo.rotateX(-Math.PI / 2);
+    const contactShadowMat = new THREE.MeshBasicMaterial({
+      map: getCloudTexture(), color: '#111722', transparent: true, opacity: 0.26,
+      depthWrite: false, fog: false, side: THREE.DoubleSide,
+    });
+    this.playerContactShadow = new THREE.Mesh(contactShadowGeo, contactShadowMat);
+    this.playerContactShadow.position.set(0, 1.1, 0);
+    this.playerContactShadow.renderOrder = 0;
+    this.playerModel.group.add(this.playerContactShadow);
+
     // A soft ground-projected beam adds visible light spill ahead of the car without
     // creating dynamic lights or extra render passes. It follows the player's heading.
     const spillGeo = new THREE.PlaneGeometry(300, 720, 1, 1);
@@ -2225,6 +2240,10 @@ export class WorldRenderer3D {
     // Keep the beam subtle at dusk and stronger at night; material/geometry are reused.
     if (this.playerHeadlightSpill) {
       (this.playerHeadlightSpill.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.16;
+    }
+    // Contact shadows read most clearly in daylight and soften naturally at night.
+    if (this.playerContactShadow) {
+      (this.playerContactShadow.material as THREE.MeshBasicMaterial).opacity = 0.12 + easedDay * 0.16;
     }
     if (this.starField) (this.starField.material as THREE.PointsMaterial).opacity = nightVisibility * 0.92;
     if (this.moon) (this.moon.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.96;
