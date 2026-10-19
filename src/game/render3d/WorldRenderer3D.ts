@@ -2732,10 +2732,6 @@ export class WorldRenderer3D {
         model.lightBar.blue.visible = !on;
       }
     }
-    if (this.trafficContactShadows) {
-      this.trafficContactShadows.count = trafficShadowIndex;
-      if (trafficShadowIndex > 0) this.trafficContactShadows.instanceMatrix.needsUpdate = true;
-    }
     for (const [tc, model] of this.trafficModels) {
       if (!seen.has(tc)) {
         this.scene.remove(model.group);
@@ -2775,6 +2771,19 @@ export class WorldRenderer3D {
       gm.group.visible = true;
       gm.group.position.set(g.x, 0, g.y);
       gm.group.rotation.set(0, -g.angle, 0);
+      // Reuse the same batched shadow pool for parked/guard vehicles too.
+      if (this.trafficContactShadows && trafficShadowIndex < this.trafficShadowCapacity) {
+        const shadow = this.trafficShadowDummy;
+        shadow.position.set(g.x, 1.05, g.y);
+        shadow.rotation.set(0, -g.angle, 0);
+        shadow.scale.set(104 * 1.75, Math.max(150, g.len * 1.55), 1);
+        shadow.updateMatrix();
+        this.trafficContactShadows.setMatrixAt(trafficShadowIndex++, shadow.matrix);
+      }
+    }
+    if (this.trafficContactShadows) {
+      this.trafficContactShadows.count = trafficShadowIndex;
+      if (trafficShadowIndex > 0) this.trafficContactShadows.instanceMatrix.needsUpdate = true;
     }
 
     // ---------- شکستنی‌ها: همگام با وضعیت World (Instanced) ----------
