@@ -62,3 +62,6 @@ server.log
 /tool-results
 /android-build
 /temp_model
+# android CI build outputs (Capacitor)
+/www
+/android

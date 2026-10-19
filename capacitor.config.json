@@ -1,0 +1,8 @@
+{
+  "appId": "com.funnycar.ir",
+  "appName": "FunnyCarIR",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  }
+}
