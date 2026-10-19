@@ -130,7 +130,8 @@ let tireMat: THREE.MeshToonMaterial | null = null;
 let rimMat: THREE.MeshStandardMaterial | null = null;
 let darkMat: THREE.MeshToonMaterial | null = null;
 let chromeMat: THREE.MeshPhongMaterial | null = null;
-let headMat: THREE.MeshStandardMaterial | null = null;\nlet indicatorMat: THREE.MeshStandardMaterial | null = null;
+let headMat: THREE.MeshStandardMaterial | null = null;
+let indicatorMat: THREE.MeshStandardMaterial | null = null;
 let tailMat: THREE.MeshStandardMaterial | null = null;
 let plateMat: THREE.MeshLambertMaterial | null = null;
 let taxiSignMat: THREE.MeshLambertMaterial | null = null;
@@ -165,10 +166,12 @@ function ensureShared(): void {
     envMapIntensity: 0.7,
   });
   tireMat = new THREE.MeshToonMaterial({ color: '#23211f', gradientMap });
-  // PBR alloy: metallic response with restrained roughness keeps rims readable without relying on mirror-like reflections.\n  rimMat = new THREE.MeshStandardMaterial({ color: '#cfd3d8', metalness: 0.72, roughness: 0.3, envMapIntensity: 0.65 });
+  // PBR alloy: metallic response with restrained roughness keeps rims readable without relying on mirror-like reflections.
+  rimMat = new THREE.MeshStandardMaterial({ color: '#cfd3d8', metalness: 0.72, roughness: 0.3, envMapIntensity: 0.65 });
   darkMat = new THREE.MeshToonMaterial({ color: '#2e2622', gradientMap });
   chromeMat = new THREE.MeshPhongMaterial({ color: '#c2c8ce', shininess: 110, specular: '#ffffff' });
-  headMat = new THREE.MeshStandardMaterial({ color: '#fff1b8', emissive: '#ffd76a', emissiveIntensity: 1.15, roughness: 0.24, metalness: 0.08 });\n  indicatorMat = new THREE.MeshStandardMaterial({ color: '#ffb347', emissive: '#ff7b18', emissiveIntensity: 0.85, roughness: 0.3, metalness: 0.02 });
+  headMat = new THREE.MeshStandardMaterial({ color: '#fff1b8', emissive: '#ffd76a', emissiveIntensity: 1.15, roughness: 0.24, metalness: 0.08 });
+  indicatorMat = new THREE.MeshStandardMaterial({ color: '#ffb347', emissive: '#ff7b18', emissiveIntensity: 0.85, roughness: 0.3, metalness: 0.02 });
   // چراغ عقب: Standard با emissive — کد ترمز در draw3D روی emissive.set کار می‌کند
   tailMat = new THREE.MeshStandardMaterial({ color: '#e2574c', emissive: '#5a0f08', emissiveIntensity: 0.7, roughness: 0.4 });
   plateMat = new THREE.MeshLambertMaterial({ map: getPlateTexture() });
