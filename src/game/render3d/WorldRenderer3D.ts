@@ -272,7 +272,7 @@ export class WorldRenderer3D {
   private particleMesh: THREE.InstancedMesh;
   private skidMesh: THREE.InstancedMesh;
   private skidIdx = 0;
-  private skidData: Array<{ x: number; z: number; rot: number; life: number }> = [];
+  private skidData: Array<{ x: number; z: number; rot: number; life: number; width: number; length: number }> = [];
   private bubbles: AmbientBubble[] = [];
 
   // پویاها
@@ -593,7 +593,7 @@ export class WorldRenderer3D {
     this.skidMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.skidMesh.renderOrder = 2;
     this.scene.add(this.skidMesh);
-    for (let i = 0; i < RENDER3D.skidMax; i++) this.skidData.push({ x: 0, z: 0, rot: 0, life: 0 });
+    for (let i = 0; i < RENDER3D.skidMax; i++) this.skidData.push({ x: 0, z: 0, rot: 0, life: 0, width: 9, length: 26 });
 
     // ذرات (Instanced)
     this.particleMesh = new THREE.InstancedMesh(
@@ -2502,11 +2502,19 @@ export class WorldRenderer3D {
     }
   }
 
-  /** رد لاستیک درفت — حلقه‌ای (قدیمی‌ها fade با رنگ نزدیک آسفالت) */
+  /** Twin tire tracks for a more grounded drift trail; the fixed ring buffer avoids allocations. */
   addSkidMark(x: number, y: number, angle: number): void {
-    const idx = this.skidIdx;
-    this.skidData[idx] = { x, z: y, rot: -angle, life: SKID_LIFE };
-    this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
+    const halfTrack = 14;
+    const sideX = Math.cos(angle) * halfTrack;
+    const sideZ = -Math.sin(angle) * halfTrack;
+    for (const side of [-1, 1]) {
+      const idx = this.skidIdx;
+      this.skidData[idx] = {
+        x: x + sideX * side, z: y + sideZ * side, rot: -angle,
+        life: SKID_LIFE, width: 9, length: 26,
+      };
+      this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
+    }
   }
 
   /** رنگ انتخابی گاراژ (فاز ۶) — قبل از ساخت مدل ست می‌شود */
@@ -2926,7 +2934,7 @@ export class WorldRenderer3D {
       if (s.life <= 0) continue;
       const k = Math.max(0, Math.min(1, s.life / SKID_LIFE));
       this.tmpQ.setFromEuler(this.eul.set(0, s.rot, 0));
-      this.tmpM.compose(this.tmpV.set(s.x, 2.2, s.z), this.tmpQ, this.tmpS.set(24, 1, 15));
+      this.tmpM.compose(this.tmpV.set(s.x, 2.2, s.z), this.tmpQ, this.tmpS.set(s.width, 1, s.length));
       this.skidMesh.setMatrixAt(skidCount, this.tmpM);
       // fade با نزدیک شدن رنگ به آسفالت
       const col = this.tmpC.copy(this.asphaltC).lerp(this.darkC, k * 0.85);
