@@ -484,6 +484,8 @@ export class WorldRenderer3D {
   private chunkVis = new Map<string, ChunkVisual>();
   /** صف ساخت بصری (مرتب بر فاصله — هر فریم با بودجه مصرف می‌شود) */
   private buildQueue: string[] = [];
+  /** Cached integer coordinates avoid repeated split/Number allocations while prioritizing chunks. */
+  private readonly buildQueueCoordinates = new Map<string, { i: number; j: number }>();
   private queued = new Set<string>();
   /** جمع‌کننده فعلی — buildBuilding/buildProp اشیاء را ثبت می‌کنند */
   private visCollector: ChunkVisual | null = null;
@@ -942,18 +944,20 @@ export class WorldRenderer3D {
         const key = `${ci + di}_${cj + dj}`;
         if (!this.chunkVis.has(key) && !this.queued.has(key)) {
           this.queued.add(key);
+          this.buildQueueCoordinates.set(key, { i: ci + di, j: cj + dj });
           this.buildQueue.push(key);
         }
       }
     }
     // مرتب‌سازی صف بر فاصله تا بازیکن (نزدیک‌تر اول — حذف صفِ خارج از شعاع)
     if (this.buildQueue.length > 1) {
+      // Sort farthest-first and pop: Array.shift() would move every remaining entry.
       this.buildQueue.sort((a, b) => {
-        const pa = a.split('_');
-        const pb = b.split('_');
-        const da = Math.abs(Number(pa[0]) - ci) + Math.abs(Number(pa[1]) - cj);
-        const db = Math.abs(Number(pb[0]) - ci) + Math.abs(Number(pb[1]) - cj);
-        return da - db;
+        const pa = this.buildQueueCoordinates.get(a)!;
+        const pb = this.buildQueueCoordinates.get(b)!;
+        const da = Math.abs(pa.i - ci) + Math.abs(pa.j - cj);
+        const db = Math.abs(pb.i - ci) + Math.abs(pb.j - cj);
+        return db - da;
       });
     }
     // ۳) ⏱ بودجه فریمی سخت‌گیرانه: حداکثر N قطعه و حداکثر X ms در این فریم
@@ -962,14 +966,16 @@ export class WorldRenderer3D {
     while (this.buildQueue.length > 0) {
       if (builds >= ENDLESS.maxChunkBuildsPerFrame) break;
       if (performance.now() - t0 >= ENDLESS.buildBudgetMs) break;
-      const key = this.buildQueue.shift()!;
+      const key = this.buildQueue.pop()!;
       this.queued.delete(key);
-      const p = key.split('_');
-      const di = Math.abs(Number(p[0]) - ci);
-      const dj = Math.abs(Number(p[1]) - cj);
+      const coords = this.buildQueueCoordinates.get(key);
+      this.buildQueueCoordinates.delete(key);
+      if (!coords) continue;
+      const di = Math.abs(coords.i - ci);
+      const dj = Math.abs(coords.j - cj);
       if (di > R || dj > R) continue; // از صف خارج شده
       if (this.chunkVis.has(key)) continue;
-      this.buildChunkVisual(Number(p[0]), Number(p[1]), key);
+      this.buildChunkVisual(coords.i, coords.j, key);
       if (!this.allJobsDone) this.builtWithFallback = true; // 🔕 برای فلاش دیرهنگام
       builds++;
     }
