@@ -278,6 +278,13 @@ interface ChunkVisual {
   dead?: boolean;
 }
 
+interface TireSmokePuff {
+  x: number; z: number; y: number;
+  vx: number; vz: number; vy: number;
+  life: number; maxLife: number; size: number; active: boolean;
+  rot: number;
+}
+
 interface Particle3D {
   x: number; z: number; y: number; vx: number; vz: number; vy: number;
   life: number; maxLife: number; size: number; active: boolean; color: THREE.Color;
@@ -315,6 +322,14 @@ export class WorldRenderer3D {
   private skidMesh: THREE.InstancedMesh;
   private skidIdx = 0;
   private skidEmitTimer = 0;
+  /** Reused, bounded tire-smoke pool; no per-frame mesh/material allocation. */
+  private readonly tireSmokeCapacity = 24;
+  private tireSmokeMesh!: THREE.InstancedMesh;
+  private tireSmokePuffs: TireSmokePuff[] = Array.from({ length: 24 }, () => ({
+    x: 0, z: 0, y: 2.5, vx: 0, vz: 0, vy: 0, life: 0, maxLife: 0.7, size: 1, active: false, rot: 0,
+  }));
+  private tireSmokeEmitTimer = 0;
+  private tireSmokeCursor = 0;
   private skidData: Array<{ x: number; z: number; rot: number; life: number; width: number; length: number }> = [];
   private bubbles: AmbientBubble[] = [];
 
@@ -637,6 +652,23 @@ export class WorldRenderer3D {
     this.skidMesh.renderOrder = 2;
     this.scene.add(this.skidMesh);
     for (let i = 0; i < RENDER3D.skidMax; i++) this.skidData.push({ x: 0, z: 0, rot: 0, life: 0, width: 9, length: 26 });
+
+    // Soft tire smoke uses one cached radial texture and a fixed instanced pool.
+    const smokeGeo = new THREE.PlaneGeometry(1, 1);
+    smokeGeo.rotateX(-Math.PI / 2);
+    this.tireSmokeMesh = new THREE.InstancedMesh(
+      smokeGeo,
+      new THREE.MeshBasicMaterial({
+        map: getCloudTexture(), color: '#d5d7d9', transparent: true,
+        opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+      }),
+      this.tireSmokeCapacity,
+    );
+    this.tireSmokeMesh.count = this.tireSmokeCapacity;
+    this.tireSmokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.tireSmokeMesh.frustumCulled = false;
+    this.tireSmokeMesh.renderOrder = 3;
+    this.scene.add(this.tireSmokeMesh);
 
     // ذرات (Instanced)
     this.particleMesh = new THREE.InstancedMesh(
@@ -2681,6 +2713,77 @@ export class WorldRenderer3D {
     return Math.min(0.05, Math.max(0.001, dt));
   }
 
+  /** Low-cost drifting/braking smoke: fixed pool, capped emissions and one draw call. */
+  private updateTireSmoke(dt: number, opts: Draw3DOptions, brakingLoad: boolean, driftLoad: boolean): void {
+    for (const puff of this.tireSmokePuffs) {
+      if (!puff.active) continue;
+      puff.life -= dt;
+      if (puff.life <= 0) { puff.active = false; continue; }
+      puff.x += puff.vx * dt;
+      puff.z += puff.vz * dt;
+      puff.y += puff.vy * dt;
+      puff.size += dt * 23;
+      puff.vx *= 0.985;
+      puff.vz *= 0.985;
+      puff.vy *= 0.97;
+    }
+
+    if (brakingLoad || driftLoad) {
+      this.tireSmokeEmitTimer -= dt;
+      if (this.tireSmokeEmitTimer <= 0) {
+        const car = opts.car;
+        const rearOffset = car.drawH * 0.36;
+        const rearX = car.x - Math.sin(car.angle) * rearOffset;
+        const rearZ = car.y + Math.cos(car.angle) * rearOffset;
+        const sideOffset = car.drawW * 0.24;
+        // Two rear-wheel puffs per emission; pool reuse prevents allocation growth.
+        for (const side of [-1, 1]) {
+          const p = this.tireSmokePuffs[this.tireSmokeCursor];
+          this.tireSmokeCursor = (this.tireSmokeCursor + 1) % this.tireSmokeCapacity;
+          p.x = rearX + Math.cos(car.angle) * sideOffset * side;
+          p.z = rearZ + Math.sin(car.angle) * sideOffset * side;
+          p.y = 2.5;
+          const backwards = -Math.sign(car.speed || 1) * (driftLoad ? 22 : 12);
+          p.vx = -Math.sin(car.angle) * backwards + (Math.random() - 0.5) * 15;
+          p.vz = Math.cos(car.angle) * backwards + (Math.random() - 0.5) * 15;
+          p.vy = 9 + Math.random() * 10;
+          p.life = p.maxLife = driftLoad ? 0.72 : 0.58;
+          p.size = 13 + Math.random() * 5;
+          p.rot = Math.random() * Math.PI;
+          p.active = true;
+        }
+        this.tireSmokeEmitTimer = driftLoad ? 0.13 : 0.17;
+      }
+    } else {
+      this.tireSmokeEmitTimer = Math.min(this.tireSmokeEmitTimer, 0.05);
+    }
+
+    const dummy = this.trafficShadowDummy;
+    for (let i = 0; i < this.tireSmokeCapacity; i++) {
+      const p = this.tireSmokePuffs[i];
+      if (!p.active) {
+        dummy.position.set(0, -10000, 0);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(0, 0, 0);
+        dummy.updateMatrix();
+        this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
+        this.tireSmokeMesh.setColorAt(i, new THREE.Color('#777777'));
+        continue;
+      }
+      const age = 1 - p.life / p.maxLife;
+      const size = p.size * (0.72 + age * 0.8);
+      dummy.position.set(p.x, p.y, p.z);
+      dummy.rotation.set(0, p.rot + age * 0.35, 0);
+      dummy.scale.set(size, size, 1);
+      dummy.updateMatrix();
+      this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
+      const shade = 0.82 - age * 0.3;
+      this.tireSmokeMesh.setColorAt(i, new THREE.Color(shade, shade, shade));
+    }
+    this.tireSmokeMesh.instanceMatrix.needsUpdate = true;
+    if (this.tireSmokeMesh.instanceColor) this.tireSmokeMesh.instanceColor.needsUpdate = true;
+  }
+
   draw3D(opts: Draw3DOptions): void {
     const t = performance.now() / 1000;
     const frameDt = this.drawDt();
@@ -2703,6 +2806,8 @@ export class WorldRenderer3D {
     } else {
       this.skidEmitTimer = Math.min(this.skidEmitTimer, 0.04);
     }
+
+    this.updateTireSmoke(frameDt, opts, brakingLoad, driftLoad);
 
     // 🔕 سایهٔ ۲۰Hz — نقشهٔ سایه فقط هر ۳ فریم بازتولید می‌شود
     this.shadowTick = (this.shadowTick + 1) % 3;
