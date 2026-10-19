@@ -26,7 +26,7 @@ import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
 import type { CarVariant } from '../render3d/CarFactory3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
-import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
+import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId, type VehicleTuning } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
 import { PLAYER_VEHICLES, vehicleById } from '../data/vehicles';
@@ -329,10 +329,35 @@ export class GameManager {
 
   // ============ گاراژ عمو نقی (فاز ۶) ============
 
-  /** اعمال ضرایب آپگرید سیو روی خودروی بازیکن */
+  /** تیون پایه هر خودرو؛ انتخاب ماشین باید در حس رانندگی هم اثر واقعی داشته باشد. */
+  private vehicleHandling(variant: string): VehicleTuning {
+    const presets: Record<string, VehicleTuning> = {
+      player:    { maxSpeedMul: 1.00, accelMul: 1.00, brakeMul: 1.00, gripMul: 1.00, steerMul: 1.00, armorMul: 1.00 },
+      pride:     { maxSpeedMul: 0.97, accelMul: 1.07, brakeMul: 0.98, gripMul: 1.08, steerMul: 1.10, armorMul: 0.92 },
+      tiba:      { maxSpeedMul: 1.02, accelMul: 1.03, brakeMul: 1.00, gripMul: 1.04, steerMul: 1.05, armorMul: 0.96 },
+      peugeot405:{ maxSpeedMul: 1.05, accelMul: 0.99, brakeMul: 1.04, gripMul: 0.98, steerMul: 0.97, armorMul: 1.08 },
+      samand:    { maxSpeedMul: 0.99, accelMul: 0.98, brakeMul: 1.06, gripMul: 1.01, steerMul: 0.95, armorMul: 1.12 },
+      nissan:    { maxSpeedMul: 0.89, accelMul: 0.91, brakeMul: 1.08, gripMul: 0.90, steerMul: 0.86, armorMul: 1.25 },
+      renault4:  { maxSpeedMul: 0.92, accelMul: 0.96, brakeMul: 1.00, gripMul: 1.10, steerMul: 1.07, armorMul: 0.93 },
+      vintage:   { maxSpeedMul: 1.08, accelMul: 1.04, brakeMul: 0.93, gripMul: 0.92, steerMul: 1.02, armorMul: 0.86 },
+    };
+    return presets[variant] ?? NEUTRAL_TUNING;
+  }
+
+  /** ترکیب ویژگی ذاتی خودرو با آپگریدهای گاراژ؛ آپگریدها روی همه خودروها حفظ می‌شوند. */
   private applyGarageToVehicle(): void {
-    const up = this.save.get().upgrades;
-    this.vehicle.tune = up ? upgradeTuning(up) : { ...NEUTRAL_TUNING };
+    const d = this.save.get();
+    const vehicle = vehicleById(d.selectedVehicle);
+    const base = this.vehicleHandling(vehicle?.variant ?? 'player');
+    const upgraded = d.upgrades ? upgradeTuning(d.upgrades) : { ...NEUTRAL_TUNING };
+    this.vehicle.tune = {
+      maxSpeedMul: base.maxSpeedMul * upgraded.maxSpeedMul,
+      accelMul: base.accelMul * upgraded.accelMul,
+      brakeMul: base.brakeMul * upgraded.brakeMul,
+      gripMul: base.gripMul * upgraded.gripMul,
+      steerMul: base.steerMul * upgraded.steerMul,
+      armorMul: base.armorMul * upgraded.armorMul,
+    };
   }
 
   /** فهرست کامل گاراژ برای پوسته React (آپگریدها + رنگ‌ها + سکه) */
@@ -393,6 +418,7 @@ export class GameManager {
       s.unlockedVehicles.push(id);
       s.selectedVehicle = id;
     });
+    this.applyGarageToVehicle();
     this.renderer3d?.setPlayerVehicle(vehicle.variant as CarVariant);
     const paint = paintById(this.save.get().paint);
     if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
@@ -408,6 +434,7 @@ export class GameManager {
       return { ok: false, coins: d.coins, msg: 'اول باید این ماشین رو بخری!' };
     }
     this.save.mutate((s) => { s.selectedVehicle = id; });
+    this.applyGarageToVehicle();
     this.renderer3d?.setPlayerVehicle(vehicle.variant as CarVariant);
     const paint = paintById(this.save.get().paint);
     if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
