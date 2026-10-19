@@ -44,8 +44,10 @@ export interface GameInstance {
   abandonMission: () => void;
   /** فاز BIG-IR: اسکران به تعمیرگاه بعد از خاموشی */
   towToRepair: () => void;
-  /** فاز ۶: گاراژ عمو نقی — آپگرید و رنگ */
+  /** گاراژ عمو نقی — خودروها، آپگرید و رنگ */
   listGarage: () => GarageView;
+  buyVehicle: (id: string) => PurchaseResult;
+  selectVehicle: (id: string) => PurchaseResult;
   buyUpgrade: (id: UpgradeId) => PurchaseResult;
   buyPaint: (id: string) => PurchaseResult;
   selectPaint: (id: string) => PurchaseResult;
@@ -80,6 +82,8 @@ export async function createGame(
     abandonMission: () => gm.abandonMission(),
     towToRepair: () => gm.towToRepair(),
     listGarage: () => gm.listGarage(),
+    buyVehicle: (id) => gm.buyVehicle(id),
+    selectVehicle: (id) => gm.selectVehicle(id),
     buyUpgrade: (id) => gm.buyUpgrade(id),
     buyPaint: (id) => gm.buyPaint(id),
     selectPaint: (id) => gm.selectPaint(id),
