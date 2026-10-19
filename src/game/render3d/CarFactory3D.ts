@@ -639,30 +639,21 @@ export function buildCar3D(
   const tireW = s.wid * 0.16;
   const wr = s.wheelR;
   const R = wr - tireW / 2 + 2; // شعاع حلقه تایر
+  const wheelGeo = wheelGeometriesShared(wr, tireW);
   for (const x of [-s.wid / 2 + tireW * 0.1, s.wid / 2 - tireW * 0.1]) {
     for (const z of [-s.len * 0.31, s.len * 0.31]) {
-      const tire = new THREE.Mesh(
-        new THREE.TorusGeometry(R, tireW / 2, 10, 24),
-        tireMat as THREE.MeshToonMaterial,
-      );
+      const tire = new THREE.Mesh(wheelGeo.tire, tireMat as THREE.MeshToonMaterial);
       tire.rotation.y = Math.PI / 2; // محور چرخ = X
       tire.position.set(x, wr, z);
       tire.castShadow = true;
-      // پره‌های ضربدری + کلاهک — در فضای محلی تایر (صفحه XY، محور سوراخ = Z)
-      const spokeLen = R * 1.75;
-      const sp1 = new THREE.Mesh(new THREE.BoxGeometry(spokeLen, tireW * 0.34, tireW * 1.15), rimMat as THREE.MeshStandardMaterial);
-      const sp2 = new THREE.Mesh(new THREE.BoxGeometry(tireW * 0.34, spokeLen, tireW * 1.15), rimMat as THREE.MeshStandardMaterial);
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(wr * 0.3, wr * 0.3, tireW * 1.3, 12), rimMat as THREE.MeshStandardMaterial);
+      // Geometry cache مشترک؛ فقط آبجکت‌ها/ترنسفورم‌های هر چرخ جدا می‌مانند.
+      const sp1 = new THREE.Mesh(wheelGeo.spokeHorizontal, rimMat as THREE.MeshStandardMaterial);
+      const sp2 = new THREE.Mesh(wheelGeo.spokeVertical, rimMat as THREE.MeshStandardMaterial);
+      const hub = new THREE.Mesh(wheelGeo.hub, rimMat as THREE.MeshStandardMaterial);
       hub.rotation.x = Math.PI / 2; // محور استوانه → Z محلی (= X جهانی بعد از چرخش تایر)
-
-      // Machined outer lip gives the stylized alloy rim a readable metallic edge.
-      const rimLip = new THREE.Mesh(
-        new THREE.TorusGeometry(R * 0.72, 1.35, 6, 24),
-        rimMat as THREE.MeshStandardMaterial,
-      );
-      // Small hexagonal lug nuts add wheel-scale detail without textures or per-frame work.
+      const rimLip = new THREE.Mesh(wheelGeo.rimLip, rimMat as THREE.MeshStandardMaterial);
       const lugRadius = wr * 0.235;
-      const lugGeo = new THREE.CylinderGeometry(1.45, 1.45, tireW * 0.72, 6);
+      const lugGeo = wheelGeo.lug;
       const lugNuts: THREE.Mesh[] = [];
       for (let lug = 0; lug < 4; lug++) {
         const a = (Math.PI * 2 * lug) / 4 + Math.PI / 4;
@@ -701,6 +692,35 @@ export function buildCar3D(
     rollZ: 0,
     pitchX: 0,
   };
+}
+
+/** کش هندسه‌های ثابت چرخ؛ برای خودروهای هم‌اندازه فقط یک نسخهٔ GPU/CPU از هر هندسه نگه می‌داریم. */
+interface SharedWheelGeometries {
+  tire: THREE.TorusGeometry;
+  spokeHorizontal: THREE.BoxGeometry;
+  spokeVertical: THREE.BoxGeometry;
+  hub: THREE.CylinderGeometry;
+  rimLip: THREE.TorusGeometry;
+  lug: THREE.CylinderGeometry;
+}
+const wheelGeometryCache = new Map<string, SharedWheelGeometries>();
+
+function wheelGeometriesShared(wr: number, tireW: number): SharedWheelGeometries {
+  const key = `${wr}:${tireW.toFixed(3)}`;
+  const cached = wheelGeometryCache.get(key);
+  if (cached) return cached;
+  const R = wr - tireW / 2 + 2;
+  const spokeLen = R * 1.75;
+  const created: SharedWheelGeometries = {
+    tire: new THREE.TorusGeometry(R, tireW / 2, 10, 24),
+    spokeHorizontal: new THREE.BoxGeometry(spokeLen, tireW * 0.34, tireW * 1.15),
+    spokeVertical: new THREE.BoxGeometry(tireW * 0.34, spokeLen, tireW * 1.15),
+    hub: new THREE.CylinderGeometry(wr * 0.3, wr * 0.3, tireW * 1.3, 12),
+    rimLip: new THREE.TorusGeometry(R * 0.72, 1.35, 6, 24),
+    lug: new THREE.CylinderGeometry(1.45, 1.45, tireW * 0.72, 6),
+  };
+  wheelGeometryCache.set(key, created);
+  return created;
 }
 
 /** هندسه مشترک پلاک (یک‌بار ساخته می‌شود) */
