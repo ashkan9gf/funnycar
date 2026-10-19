@@ -370,6 +370,52 @@ export function buildCar3D(
   bumpers.front = fb;
   bumpers.rear = rb;
 
+  // Refined bumper inserts: restrained satin trim and dark corner impact pads.
+  // These are static shared-material details; no extra textures or frame updates.
+  const bumperTrimMat = chromeMat as THREE.MeshPhongMaterial;
+  const bumperPadMat = darkMat as THREE.MeshToonMaterial;
+  const frontZ = profile[0][0] - 10.4;
+  const rearZ = profile[profile.length - 1][0] + 10.4;
+  const trimGeo = new THREE.BoxGeometry(s.wid * 0.62, 2.1, 1.4);
+  const frontTrim = new THREE.Mesh(trimGeo, bumperTrimMat);
+  frontTrim.position.set(0, 25.2, frontZ);
+  const rearTrim = new THREE.Mesh(trimGeo, bumperTrimMat);
+  rearTrim.position.set(0, 25.2, rearZ);
+  frontTrim.castShadow = rearTrim.castShadow = false;
+  g.add(frontTrim, rearTrim);
+
+  const cornerPadGeo = new THREE.BoxGeometry(s.wid * 0.105, 8, 1.8);
+  for (const side of [-1, 1]) {
+    const frontPad = new THREE.Mesh(cornerPadGeo, bumperPadMat);
+    frontPad.position.set(side * s.wid * 0.405, 24.5, frontZ - 0.2);
+    const rearPad = new THREE.Mesh(cornerPadGeo, bumperPadMat);
+    rearPad.position.set(side * s.wid * 0.405, 24.5, rearZ + 0.2);
+    frontPad.castShadow = rearPad.castShadow = false;
+    g.add(frontPad, rearPad);
+  }
+
+  // Compact fog lamps below the main headlights; kept dark on low-detail traffic.
+  if (!lite) {
+    const fogHousingMat = darkMat as THREE.MeshToonMaterial;
+    const fogLensMat = new THREE.MeshStandardMaterial({
+      color: '#dce8e8',
+      emissive: '#6b7d82',
+      emissiveIntensity: 0.18,
+      roughness: 0.32,
+      metalness: 0.04,
+    });
+    const fogHousingGeo = new THREE.BoxGeometry(Math.max(7, s.wid * 0.095), 6, 2.6);
+    const fogLensGeo = new THREE.BoxGeometry(Math.max(4, s.wid * 0.065), 3.5, 1.2);
+    for (const side of [-1, 1]) {
+      const fogHousing = new THREE.Mesh(fogHousingGeo, fogHousingMat);
+      fogHousing.position.set(side * s.wid * 0.31, 29.5, frontZ - 1.2);
+      const fogLens = new THREE.Mesh(fogLensGeo, fogLensMat);
+      fogLens.position.set(side * s.wid * 0.31, 29.5, frontZ - 2.7);
+      fogHousing.castShadow = fogLens.castShadow = false;
+      g.add(fogHousing, fogLens);
+    }
+  }
+
   // ---------- جلوپنجره (v5: مخصوص هر مدل — پراید/تیبا پلاستیکی تیره) ----------
   const grille = GRILLE_SPEC[variant] ?? GRILLE_SPEC.pride;
   const grilleMesh = new THREE.Mesh(
