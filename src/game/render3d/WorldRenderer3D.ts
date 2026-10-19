@@ -818,7 +818,13 @@ export class WorldRenderer3D {
       roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
     });
     const sidewalkSurface = new THREE.MeshStandardMaterial({
-      map: sidewalkTex, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.16,
+      map: sidewalkTex,
+      // Fine surface relief helps concrete slabs read as material, not flat color.
+      // Reuse the cached tileable micro maps to avoid extra textures or per-frame work.
+      normalMap: roadMicroMaps.normalMap,
+      normalScale: new THREE.Vector2(0.075, 0.075),
+      roughnessMap: roadMicroMaps.roughnessMap,
+      roughness: 0.91, metalness: 0.0, envMapIntensity: 0.14,
     });
     const grassSurface = new THREE.MeshStandardMaterial({
       map: grassTex, roughness: 1.0, metalness: 0.0, envMapIntensity: 0.04,
