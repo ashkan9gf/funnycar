@@ -132,6 +132,7 @@ let darkMat: THREE.MeshToonMaterial | null = null;
 let chromeMat: THREE.MeshPhongMaterial | null = null;
 let headMat: THREE.MeshStandardMaterial | null = null;
 let indicatorMat: THREE.MeshStandardMaterial | null = null;
+let fogLensMat: THREE.MeshStandardMaterial | null = null;
 let tailMat: THREE.MeshStandardMaterial | null = null;
 let plateMat: THREE.MeshLambertMaterial | null = null;
 let taxiSignMat: THREE.MeshLambertMaterial | null = null;
@@ -172,6 +173,7 @@ function ensureShared(): void {
   chromeMat = new THREE.MeshPhongMaterial({ color: '#c2c8ce', shininess: 110, specular: '#ffffff' });
   headMat = new THREE.MeshStandardMaterial({ color: '#fff1b8', emissive: '#ffd76a', emissiveIntensity: 1.15, roughness: 0.24, metalness: 0.08 });
   indicatorMat = new THREE.MeshStandardMaterial({ color: '#ffb347', emissive: '#ff7b18', emissiveIntensity: 0.85, roughness: 0.3, metalness: 0.02 });
+  fogLensMat = new THREE.MeshStandardMaterial({ color: '#dce8e8', emissive: '#6b7d82', emissiveIntensity: 0.18, roughness: 0.32, metalness: 0.04 });
   // چراغ عقب: Standard با emissive — کد ترمز در draw3D روی emissive.set کار می‌کند
   tailMat = new THREE.MeshStandardMaterial({ color: '#e2574c', emissive: '#5a0f08', emissiveIntensity: 0.7, roughness: 0.4 });
   plateMat = new THREE.MeshLambertMaterial({ map: getPlateTexture() });
@@ -397,19 +399,12 @@ export function buildCar3D(
   // Compact fog lamps below the main headlights; kept dark on low-detail traffic.
   if (!lite) {
     const fogHousingMat = darkMat as THREE.MeshToonMaterial;
-    const fogLensMat = new THREE.MeshStandardMaterial({
-      color: '#dce8e8',
-      emissive: '#6b7d82',
-      emissiveIntensity: 0.18,
-      roughness: 0.32,
-      metalness: 0.04,
-    });
     const fogHousingGeo = new THREE.BoxGeometry(Math.max(7, s.wid * 0.095), 6, 2.6);
     const fogLensGeo = new THREE.BoxGeometry(Math.max(4, s.wid * 0.065), 3.5, 1.2);
     for (const side of [-1, 1]) {
       const fogHousing = new THREE.Mesh(fogHousingGeo, fogHousingMat);
       fogHousing.position.set(side * s.wid * 0.31, 29.5, frontZ - 1.2);
-      const fogLens = new THREE.Mesh(fogLensGeo, fogLensMat);
+      const fogLens = new THREE.Mesh(fogLensGeo, fogLensMat as THREE.MeshStandardMaterial);
       fogLens.position.set(side * s.wid * 0.31, 29.5, frontZ - 2.7);
       fogHousing.castShadow = fogLens.castShadow = false;
       g.add(fogHousing, fogLens);
