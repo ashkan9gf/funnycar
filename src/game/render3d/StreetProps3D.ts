@@ -93,18 +93,43 @@ export function buildRooftopCluster(w: number, d: number, seed: number): THREE.G
   return g;
 }
 
-/** تابلوی نام خیابان روی پایه — سبک آبی‌رنگ شهرداری */
+/** تابلوی نام خیابان روی پایه — قاب فلزی، پشت‌بند و رویهٔ خوانا */
 export function buildStreetSign(name: string): THREE.Group {
   const g = new THREE.Group();
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(3, 3.5, 96, 8), M.pole);
-  pole.position.y = 48;
-  pole.castShadow = true;
-  const board = new THREE.Mesh(
-    new THREE.BoxGeometry(74, 24, 3),
-    new THREE.MeshLambertMaterial({ map: getStreetSignTexture(name) }),
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(3, 3.5, 100, 10),
+    new THREE.MeshStandardMaterial({ color: '#78858d', metalness: 0.72, roughness: 0.34 }),
   );
-  board.position.y = 92;
-  g.add(pole, board);
+  pole.position.y = 50;
+  pole.castShadow = true;
+
+  // پشت‌بند تیره کمی بزرگ‌تر از پنل؛ لبهٔ فلزی از زاویهٔ دید هم دیده می‌شود.
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(80, 29, 4.5),
+    new THREE.MeshStandardMaterial({ color: '#253d4a', metalness: 0.52, roughness: 0.4 }),
+  );
+  frame.position.set(0, 94, 0);
+  frame.castShadow = true;
+
+  const faceMat = new THREE.MeshStandardMaterial({
+    map: getStreetSignTexture(name),
+    color: '#ffffff',
+    metalness: 0.12,
+    roughness: 0.48,
+    emissive: '#10212a',
+    emissiveIntensity: 0.06,
+  });
+  const board = new THREE.Mesh(new THREE.BoxGeometry(74, 23, 1.2), faceMat);
+  board.position.set(0, 94, 2.7);
+
+  // بست‌های کوچک اتصال پنل به پایه.
+  const bracketMat = new THREE.MeshStandardMaterial({ color: '#aab4b8', metalness: 0.78, roughness: 0.3 });
+  const bracketGeo = new THREE.BoxGeometry(3, 8, 8);
+  const leftBracket = new THREE.Mesh(bracketGeo, bracketMat);
+  const rightBracket = new THREE.Mesh(bracketGeo, bracketMat);
+  leftBracket.position.set(-7, 94, 0);
+  rightBracket.position.set(7, 94, 0);
+  g.add(pole, frame, board, leftBracket, rightBracket);
   return g;
 }
 

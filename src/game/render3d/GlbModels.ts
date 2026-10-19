@@ -298,28 +298,81 @@ export function assembleCarFromGLB(
       // حفظ ظاهر PBR مدل‌های واقعی (ادغام از شاخهٔ کاربر):
       // بدنه کمی براق‌تر بدون متریال آینه‌ای پرهزینه
       const srcMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const material of srcMaterials) {
-        if (material instanceof THREE.MeshStandardMaterial && !material.transparent) {
-          const materialName = material.name.toLowerCase();
-          if (/tire|tyre|rubber|plastic/.test(materialName)) {
-            // لاستیک و پلاستیک مات بمانند؛ رفلکس فلزی غیرطبیعی نگیرند
-            material.roughness = Math.max(0.7, material.roughness);
-            material.metalness = Math.min(0.06, material.metalness);
-            material.envMapIntensity = 0.45;
-          } else if (/chrome|rim|metal/.test(materialName)) {
-            // رینگ و قطعات فلزی بازتاب واضح‌تر اما غیرآینه‌ای
-            material.roughness = Math.max(0.24, Math.min(0.5, material.roughness));
-            material.metalness = Math.max(0.12, Math.min(0.45, material.metalness));
-            material.envMapIntensity = 1.4;
+      // Clone per-instance materials before tuning: damage/paint on one car must
+      // never mutate another traffic car that shares the source GLB material.
+      const tunedMaterials = srcMaterials.map((source) => {
+        if (!(source instanceof THREE.MeshStandardMaterial) || source.transparent) return source;
+        const materialName = source.name.toLowerCase();
+        let material: THREE.MeshStandardMaterial = source.clone();
+        if (/glass|window|windshield|windscreen/.test(materialName)) {
+          // Vehicle glazing: tighter highlights and a subtle clearcoat without
+          // forcing transparency on assets whose GLB author intentionally omitted it.
+          const glazing = new THREE.MeshPhysicalMaterial();
+          Object.assign(glazing, material);
+          glazing.roughness = Math.max(0.12, Math.min(0.3, material.roughness));
+          glazing.metalness = Math.min(0.06, material.metalness);
+          glazing.clearcoat = 0.42;
+          glazing.clearcoatRoughness = 0.16;
+          glazing.envMapIntensity = 1.25;
+          material.dispose();
+          return glazing;
+        }
+        if (/tire|tyre|rubber|plastic/.test(materialName)) {
+          // Rubber and unpainted plastic stay matte and non-metallic.
+          material.roughness = Math.max(0.76, material.roughness);
+          material.metalness = Math.min(0.04, material.metalness);
+          material.envMapIntensity = 0.38;
+        } else if (/chrome|rim|metal/.test(materialName)) {
+          // Metal trim gets controlled reflections, not mirror-like highlights.
+          material.roughness = Math.max(0.28, Math.min(0.48, material.roughness));
+          material.metalness = Math.max(0.18, Math.min(0.55, material.metalness));
+          material.envMapIntensity = 1.25;
+        } else {
+          // Automotive paint: physical clearcoat adds a restrained lacquer highlight.
+          // Preserve all imported maps, vertex colors and base material parameters.
+          const paint = new THREE.MeshPhysicalMaterial();
+          // Copy only properties present on the imported Standard material;
+          // Object.assign leaves Physical-only defaults intact when absent.
+          Object.assign(paint, material);
+          paint.clearcoat = /paint|body|car|exterior|кузов/i.test(materialName) ? 0.32 : 0.12;
+          paint.clearcoatRoughness = 0.28;
+          paint.roughness = Math.max(0.3, Math.min(0.68, material.roughness));
+          paint.metalness = Math.max(0, Math.min(0.28, material.metalness));
+          paint.envMapIntensity = 1.15;
+          material.dispose();
+          return paint;
+        }
+        return material;
+      });
+      mesh.material = Array.isArray(mesh.material) ? tunedMaterials : tunedMaterials[0];
+      const name = (mesh.name || '').toLowerCase();
+
+      // Improve named automotive light lenses while preserving their GLB maps.
+      // Keep emission restrained: the renderer has no guaranteed bloom pass.
+      const lightKind = /headlight|head_light|lights_front|front_light/.test(name)
+        ? 'front'
+        : /taillight|tail_light|lights_rear|rear_light|brake_light/.test(name)
+          ? 'rear'
+          : /indicator|turn_signal|turnsignal|blinker/.test(name)
+            ? 'indicator'
+            : null;
+      if (lightKind) {
+        const lightMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const lightMaterial of lightMaterials) {
+          if (!(lightMaterial instanceof THREE.MeshStandardMaterial)) continue;
+          if (lightKind === 'front') {
+            lightMaterial.emissive.set('#ffe2a3');
+            lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.28);
+          } else if (lightKind === 'rear') {
+            lightMaterial.emissive.set('#d71920');
+            lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.42);
           } else {
-            // رنگ بدنه: جلای خودرویی طبیعی به‌جای ظاهر گچی و تخت
-            material.roughness = Math.max(0.32, Math.min(0.72, material.roughness));
-            material.metalness = Math.max(0, Math.min(0.3, material.metalness));
-            material.envMapIntensity = 1.25;
+            lightMaterial.emissive.set('#ff9d24');
+            lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.32);
           }
+          lightMaterial.needsUpdate = true;
         }
       }
-      const name = (mesh.name || '').toLowerCase();
       if (name.includes('wheel') || name.includes('tire') || name.includes('tyre')) {
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
         const bb = mesh.geometry.boundingBox;

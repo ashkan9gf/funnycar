@@ -41,7 +41,7 @@ import {
 import {
   getRoadStraightTexture, getSidewalkTexture, getGrassTexture, getFacadeTextures,
   getCrossroadTexture, getSkyTexture, getSkyDomeTexture, getCloudTexture, getAwningTexture,
-  getBillboardTexture,
+  getBillboardTexture, getRoadMicroMaps,
 } from './textures3d';
 
 // ---------- فاز CITY-FULL — پالت اشباع ایرانی برای نماها (رنگی‌تر!) ----------
@@ -96,7 +96,165 @@ function parseColor(c: string): { color: THREE.Color; alpha: number } {
   return { color: new THREE.Color(c), alpha: 1 };
 }
 
+// Shared low-cost rooftop props: Iranian water tanks and condenser units.
+// Shared geometry/materials avoid per-building GPU-resource churn in the endless city.
+// Shared façade materials; details are merged into three meshes per building.
+const FACADE_FRAME_MAT = new THREE.MeshStandardMaterial({ color: '#e7dfce', roughness: 0.78, metalness: 0.04 });
+const FACADE_GLASS_MAT = new THREE.MeshStandardMaterial({ color: '#426d82', roughness: 0.26, metalness: 0.16, envMapIntensity: 0.72 });
+// Selective warm apartment windows add urban life without spawning expensive point lights.
+const FACADE_LIT_WINDOW_MAT = new THREE.MeshStandardMaterial({ color: '#f4bd70', emissive: '#ff9e3d', emissiveIntensity: 0.52, roughness: 0.42, metalness: 0.02 });
+// Day/night palette constants are shared to avoid allocating colors in the render loop.
+const SKY_DAY = new THREE.Color('#eaf2f8');
+const SKY_NIGHT = new THREE.Color('#18243d');
+const GROUND_DAY = new THREE.Color('#c9a97a');
+const GROUND_NIGHT = new THREE.Color('#18202c');
+const FOG_DAY = new THREE.Color('#e6dcc4');
+const FOG_NIGHT = new THREE.Color('#202a3b');
+const SUN_DAY = new THREE.Color('#ffdfb0');
+const SUN_DUSK = new THREE.Color('#ff8b55');
+const ROAD_DAY_TINT = new THREE.Color('#ffffff');
+const ROAD_NIGHT_TINT = new THREE.Color('#aab8d0');
+const SUN_NIGHT = new THREE.Color('#7c91c5');
+const SKY_DOME_DAY = new THREE.Color('#ffffff');
+const SKY_DOME_NIGHT = new THREE.Color('#53658d');
+const FACADE_RAIL_MAT = new THREE.MeshStandardMaterial({ color: '#41484a', roughness: 0.42, metalness: 0.62 });
+
+function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: number, apartment: boolean): THREE.BufferGeometry[] {
+  const size = bounds.getSize(new THREE.Vector3());
+  const w = Math.max(1, size.x), h = Math.max(1, size.y), d = Math.max(1, size.z);
+  const columns = 2 + (variance % 3);
+  const floors = Math.max(2, Math.min(5, Math.round(h / Math.max(w, d) * 2.8)));
+  const winW = Math.min(w / (columns * 2.8), w * 0.19);
+  const winH = Math.min(h / (floors * 3.0), h * 0.17);
+  const depth = Math.max(0.8, Math.min(w, d) * 0.012);
+  const frontZ = bounds.max.z + depth * 0.55, sideX = bounds.max.x + depth * 0.55;
+  const startY = bounds.min.y + h * 0.13, floorGap = h * 0.72 / floors;
+  const buckets: THREE.BufferGeometry[][] = [[], [], [], []];
+  const temp = new THREE.Object3D();
+  const addBox = (bucket: number, sx: number, sy: number, sz: number, x: number, y: number, z: number) => {
+    temp.position.set(x, y, z); temp.rotation.set(0, 0, 0); temp.scale.set(sx, sy, sz); temp.updateMatrix();
+    const geo = ROOFTOP_BOX_GEO.clone(); geo.applyMatrix4(temp.matrix); buckets[bucket].push(geo);
+  };
+  for (let floor = 0; floor < floors; floor++) {
+    const y = startY + floor * floorGap + floorGap * 0.52;
+    for (let col = 0; col < columns; col++) {
+      const x = bounds.min.x + w * ((col + 0.5) / columns);
+      addBox(0, winW * 1.16, winH * 1.16, depth, x, y, frontZ);
+      const litWindow = (floor * 7 + col * 3 + variance) % 5 === 0;
+      addBox(litWindow ? 3 : 1, winW, winH, depth * 0.45, x, y, frontZ + depth * 0.32);
+      if (apartment && (floor + col + variance) % 3 === 0) {
+        const bw = winW * 1.48, by = y - winH * 0.66;
+        addBox(0, bw, Math.max(1, winH * 0.1), depth * 2.4, x, by, frontZ + depth * 1.5);
+        addBox(2, bw, winH * 0.32, Math.max(1, depth * 0.22), x, by + winH * 0.2, frontZ + depth * 2.5);
+        addBox(2, Math.max(1, depth * 0.18), winH * 0.34, Math.max(1, depth * 0.22), x - bw * 0.48, by + winH * 0.18, frontZ + depth * 2.5);
+        addBox(2, Math.max(1, depth * 0.18), winH * 0.34, Math.max(1, depth * 0.22), x + bw * 0.48, by + winH * 0.18, frontZ + depth * 2.5);
+      }
+    }
+    const sideColumns = Math.max(2, Math.min(3, columns));
+    for (let col = 0; col < sideColumns; col++) {
+      const z = bounds.min.z + d * ((col + 0.5) / sideColumns), sw = Math.min(winW, d / (sideColumns * 2.6));
+      addBox(0, depth, winH * 1.16, sw * 1.16, sideX, y, z);
+      const litSideWindow = (floor * 5 + col * 2 + variance) % 6 === 0;
+      addBox(litSideWindow ? 3 : 1, depth * 0.45, winH, sw, sideX + depth * 0.32, y, z);
+    }
+  }
+  const materials = [FACADE_FRAME_MAT, FACADE_GLASS_MAT, FACADE_RAIL_MAT, FACADE_LIT_WINDOW_MAT];
+  const owned: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < buckets.length; i++) {
+    if (!buckets[i].length) continue;
+    const merged = mergeGeometries(buckets[i], false);
+    for (const geo of buckets[i]) geo.dispose();
+    if (!merged) continue;
+    owned.push(merged);
+    const mesh = new THREE.Mesh(merged, materials[i]); mesh.castShadow = i !== 1; mesh.receiveShadow = true; g.add(mesh);
+  }
+  return owned;
+}
+const ROOFTOP_BOX_GEO = new THREE.BoxGeometry(1, 1, 1);
+const ROOFTOP_TANK_GEO = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
+const ROOFTOP_BASE_MAT = new THREE.MeshStandardMaterial({ color: '#777b7c', metalness: 0.58, roughness: 0.62 });
+const ROOFTOP_TANK_MAT = new THREE.MeshStandardMaterial({ color: '#356d79', metalness: 0.12, roughness: 0.48 });
+const ROOFTOP_AC_MAT = new THREE.MeshStandardMaterial({ color: '#e7e0d1', metalness: 0.08, roughness: 0.72 });
+const ROOFTOP_DARK_MAT = new THREE.MeshStandardMaterial({ color: '#343a3c', metalness: 0.35, roughness: 0.66 });
+
+function addIranianRooftopDetails(g: THREE.Group, bounds: THREE.Box3, variance: number): void {
+  // Not every building receives every prop: preserve a varied skyline and mobile budget.
+  const size = bounds.getSize(new THREE.Vector3());
+  const width = Math.max(1, size.x);
+  const depth = Math.max(1, size.z);
+  const height = Math.max(1, size.y);
+  const roofY = bounds.max.y;
+  const detailGroup = new THREE.Group();
+  // Typical rooftop water tank on a short metal stand.
+  if (variance % 2 === 0) {
+    const stand = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_BASE_MAT);
+    stand.scale.set(width * 0.105, height * 0.025, depth * 0.105);
+    stand.position.set(bounds.min.x + width * 0.23, roofY + height * 0.012, bounds.min.z + depth * 0.2);
+    const tank = new THREE.Mesh(ROOFTOP_TANK_GEO, ROOFTOP_TANK_MAT);
+    tank.scale.set(width * 0.12, height * 0.17, depth * 0.12);
+    tank.position.set(bounds.min.x + width * 0.23, roofY + height * 0.105, bounds.min.z + depth * 0.2);
+    tank.castShadow = true;
+    detailGroup.add(stand, tank);
+  }
+  // Split AC condensers, a familiar detail on Iranian apartment facades/roofs.
+  if (variance % 3 !== 1) {
+    for (const side of [-1, 1]) {
+      const ac = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_AC_MAT);
+      ac.scale.set(width * 0.095, height * 0.055, depth * 0.09);
+      ac.position.set(bounds.min.x + width * (0.12 + (side > 0 ? 0.52 : 0)), roofY + height * 0.027, bounds.min.z + depth * 0.72);
+      ac.castShadow = true;
+      const vent = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_DARK_MAT);
+      vent.scale.set(width * 0.052, height * 0.032, depth * 0.008);
+      vent.position.set(ac.position.x, ac.position.y, ac.position.z + depth * 0.046);
+      detailGroup.add(ac, vent);
+    }
+  }
+  if (detailGroup.children.length) g.add(detailGroup);
+}
+
 const SKID_LIFE = 3.4;
+
+/** One small procedural alpha texture gives tire marks feathered edges without external assets. */
+function createSkidMarkTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return new THREE.CanvasTexture(canvas);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const edge = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(0.18, 'rgba(0,0,0,0.45)');
+  edge.addColorStop(0.5, 'rgba(0,0,0,0.72)');
+  edge.addColorStop(0.82, 'rgba(0,0,0,0.45)');
+  edge.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Fade both ends so marks blend into the road instead of ending as hard rectangles.
+  ctx.globalCompositeOperation = 'destination-in';
+  const ends = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  ends.addColorStop(0, 'rgba(0,0,0,0)');
+  ends.addColorStop(0.12, 'rgba(0,0,0,0.75)');
+  ends.addColorStop(0.5, 'rgba(0,0,0,1)');
+  ends.addColorStop(0.88, 'rgba(0,0,0,0.75)');
+  ends.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = ends;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.globalCompositeOperation = 'source-over';
+  // Fine, broken rubber streaks add subtle surface variation.
+  for (let i = 0; i < 9; i++) {
+    const x = 22 + ((i * 17) % 21);
+    const y = 5 + ((i * 29) % 116);
+    ctx.fillStyle = `rgba(0,0,0,${0.05 + (i % 3) * 0.025})`;
+    ctx.fillRect(x, y, 1 + (i % 2), 5 + (i % 4) * 3);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  return texture;
+}
 
 /** ویزوال یک قطعهٔ فعال — فاز ENDLESS-1 */
 interface ChunkVisual {
@@ -120,6 +278,13 @@ interface ChunkVisual {
   dead?: boolean;
 }
 
+interface TireSmokePuff {
+  x: number; z: number; y: number;
+  vx: number; vz: number; vy: number;
+  life: number; maxLife: number; size: number; active: boolean;
+  rot: number;
+}
+
 interface Particle3D {
   x: number; z: number; y: number; vx: number; vz: number; vy: number;
   life: number; maxLife: number; size: number; active: boolean; color: THREE.Color;
@@ -135,6 +300,20 @@ export class WorldRenderer3D {
   private scene = new THREE.Scene();
   private cam3: THREE.PerspectiveCamera;
   private sun: THREE.DirectionalLight;
+  private hemi!: THREE.HemisphereLight;
+  private dayNightFactor = 0;
+  /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
+  private playerHeadlightGlows: THREE.Sprite[] = [];
+  /** Wide, low-cost headlight spill projected onto the road; one transparent mesh, no extra light. */
+  private playerHeadlightSpill: THREE.Mesh | null = null;
+  /** Soft contact shadow under the player car, reused with the cached radial cloud texture. */
+  private playerContactShadow: THREE.Mesh | null = null;
+  /** Batched contact shadows for traffic vehicles; capped to avoid per-car draw-call growth. */
+  private trafficContactShadows: THREE.InstancedMesh | null = null;
+  private trafficShadowDummy = new THREE.Object3D();
+  private readonly trafficShadowCapacity = 64;
+  private playerBrakeGlows: THREE.Sprite[] = [];
+  private brakeGlowLevel = 0;
   private octx: CanvasRenderingContext2D;
 
   // افکت‌ها
@@ -142,7 +321,19 @@ export class WorldRenderer3D {
   private particleMesh: THREE.InstancedMesh;
   private skidMesh: THREE.InstancedMesh;
   private skidIdx = 0;
-  private skidData: Array<{ x: number; z: number; rot: number; life: number }> = [];
+  private skidEmitTimer = 0;
+  /** Reused, bounded tire-smoke pool; no per-frame mesh/material allocation. */
+  private readonly tireSmokeCapacity = 24;
+  private tireSmokeMesh!: THREE.InstancedMesh;
+  private tireSmokeDummy = new THREE.Object3D();
+  private tireSmokeColor = new THREE.Color();
+  private tireSmokeOpacity!: THREE.InstancedBufferAttribute;
+  private tireSmokePuffs: TireSmokePuff[] = Array.from({ length: 24 }, () => ({
+    x: 0, z: 0, y: 2.5, vx: 0, vz: 0, vy: 0, life: 0, maxLife: 0.7, size: 1, active: false, rot: 0,
+  }));
+  private tireSmokeEmitTimer = 0;
+  private tireSmokeCursor = 0;
+  private skidData: Array<{ x: number; z: number; rot: number; life: number; width: number; length: number; intensity: number }> = [];
   private bubbles: AmbientBubble[] = [];
 
   // پویاها
@@ -319,8 +510,8 @@ export class WorldRenderer3D {
     });
 
     // نور: خورشید طلایی با سایه‌های بلند + آسمان روشن
-    const hemi = new THREE.HemisphereLight('#eaf2f8', '#c9a97a', RENDER3D.hemiIntensity);
-    this.scene.add(hemi);
+    this.hemi = new THREE.HemisphereLight(SKY_DAY, GROUND_DAY, RENDER3D.hemiIntensity);
+    this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight('#ffdfb0', RENDER3D.sunIntensity);
     this.sun.castShadow = true;
     // 🔑 PERF-4 (لگ حین رانندگی): کادر قبلی ±۶۲۰ با نقشهٔ ۱۰۲۴ — حین رانندگی صدها
@@ -359,6 +550,76 @@ export class WorldRenderer3D {
     const pw = 112;
     this.playerModel = buildCar3D('player', pw, Math.round(pw * 1.75), { paint: this.playerPaint });
     this.scene.add(this.playerModel.group);
+    // Soft additive halos sit just ahead of the two existing headlamps.
+    // They use the already-cached cloud texture and add no lights or render pass.
+    for (const side of [-1, 1]) {
+      const glowMat = new THREE.SpriteMaterial({
+        map: getCloudTexture(), color: '#ffe9b0', transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      });
+      const glow = new THREE.Sprite(glowMat);
+      glow.position.set(side * pw * 0.33, 43, -Math.round(pw * 1.75) * 0.48 - 25);
+      glow.scale.set(76, 48, 1);
+      glow.renderOrder = 2;
+      this.playerModel.group.add(glow);
+      this.playerHeadlightGlows.push(glow);
+    }
+    // A soft contact shadow grounds the car visually without a second shadow-map pass.
+    // The existing cached radial texture is reused; this mesh is created once.
+    const contactShadowGeo = new THREE.PlaneGeometry(190, 370, 1, 1);
+    contactShadowGeo.rotateX(-Math.PI / 2);
+    const contactShadowMat = new THREE.MeshBasicMaterial({
+      map: getCloudTexture(), color: '#111722', transparent: true, opacity: 0.26,
+      depthWrite: false, fog: false, side: THREE.DoubleSide,
+    });
+    this.playerContactShadow = new THREE.Mesh(contactShadowGeo, contactShadowMat);
+    this.playerContactShadow.position.set(0, 1.1, 0);
+    this.playerContactShadow.renderOrder = 0;
+    this.playerModel.group.add(this.playerContactShadow);
+
+    // One instanced batch keeps traffic cars grounded without one draw call per vehicle.
+    // The cached radial texture is shared; instance transforms are refreshed in the traffic loop.
+    const trafficShadowGeo = new THREE.PlaneGeometry(1, 1, 1, 1);
+    trafficShadowGeo.rotateX(-Math.PI / 2);
+    const trafficShadowMat = new THREE.MeshBasicMaterial({
+      map: getCloudTexture(), color: '#111722', transparent: true, opacity: 0.22,
+      depthWrite: false, fog: false, side: THREE.DoubleSide,
+    });
+    this.trafficContactShadows = new THREE.InstancedMesh(
+      trafficShadowGeo, trafficShadowMat, this.trafficShadowCapacity,
+    );
+    this.trafficContactShadows.count = 0;
+    this.trafficContactShadows.frustumCulled = false;
+    this.trafficContactShadows.renderOrder = 0;
+    this.scene.add(this.trafficContactShadows);
+
+    // A soft ground-projected beam adds visible light spill ahead of the car without
+    // creating dynamic lights or extra render passes. It follows the player's heading.
+    const spillGeo = new THREE.PlaneGeometry(300, 720, 1, 1);
+    spillGeo.rotateX(-Math.PI / 2);
+    const spillMat = new THREE.MeshBasicMaterial({
+      map: getCloudTexture(), color: '#ffe7ad', transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true, fog: false,
+      side: THREE.DoubleSide,
+    });
+    this.playerHeadlightSpill = new THREE.Mesh(spillGeo, spillMat);
+    this.playerHeadlightSpill.position.set(0, 2.2, -390);
+    this.playerHeadlightSpill.renderOrder = 1;
+    this.playerModel.group.add(this.playerHeadlightSpill);
+
+    // Rear brake halos respond to the actual braking input and reuse the cached texture.
+    // Kept as sprites rather than lights to avoid multiplying lighting cost on mobile.
+    for (const side of [-1, 1]) {
+      const brakeGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: getCloudTexture(), color: '#ff2414', transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      }));
+      brakeGlow.position.set(side * pw * 0.33, 45, Math.round(pw * 1.75) * 0.48 + 25);
+      brakeGlow.scale.set(70, 42, 1);
+      brakeGlow.renderOrder = 2;
+      this.playerModel.group.add(brakeGlow);
+      this.playerBrakeGlows.push(brakeGlow);
+    }
 
     // سکه‌ها — هندسه/متریال مشترک (InstancedMesh per قطعه در buildChunkVisual)
     this.coinGeo = new THREE.CylinderGeometry(17, 17, 6, 18);
@@ -386,14 +647,40 @@ export class WorldRenderer3D {
     skidGeo.rotateX(-Math.PI / 2);
     this.skidMesh = new THREE.InstancedMesh(
       skidGeo,
-      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ map: createSkidMarkTexture(), color: '#292b2f', transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide }),
       RENDER3D.skidMax,
     );
     this.skidMesh.count = 0;
     this.skidMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.skidMesh.renderOrder = 2;
     this.scene.add(this.skidMesh);
-    for (let i = 0; i < RENDER3D.skidMax; i++) this.skidData.push({ x: 0, z: 0, rot: 0, life: 0 });
+    for (let i = 0; i < RENDER3D.skidMax; i++) this.skidData.push({ x: 0, z: 0, rot: 0, life: 0, width: 9, length: 26, intensity: 0 });
+
+    // Soft tire smoke uses one cached radial texture and a fixed instanced pool.
+    const smokeGeo = new THREE.PlaneGeometry(1, 1);
+    smokeGeo.rotateX(-Math.PI / 2);
+    const smokeOpacity = new THREE.InstancedBufferAttribute(new Float32Array(this.tireSmokeCapacity).fill(1), 1);
+    smokeOpacity.setUsage(THREE.DynamicDrawUsage);
+    smokeGeo.setAttribute('instanceSmokeOpacity', smokeOpacity);
+    this.tireSmokeOpacity = smokeOpacity;
+    const smokeMaterial = new THREE.MeshBasicMaterial({
+      map: getCloudTexture(), color: '#d5d7d9', transparent: true,
+      opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+    });
+    smokeMaterial.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float instanceSmokeOpacity;\nvarying float vSmokeOpacity;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSmokeOpacity = instanceSmokeOpacity;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vSmokeOpacity;')
+        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vSmokeOpacity;');
+    };
+    this.tireSmokeMesh = new THREE.InstancedMesh(smokeGeo, smokeMaterial, this.tireSmokeCapacity);
+    this.tireSmokeMesh.count = this.tireSmokeCapacity;
+    this.tireSmokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.tireSmokeMesh.frustumCulled = false;
+    this.tireSmokeMesh.renderOrder = 3;
+    this.scene.add(this.tireSmokeMesh);
 
     // ذرات (Instanced)
     this.particleMesh = new THREE.InstancedMesh(
@@ -432,7 +719,7 @@ export class WorldRenderer3D {
   private buildStaticWorld(): void {
     this.groundMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(9200, 9200),
-      new THREE.MeshLambertMaterial({ color: '#C9B98A' }),
+      new THREE.MeshStandardMaterial({ color: '#C9B98A', roughness: 0.98, metalness: 0.0 }),
     );
     this.groundMesh.rotation.x = -Math.PI / 2;
     this.groundMesh.receiveShadow = true;
@@ -442,11 +729,44 @@ export class WorldRenderer3D {
     const roadTex = getRoadStraightTexture();
     roadTex.wrapT = THREE.RepeatWrapping;
     roadTex.colorSpace = THREE.SRGBColorSpace;
-    this.roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
-    this.crossMat = new THREE.MeshLambertMaterial({ map: getCrossroadTexture() });
-    this.swMat = new THREE.MeshLambertMaterial({ map: getSidewalkTexture() });
-    this.grassMat = new THREE.MeshLambertMaterial({ map: getGrassTexture() });
-    this.yardMat = new THREE.MeshLambertMaterial({ color: '#d4c49a' });
+    // PBR surface pass: road/sidewalk/terrain now react to the scene's sun and
+    // image-based environment instead of using unlit-looking Lambert response.
+    // Keep non-metallic, high-roughness values appropriate for outdoor materials.
+    const roadMicroMaps = getRoadMicroMaps();
+    const crossTex = getCrossroadTexture();
+    const sidewalkTex = getSidewalkTexture();
+    const grassTex = getGrassTexture();
+    // Better oblique-angle texture clarity without unbounded mobile GPU cost.
+    const anisotropy = Math.min(8, this.r3.capabilities.getMaxAnisotropy());
+    for (const texture of [roadTex, crossTex, sidewalkTex, grassTex, roadMicroMaps.normalMap, roadMicroMaps.roughnessMap]) {
+      texture.anisotropy = anisotropy;
+      texture.needsUpdate = true;
+    }
+    const roadSurface = new THREE.MeshStandardMaterial({
+      map: roadTex,
+      normalMap: roadMicroMaps.normalMap,
+      normalScale: new THREE.Vector2(0.18, 0.18),
+      roughnessMap: roadMicroMaps.roughnessMap,
+      roughness: 0.94, metalness: 0.015, envMapIntensity: 0.22,
+    });
+    const crossSurface = new THREE.MeshStandardMaterial({
+      map: crossTex,
+      normalMap: roadMicroMaps.normalMap,
+      normalScale: new THREE.Vector2(0.16, 0.16),
+      roughnessMap: roadMicroMaps.roughnessMap,
+      roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
+    });
+    const sidewalkSurface = new THREE.MeshStandardMaterial({
+      map: sidewalkTex, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.16,
+    });
+    const grassSurface = new THREE.MeshStandardMaterial({
+      map: grassTex, roughness: 1.0, metalness: 0.0, envMapIntensity: 0.04,
+    });
+    this.roadMat = roadSurface;
+    this.crossMat = crossSurface;
+    this.swMat = sidewalkSurface;
+    this.grassMat = grassSurface;
+    this.yardMat = new THREE.MeshStandardMaterial({ color: '#d4c49a', roughness: 0.96, metalness: 0.0 });
 
     const blockS = WR.pitch - WR.roadW; // 840
     // جاده: 560×1400 — تکرار بافت (1400/560=2.5) داخل UV بیک می‌شود تا متریال مشترک بماند
@@ -1590,6 +1910,17 @@ export class WorldRenderer3D {
     // GLB: مرکز پلن + پایه روی زمین + بدون چرخش (پلن مستطیلی تراز می‌ماند)
     g.position.set(cx, -gb.min.y * sy, cz);
     g.scale.set(fit, sy, fit);
+    // فاز IR-FACADES: قاب پنجره، شیشهٔ آبی کم‌انعکاس و بالکن‌های پراکنده روی نماهای ایرانی.
+    // تزئینات پیش از تبدیل مختصات به مقیاس نهایی ساخته می‌شوند تا با GLB هم‌مقیاس بمانند.
+    if (type === 'home' || type === 'apartment') {
+      const facadeGeometries = addIranianFacadeDetails(g, gb, variance, type === 'apartment');
+      if (this.visCollector) this.visCollector.geos.push(...facadeGeometries);
+    }
+    // فاز IR-ROOFTOPS: مخزن آب و کندانسور کولرهای رایج در بام ساختمان‌های ایرانی.
+    // فقط برای خانه/آپارتمان و با پراکندگی قطعی؛ جزئیات سبک‌اند و از منابع مشترک استفاده می‌کنند.
+    if ((type === 'home' || type === 'apartment') && variance % 3 !== 1) {
+      addIranianRooftopDetails(g, gb, variance);
+    }
     // فاز CITY-BEAUTY/IR-SIGNS: مغازه‌ها سایه‌بان راه‌راه + تابلوی اسم اختصاصی
     if (type === 'shop' || type === 'garage') {
       this.decorateShopFront(g, variance, p.label);
@@ -1722,18 +2053,42 @@ export class WorldRenderer3D {
         break;
       }
       case 'pole': {
+        // Modern Iranian streetlight: galvanized mast, short outreach arm and warm LED head.
+        // Geometry stays local to the prop and is merged by the existing chunk staging pass.
+        const steel = new THREE.MeshLambertMaterial({ color: '#68777d' });
+        const darkSteel = new THREE.MeshLambertMaterial({ color: '#35444a' });
+        const poleHeight = r * 4.2;
         const pole = new THREE.Mesh(
-          new THREE.CylinderGeometry(r * 0.14, r * 0.16, r * 4.2, 8),
-          new THREE.MeshLambertMaterial({ color: '#8D99AE' }),
+          new THREE.CylinderGeometry(r * 0.105, r * 0.16, poleHeight, 8),
+          steel,
         );
-        pole.position.y = r * 2.1;
+        pole.position.y = poleHeight * 0.5;
         pole.castShadow = true;
-        const lamp = new THREE.Mesh(
-          new THREE.SphereGeometry(r * 0.3, 10, 8),
-          new THREE.MeshBasicMaterial({ color: '#EF476F' }),
+
+        const arm = new THREE.Mesh(
+          new THREE.CylinderGeometry(r * 0.055, r * 0.065, r * 0.95, 7),
+          steel,
         );
-        lamp.position.y = r * 4.3;
-        wrap.add(pole, lamp);
+        arm.rotation.z = -Math.PI / 2;
+        arm.position.set(r * 0.35, poleHeight * 0.96, 0);
+
+        const head = new THREE.Mesh(
+          new THREE.BoxGeometry(r * 0.72, r * 0.2, r * 0.34),
+          darkSteel,
+        );
+        head.position.set(r * 0.78, poleHeight * 0.94, 0);
+        head.castShadow = true;
+
+        const diffuser = new THREE.Mesh(
+          new THREE.BoxGeometry(r * 0.56, r * 0.045, r * 0.25),
+          new THREE.MeshLambertMaterial({
+            color: '#ffe5a6',
+            emissive: '#ffb84d',
+            emissiveIntensity: 0.42,
+          }),
+        );
+        diffuser.position.set(r * 0.78, poleHeight * 0.94 - r * 0.105, 0);
+        wrap.add(pole, arm, head, diffuser);
         break;
       }
       case 'cone': {
@@ -1958,7 +2313,93 @@ export class WorldRenderer3D {
   private skyDome: THREE.Mesh | null = null;
   private clouds: THREE.Sprite[] = [];
   private sunGlow: THREE.Sprite | null = null;
+  private starField: THREE.Points | null = null;
+  private moon: THREE.Mesh | null = null;
+  private moonGlow: THREE.Sprite | null = null;
   private vignette: HTMLCanvasElement | null = null;
+
+  /** Smooth 6-minute day/night cycle. Updates existing lights/materials only (no per-lamp lights). */
+  private updateDayNight(t: number): void {
+    const phase = (t % 360) / 360;
+    // Sunrise at cycle start, noon at 90s, sunset at 180s, then night.
+    const daylight = Math.max(0, Math.sin(phase * Math.PI * 2));
+    const easedDay = daylight * daylight * (3 - 2 * daylight);
+    const night = 1 - easedDay;
+    this.dayNightFactor = easedDay;
+    // Keep asphalt reflections restrained through dusk, then let them build
+    // gradually at night. Reuse existing materials and vectors; no extra pass.
+    const wetSheen = Math.pow(night, 1.25) * 0.82;
+    const road = this.roadMat as unknown as THREE.MeshStandardMaterial;
+    const crossing = this.crossMat as unknown as THREE.MeshStandardMaterial;
+    // Micro-normal detail stays crisp in daylight and softens slightly under
+    // the smoother night response so highlights read as a surface, not noise.
+    const roadNormal = 0.18 - wetSheen * 0.055;
+    road.normalScale.set(roadNormal, roadNormal);
+    road.roughness = 0.94 - wetSheen * 0.43;
+    road.metalness = 0.015 + wetSheen * 0.035;
+    road.envMapIntensity = 0.22 + wetSheen * 0.62;
+    road.color.lerpColors(ROAD_DAY_TINT, ROAD_NIGHT_TINT, wetSheen * 0.36);
+    const crossingNormal = 0.16 - wetSheen * 0.035;
+    crossing.normalScale.set(crossingNormal, crossingNormal);
+    crossing.roughness = 0.92 - wetSheen * 0.34;
+    crossing.metalness = 0.01 + wetSheen * 0.025;
+    crossing.envMapIntensity = 0.20 + wetSheen * 0.48;
+    crossing.color.lerpColors(ROAD_DAY_TINT, ROAD_NIGHT_TINT, wetSheen * 0.24);
+    const nightVisibility = Math.min(1, Math.max(0, (night - 0.12) / 0.72));
+    // Fade headlamp halos smoothly through dusk; no per-frame allocations.
+    for (const glow of this.playerHeadlightGlows) {
+      (glow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.46;
+    }
+    // Keep the beam subtle at dusk and stronger at night; material/geometry are reused.
+    if (this.playerHeadlightSpill) {
+      (this.playerHeadlightSpill.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.16;
+    }
+    // Contact shadows read most clearly in daylight and soften naturally at night.
+    if (this.playerContactShadow) {
+      (this.playerContactShadow.material as THREE.MeshBasicMaterial).opacity = 0.12 + easedDay * 0.16;
+    }
+    if (this.trafficContactShadows) {
+      (this.trafficContactShadows.material as THREE.MeshBasicMaterial).opacity = 0.10 + easedDay * 0.14;
+    }
+    if (this.starField) (this.starField.material as THREE.PointsMaterial).opacity = nightVisibility * 0.92;
+    if (this.moon) (this.moon.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.96;
+    if (this.moonGlow) (this.moonGlow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.22;
+
+    this.hemi.color.lerpColors(SKY_NIGHT, SKY_DAY, easedDay);
+    this.hemi.groundColor.lerpColors(GROUND_NIGHT, GROUND_DAY, easedDay);
+    this.hemi.intensity = RENDER3D.hemiIntensity * (0.34 + easedDay * 0.66);
+
+    // Warm sunrise/sunset, cool night ambience, full warm daylight.
+    const dusk = Math.max(0, 1 - Math.abs(daylight - 0.22) / 0.22) * (daylight > 0 ? 1 : 0);
+    this.sun.color.copy(SUN_NIGHT).lerp(SUN_DAY, easedDay).lerp(SUN_DUSK, dusk * 0.48);
+    this.sun.intensity = RENDER3D.sunIntensity * (0.035 + easedDay * 0.965);
+
+    const fog = this.scene.fog;
+    if (fog instanceof THREE.Fog) {
+      fog.color.lerpColors(FOG_NIGHT, FOG_DAY, easedDay);
+      fog.near = 920 + easedDay * 380;
+      fog.far = RENDER3D.fogFar;
+    }
+
+    if (this.skyDome) {
+      const material = this.skyDome.material;
+      if (material instanceof THREE.MeshBasicMaterial) {
+        material.color.lerpColors(SKY_DOME_NIGHT, SKY_DOME_DAY, easedDay);
+      }
+    }
+    for (const cloud of this.clouds) {
+      cloud.material.opacity = 0.22 + easedDay * 0.58;
+      cloud.material.color.copy(SKY_NIGHT).lerp(SKY_DAY, easedDay);
+    }
+    if (this.sunGlow) {
+      const glow = this.sunGlow.material;
+      glow.opacity = 0.015 + easedDay * 0.245;
+      glow.color.copy(SUN_NIGHT).lerp(SUN_DAY, easedDay).lerp(SUN_DUSK, dusk * 0.55);
+    }
+
+    this.scene.environmentIntensity = 0.48 + easedDay * 0.34;
+    this.r3.toneMappingExposure = 0.82 + easedDay * 0.38;
+  }
 
   /** گنبد آسمان گرادیانی — دنبال دوربین، بدون مه
    *  🔑 PERF-3: شعاع ۳۳۰۰ = هم‌تراز fogFar — هر چیز دورتر ۱۰۰٪ هم‌رنگ مِه است و دیده نمی‌شود؛
@@ -1996,6 +2437,49 @@ export class WorldRenderer3D {
     this.sunGlow = new THREE.Sprite(glowMat);
     this.sunGlow.scale.set(1022, 1022, 1);
     this.scene.add(this.sunGlow);
+
+    // One batched point cloud replaces hundreds of individual star meshes.
+    // A fixed seed keeps the sky stable between runs and costs no per-frame allocations.
+    const starPositions = new Float32Array(260 * 3);
+    let seed = 0x51f15e;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    for (let i = 0; i < 260; i++) {
+      const azimuth = random() * Math.PI * 2;
+      const elevation = 0.12 + random() * 1.25;
+      const radius = 3000;
+      starPositions[i * 3] = Math.cos(azimuth) * Math.cos(elevation) * radius;
+      starPositions[i * 3 + 1] = Math.sin(elevation) * radius;
+      starPositions[i * 3 + 2] = Math.sin(azimuth) * Math.cos(elevation) * radius;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: '#dce7ff', size: 2.2, sizeAttenuation: false,
+      transparent: true, opacity: 0, depthWrite: false, fog: false,
+    });
+    this.starField = new THREE.Points(starGeo, starMat);
+    this.starField.renderOrder = -8;
+    this.scene.add(this.starField);
+
+    // A simple low-poly moon and a soft, shared-texture halo: no extra lights.
+    const moonMat = new THREE.MeshBasicMaterial({
+      color: '#d8e5ff', transparent: true, opacity: 0, fog: false,
+      depthWrite: false,
+    });
+    this.moon = new THREE.Mesh(new THREE.SphereGeometry(34, 16, 12), moonMat);
+    this.moon.renderOrder = -7;
+    this.scene.add(this.moon);
+    const moonGlowMat = new THREE.SpriteMaterial({
+      map: getCloudTexture(), color: '#9ebaff', transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+    });
+    this.moonGlow = new THREE.Sprite(moonGlowMat);
+    this.moonGlow.scale.set(310, 310, 1);
+    this.moonGlow.renderOrder = -7;
+    this.scene.add(this.moonGlow);
   }
 
   /** وینیت سینمایی — یک‌بار ساخته می‌شود، هر فریم روی اورلی کشیده می‌شود */
@@ -2111,11 +2595,22 @@ export class WorldRenderer3D {
     }
   }
 
-  /** رد لاستیک درفت — حلقه‌ای (قدیمی‌ها fade با رنگ نزدیک آسفالت) */
-  addSkidMark(x: number, y: number, angle: number): void {
-    const idx = this.skidIdx;
-    this.skidData[idx] = { x, z: y, rot: -angle, life: SKID_LIFE };
-    this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
+  /** Twin tire tracks for a more grounded drift trail; the fixed ring buffer avoids allocations. */
+  addSkidMark(x: number, y: number, angle: number, driftIntensity = 0): void {
+    const halfTrack = 14;
+    const sideX = Math.cos(angle) * halfTrack;
+    const sideZ = -Math.sin(angle) * halfTrack;
+    const intensity = Math.max(0, Math.min(1, driftIntensity));
+    const width = 9 + intensity * 2.2;
+    const length = 26 + intensity * 5;
+    for (const side of [-1, 1]) {
+      const idx = this.skidIdx;
+      this.skidData[idx] = {
+        x: x + sideX * side, z: y + sideZ * side, rot: -angle,
+        life: SKID_LIFE, width, length, intensity,
+      };
+      this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
+    }
   }
 
   /** رنگ انتخابی گاراژ (فاز ۶) — قبل از ساخت مدل ست می‌شود */
@@ -2239,10 +2734,117 @@ export class WorldRenderer3D {
     return Math.min(0.05, Math.max(0.001, dt));
   }
 
+  /** Low-cost drifting/braking smoke: fixed pool, capped emissions and one draw call. */
+  private updateTireSmoke(dt: number, opts: Draw3DOptions, brakingLoad: boolean, driftLoad: boolean): void {
+    for (const puff of this.tireSmokePuffs) {
+      if (!puff.active) continue;
+      puff.life -= dt;
+      if (puff.life <= 0) { puff.active = false; continue; }
+      puff.x += puff.vx * dt;
+      puff.z += puff.vz * dt;
+      puff.y += puff.vy * dt;
+      puff.size += dt * 23;
+      puff.vx *= 0.985;
+      puff.vz *= 0.985;
+      puff.vy *= 0.97;
+    }
+
+    if (brakingLoad || driftLoad) {
+      this.tireSmokeEmitTimer -= dt;
+      if (this.tireSmokeEmitTimer <= 0) {
+        const car = opts.car;
+        const rearOffset = car.drawH * 0.36;
+        const rearX = car.x - Math.sin(car.angle) * rearOffset;
+        const rearZ = car.y + Math.cos(car.angle) * rearOffset;
+        const sideOffset = car.drawW * 0.24;
+        // Two rear-wheel puffs per emission; pool reuse prevents allocation growth.
+        for (const side of [-1, 1]) {
+          const p = this.tireSmokePuffs[this.tireSmokeCursor];
+          this.tireSmokeCursor = (this.tireSmokeCursor + 1) % this.tireSmokeCapacity;
+          p.x = rearX + Math.cos(car.angle) * sideOffset * side;
+          p.z = rearZ + Math.sin(car.angle) * sideOffset * side;
+          p.y = 2.5;
+          const backwards = -Math.sign(car.speed || 1) * (driftLoad ? 22 : 12);
+          // Lateral velocity pushes smoke outward along the car's slip direction,
+          // making long drifts read clearly without adding particles or draw calls.
+          const slip = Math.max(-1, Math.min(1, car.latVel / 140));
+          p.vx = -Math.sin(car.angle) * backwards + Math.cos(car.angle) * slip * 18 + (Math.random() - 0.5) * 15;
+          p.vz = Math.cos(car.angle) * backwards + Math.sin(car.angle) * slip * 18 + (Math.random() - 0.5) * 15;
+          p.vy = 9 + Math.random() * 10;
+          p.life = p.maxLife = driftLoad ? 0.72 : 0.58;
+          p.size = 13 + Math.random() * 5;
+          p.rot = Math.random() * Math.PI;
+          p.active = true;
+        }
+        this.tireSmokeEmitTimer = driftLoad ? 0.13 : 0.17;
+      }
+    } else {
+      this.tireSmokeEmitTimer = Math.min(this.tireSmokeEmitTimer, 0.05);
+    }
+
+    const dummy = this.tireSmokeDummy;
+    for (let i = 0; i < this.tireSmokeCapacity; i++) {
+      const p = this.tireSmokePuffs[i];
+      if (!p.active) {
+        dummy.position.set(0, -10000, 0);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(0, 0, 0);
+        dummy.updateMatrix();
+        this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
+        this.tireSmokeOpacity.setX(i, 0);
+        this.tireSmokeColor.setRGB(0.42, 0.42, 0.42);
+        this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
+        continue;
+      }
+      const age = 1 - p.life / p.maxLife;
+      const size = p.size * (0.72 + age * 0.8);
+      const fade = age <= 0.42 ? 1 : Math.max(0, 1 - (age - 0.42) / 0.58);
+      // Smoke remains readable in daylight but becomes subtler and cooler at night.
+      const night = 1 - this.dayNightFactor;
+      this.tireSmokeOpacity.setX(i, fade * (1 - night * 0.16));
+      dummy.position.set(p.x, p.y, p.z);
+      dummy.rotation.set(0, p.rot + age * 0.35, 0);
+      dummy.scale.set(size, size, 1);
+      dummy.updateMatrix();
+      this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
+      const shade = 0.82 - age * 0.12;
+      this.tireSmokeColor.setRGB(shade * (1 - night * 0.13), shade * (1 - night * 0.08), Math.min(1, shade * (1 + night * 0.035)));
+      this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
+    }
+    this.tireSmokeMesh.instanceMatrix.needsUpdate = true;
+    this.tireSmokeOpacity.needsUpdate = true;
+    if (this.tireSmokeMesh.instanceColor) this.tireSmokeMesh.instanceColor.needsUpdate = true;
+  }
+
   draw3D(opts: Draw3DOptions): void {
     const t = performance.now() / 1000;
     const frameDt = this.drawDt();
     const car = opts.car;
+    this.updateDayNight(t);
+
+    // Emit physical brake/drift marks at a bounded cadence, not once per render frame.
+    // Coordinates target the rear axle; marks appear only under meaningful load/speed.
+    const brakingLoad = opts.braking === true && Math.abs(car.speed) > 240;
+    const driftLoad = Math.abs(car.latVel) > 48 && Math.abs(car.speed) > 180;
+    if (brakingLoad || driftLoad) {
+      this.skidEmitTimer -= frameDt;
+      if (this.skidEmitTimer <= 0) {
+        const rearOffset = car.drawH * 0.36;
+        const rearX = car.x - Math.sin(car.angle) * rearOffset;
+        const rearY = car.y + Math.cos(car.angle) * rearOffset;
+        // Align marks with the car's slip angle during a drift instead of locking
+        // every segment to the body heading; clamp the correction to avoid spikes.
+        const slipAngle = Math.atan2(car.latVel, Math.max(1, Math.abs(car.speed)));
+        const slipCorrection = driftLoad ? Math.max(-0.32, Math.min(0.32, slipAngle)) : 0;
+        const driftIntensity = driftLoad ? Math.min(1, Math.abs(car.latVel) / 130) : 0;
+        this.addSkidMark(rearX, rearY, car.angle + slipCorrection, driftIntensity);
+        this.skidEmitTimer = driftLoad ? 0.075 : 0.105;
+      }
+    } else {
+      this.skidEmitTimer = Math.min(this.skidEmitTimer, 0.04);
+    }
+
+    this.updateTireSmoke(frameDt, opts, brakingLoad, driftLoad);
 
     // 🔕 سایهٔ ۲۰Hz — نقشهٔ سایه فقط هر ۳ فریم بازتولید می‌شود
     this.shadowTick = (this.shadowTick + 1) % 3;
@@ -2267,6 +2869,13 @@ export class WorldRenderer3D {
       pmodel.tailMat.emissive.set(on ? '#ff1a08' : '#5a0f08');
       pmodel.tailMat.emissiveIntensity = on ? 2.4 : 0.7;
     }
+    // Smooth brake-glow response avoids a harsh binary pop on rapid inputs.
+    const brakeTarget = opts.braking === true ? 1 : 0;
+    this.brakeGlowLevel += (brakeTarget - this.brakeGlowLevel) * Math.min(1, 12 * frameDt);
+    for (const glow of this.playerBrakeGlows) {
+      (glow.material as THREE.SpriteMaterial).opacity = this.brakeGlowLevel * 0.58;
+      glow.scale.set(70 + this.brakeGlowLevel * 12, 42 + this.brakeGlowLevel * 8, 1);
+    }
     // فرمان بصری چرخ‌های جلو — با محور واقعی هر پیوت
     const steerTarget = (opts.steer ?? 0) * 0.42;
     this.steerVis += (steerTarget - this.steerVis) * Math.min(1, 10 * frameDt);
@@ -2283,6 +2892,7 @@ export class WorldRenderer3D {
 
     // ---------- ترافیک (GLB با fallback procedural + LOD + چراغ ترمز) ----------
     const seen = new Set<TrafficCar>();
+    let trafficShadowIndex = 0;
     for (const c of opts.traffic) {
       seen.add(c);
       let model = this.trafficModels.get(c);
@@ -2294,6 +2904,15 @@ export class WorldRenderer3D {
       }
       model.group.position.set(c.x, 0, c.y);
       model.group.rotation.y = -c.angle;
+      // Batch a soft oval under each traffic vehicle; scale follows its actual dimensions.
+      if (this.trafficContactShadows && trafficShadowIndex < this.trafficShadowCapacity) {
+        const shadow = this.trafficShadowDummy;
+        shadow.position.set(c.x, 1.05, c.y);
+        shadow.rotation.set(0, -c.angle, 0);
+        shadow.scale.set(Math.max(80, c.drawW * 1.75), Math.max(150, c.drawH * 1.55), 1);
+        shadow.updateMatrix();
+        this.trafficContactShadows.setMatrixAt(trafficShadowIndex++, shadow.matrix);
+      }
       const wr = c.drawH * 0.135;
       spinWheels(model, (c.speed / wr) * this.drawDt());
       // چراغ ترمز ترافیک: کند شدن ناگهانی
@@ -2362,6 +2981,19 @@ export class WorldRenderer3D {
       gm.group.visible = true;
       gm.group.position.set(g.x, 0, g.y);
       gm.group.rotation.set(0, -g.angle, 0);
+      // Reuse the same batched shadow pool for parked/guard vehicles too.
+      if (this.trafficContactShadows && trafficShadowIndex < this.trafficShadowCapacity) {
+        const shadow = this.trafficShadowDummy;
+        shadow.position.set(g.x, 1.05, g.y);
+        shadow.rotation.set(0, -g.angle, 0);
+        shadow.scale.set(104 * 1.75, Math.max(150, g.len * 1.55), 1);
+        shadow.updateMatrix();
+        this.trafficContactShadows.setMatrixAt(trafficShadowIndex++, shadow.matrix);
+      }
+    }
+    if (this.trafficContactShadows) {
+      this.trafficContactShadows.count = trafficShadowIndex;
+      if (trafficShadowIndex > 0) this.trafficContactShadows.instanceMatrix.needsUpdate = true;
     }
 
     // ---------- شکستنی‌ها: همگام با وضعیت World (Instanced) ----------
@@ -2504,10 +3136,14 @@ export class WorldRenderer3D {
       if (s.life <= 0) continue;
       const k = Math.max(0, Math.min(1, s.life / SKID_LIFE));
       this.tmpQ.setFromEuler(this.eul.set(0, s.rot, 0));
-      this.tmpM.compose(this.tmpV.set(s.x, 2.2, s.z), this.tmpQ, this.tmpS.set(24, 1, 15));
+      this.tmpM.compose(this.tmpV.set(s.x, 2.2, s.z), this.tmpQ, this.tmpS.set(s.width, 1, s.length));
       this.skidMesh.setMatrixAt(skidCount, this.tmpM);
-      // fade با نزدیک شدن رنگ به آسفالت
-      const col = this.tmpC.copy(this.asphaltC).lerp(this.darkC, k * 0.85);
+      // Fresh, hard drifts leave darker rubber; old marks blend smoothly back into asphalt.
+      const ageFade = k * k * (3 - 2 * k);
+      const markStrength = (0.32 + s.intensity * 0.48) * ageFade;
+      const nightContrast = 1 - (1 - this.dayNightFactor) * 0.12;
+      const col = this.tmpC.copy(this.asphaltC).lerp(this.darkC, markStrength);
+      col.multiplyScalar(nightContrast);
       this.skidMesh.setColorAt(skidCount, col);
       skidCount++;
     }
@@ -2523,13 +3159,25 @@ export class WorldRenderer3D {
     const sunSnap = 660 / 2048;
     const sunX = Math.round(car.x / sunSnap) * sunSnap;
     const sunZ = Math.round(car.y / sunSnap) * sunSnap;
-    this.sun.position.set(sunX + 520, 640, sunZ + 380);
+    const cyclePhase = (t % 360) / 360;
+    const sunAngle = cyclePhase * Math.PI * 2;
+    const sunHeight = 140 + this.dayNightFactor * 500;
+    this.sun.position.set(sunX + Math.cos(sunAngle) * 520, sunHeight, sunZ + Math.sin(sunAngle) * 380);
     this.sun.target.position.set(sunX, 0, sunZ);
     this.sun.target.updateMatrixWorld();
 
     // ---------- فاز CINEMATIC: گنبد آسمان + ابرها + هاله خورشید دنبال دوربین ----------
     if (this.skyDome) {
       this.skyDome.position.set(this.cam3.position.x, 0, this.cam3.position.z);
+    }
+    if (this.starField) this.starField.position.copy(this.cam3.position);
+    if (this.moon && this.moonGlow) {
+      const moonAngle = ((t % 360) / 360) * Math.PI * 2 + Math.PI;
+      const moonX = this.cam3.position.x + Math.cos(moonAngle) * 2350;
+      const moonY = this.cam3.position.y + 520 + Math.max(0, Math.sin(moonAngle)) * 850;
+      const moonZ = this.cam3.position.z + Math.sin(moonAngle + 0.65) * 2200;
+      this.moon.position.set(moonX, moonY, moonZ);
+      this.moonGlow.position.set(moonX, moonY, moonZ);
     }
     const ct = t * 0.5;
     for (const cl of this.clouds) {
@@ -2543,7 +3191,7 @@ export class WorldRenderer3D {
     }
     if (this.sunGlow) {
       // هاله در جهت نور خورشید نسبت به دوربین (۳۲۰۰ — داخل far=3450، اندازهٔ ظاهری ثابت)
-      const dir = this.tmpV.set(520, 640, 380).normalize();
+      const dir = this.tmpV.copy(this.sun.position).sub(this.sun.target.position).normalize();
       this.sunGlow.position.set(
         this.cam3.position.x + dir.x * 3200,
         dir.y * 3200,
