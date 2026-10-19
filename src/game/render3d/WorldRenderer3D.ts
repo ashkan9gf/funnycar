@@ -255,6 +255,8 @@ export class WorldRenderer3D {
   private dayNightFactor = 0;
   /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
   private playerHeadlightGlows: THREE.Sprite[] = [];
+  private playerBrakeGlows: THREE.Sprite[] = [];
+  private brakeGlowLevel = 0;
   private octx: CanvasRenderingContext2D;
 
   // افکت‌ها
@@ -492,6 +494,19 @@ export class WorldRenderer3D {
       glow.renderOrder = 2;
       this.playerModel.group.add(glow);
       this.playerHeadlightGlows.push(glow);
+    }
+    // Rear brake halos respond to the actual braking input and reuse the cached texture.
+    // Kept as sprites rather than lights to avoid multiplying lighting cost on mobile.
+    for (const side of [-1, 1]) {
+      const brakeGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: getCloudTexture(), color: '#ff2414', transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      }));
+      brakeGlow.position.set(side * pw * 0.33, 45, Math.round(pw * 1.75) * 0.48 + 25);
+      brakeGlow.scale.set(70, 42, 1);
+      brakeGlow.renderOrder = 2;
+      this.playerModel.group.add(brakeGlow);
+      this.playerBrakeGlows.push(brakeGlow);
     }
 
     // سکه‌ها — هندسه/متریال مشترک (InstancedMesh per قطعه در buildChunkVisual)
@@ -2581,6 +2596,13 @@ export class WorldRenderer3D {
       const on = opts.braking === true;
       pmodel.tailMat.emissive.set(on ? '#ff1a08' : '#5a0f08');
       pmodel.tailMat.emissiveIntensity = on ? 2.4 : 0.7;
+    }
+    // Smooth brake-glow response avoids a harsh binary pop on rapid inputs.
+    const brakeTarget = opts.braking === true ? 1 : 0;
+    this.brakeGlowLevel += (brakeTarget - this.brakeGlowLevel) * Math.min(1, 12 * frameDt);
+    for (const glow of this.playerBrakeGlows) {
+      (glow.material as THREE.SpriteMaterial).opacity = this.brakeGlowLevel * 0.58;
+      glow.scale.set(70 + this.brakeGlowLevel * 12, 42 + this.brakeGlowLevel * 8, 1);
     }
     // فرمان بصری چرخ‌های جلو — با محور واقعی هر پیوت
     const steerTarget = (opts.steer ?? 0) * 0.42;
