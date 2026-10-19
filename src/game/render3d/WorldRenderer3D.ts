@@ -1183,7 +1183,7 @@ export class WorldRenderer3D {
           // 🔕 شکست ارتقا هرگز job را reject نمی‌کند — مدل procedural می‌ماند
           try {
             this.glbCars.set(v, scene);
-            if (v === 'player') this.upgradePlayerToGLB();
+            if (v === this.playerVariant) this.upgradePlayerToGLB();
             else this.upgradeTrafficToGLB(v);
           } catch (e) {
             console.warn('[Renderer] car GLB upgrade failed (kept procedural):', v, e);
@@ -1216,19 +1216,51 @@ export class WorldRenderer3D {
     }
   }
 
-  /** تعویض مدل بازیکن به GLB (حفظ موقعیت/چرخش فعلی) */
+  /** انتقال جلوه‌های وابسته به خودرو هنگام تعویض مدل؛ بدون ساخت دوبارهٔ منابع */
+  private transferPlayerEffects(from: CarModel3D, to: CarModel3D): void {
+    const effects: THREE.Object3D[] = [
+      ...this.playerHeadlightGlows,
+      ...this.playerBrakeGlows,
+      ...(this.playerHeadlightSpill ? [this.playerHeadlightSpill] : []),
+      ...(this.playerContactShadow ? [this.playerContactShadow] : []),
+    ];
+    for (const effect of effects) {
+      from.group.remove(effect);
+      to.group.add(effect);
+    }
+  }
+
+  /** تعویض مدل بازیکن به GLB برای خودروی انتخاب‌شده (حفظ موقعیت و جلوه‌ها) */
   private upgradePlayerToGLB(): void {
-    const scene = this.glbCars.get('player');
+    const scene = this.glbCars.get(this.playerVariant);
     if (!scene || !this.playerModel) return;
     const old = this.playerModel;
-    const model = assembleCarFromGLB('player', scene, { bodyColor: old.bodyColor });
-    const s = old.group.scale.x; // مقیاس قبلی حفظ شود
-    model.group.scale.setScalar(s);
+    const model = assembleCarFromGLB(this.playerVariant, scene, { bodyColor: old.bodyColor });
+    model.group.scale.setScalar(old.group.scale.x);
     model.group.position.copy(old.group.position);
     model.group.rotation.copy(old.group.rotation);
+    this.transferPlayerEffects(old, model);
     this.scene.remove(old.group);
     this.scene.add(model.group);
     this.playerModel = model;
+  }
+
+  /** انتخاب خودروی بازیکن از گاراژ؛ مدل GLB یا procedural، بدون ریست موقعیت */
+  setPlayerVehicle(variant: CarVariant): void {
+    const allowed: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'renault4', 'vintage'];
+    if (!allowed.includes(variant) || variant === this.playerVariant || !this.playerModel) return;
+    this.playerVariant = variant;
+    const old = this.playerModel;
+    const model = buildCar3D(variant, 112, Math.round(112 * 1.75), { paint: this.playerPaint });
+    model.group.scale.setScalar(old.group.scale.x);
+    model.group.position.copy(old.group.position);
+    model.group.rotation.copy(old.group.rotation);
+    this.transferPlayerEffects(old, model);
+    this.scene.remove(old.group);
+    this.scene.add(model.group);
+    this.playerModel = model;
+    // If the GLB for this variant has already loaded, upgrade immediately.
+    this.upgradePlayerToGLB();
   }
 
   /** ترافیک GLB موجود؟ — مدل‌های خارجی کاربر از نسخه سبک lod1 (عملکرد — فیکس FPS) */
@@ -2707,6 +2739,7 @@ export class WorldRenderer3D {
 
   /** رنگ انتخابی گاراژ (فاز ۶) — قبل از ساخت مدل ست می‌شود */
   private playerPaint = '#f4f4f0';
+  private playerVariant: CarVariant = 'player';
 
   /**
    * فاز ۶ گاراژ — تغییر رنگ بدنه بازیکن (در منو یا حین بازی)
