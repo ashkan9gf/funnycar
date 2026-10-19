@@ -965,6 +965,19 @@ export default function GameShell() {
             <p className="mt-3 rounded-2xl bg-[#FFF3D6] px-3 py-2 text-sm font-bold leading-6 text-[#3a2e2a]">
               «{missionResult.line}»
             </p>
+            {missionResult.success && (
+              <div className="mt-3 rounded-2xl border border-[#F2B705]/50 bg-[#FFF8DF] px-4 py-3 text-center text-[#3a2e2a]">
+                <div className="text-xs font-extrabold opacity-75">رتبهٔ رانندگی</div>
+                <div className="mt-1 flex items-center justify-center gap-2 text-2xl" aria-label={`${missionResult.stars} از ۳ ستاره`}>
+                  {[1, 2, 3].map((star) => (
+                    <span key={star} className={star <= missionResult.stars ? "text-[#E0A800]" : "text-[#B9B3A3]"}>★</span>
+                  ))}
+                </div>
+                <div className="mt-1 text-xs font-bold">
+                  {missionResult.stars === 3 ? "رانندگی بی‌نقص! پاداش ویژه گرفتی." : missionResult.stars === 2 ? "خوب بود! برای پاداش کامل تمیزتر برون." : "مأموریت انجام شد؛ برای ستاره‌های بیشتر تصادف نکن."}
+                </div>
+              </div>
+            )}
             {missionResult.success && missionResult.unlockedNext && (
               <p className="mt-2 flex items-center justify-center gap-1.5 rounded-2xl bg-[#8AC926]/25 px-3 py-2 text-sm font-extrabold text-[#3a2e2a]">
                 <Lock className="h-4 w-4" />
