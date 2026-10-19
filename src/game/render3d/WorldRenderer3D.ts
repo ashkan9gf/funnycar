@@ -446,6 +446,15 @@ export class WorldRenderer3D {
     // image-based environment instead of using unlit-looking Lambert response.
     // Keep non-metallic, high-roughness values appropriate for outdoor materials.
     const roadMicroMaps = getRoadMicroMaps();
+    const crossTex = getCrossroadTexture();
+    const sidewalkTex = getSidewalkTexture();
+    const grassTex = getGrassTexture();
+    // Better oblique-angle texture clarity without unbounded mobile GPU cost.
+    const anisotropy = Math.min(8, this.r3.capabilities.getMaxAnisotropy());
+    for (const texture of [roadTex, crossTex, sidewalkTex, grassTex, roadMicroMaps.normalMap, roadMicroMaps.roughnessMap]) {
+      texture.anisotropy = anisotropy;
+      texture.needsUpdate = true;
+    }
     const roadSurface = new THREE.MeshStandardMaterial({
       map: roadTex,
       normalMap: roadMicroMaps.normalMap,
@@ -454,17 +463,17 @@ export class WorldRenderer3D {
       roughness: 0.94, metalness: 0.015, envMapIntensity: 0.22,
     });
     const crossSurface = new THREE.MeshStandardMaterial({
-      map: getCrossroadTexture(),
+      map: crossTex,
       normalMap: roadMicroMaps.normalMap,
       normalScale: new THREE.Vector2(0.16, 0.16),
       roughnessMap: roadMicroMaps.roughnessMap,
       roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
     });
     const sidewalkSurface = new THREE.MeshStandardMaterial({
-      map: getSidewalkTexture(), roughness: 0.88, metalness: 0.0, envMapIntensity: 0.16,
+      map: sidewalkTex, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.16,
     });
     const grassSurface = new THREE.MeshStandardMaterial({
-      map: getGrassTexture(), roughness: 1.0, metalness: 0.0, envMapIntensity: 0.04,
+      map: grassTex, roughness: 1.0, metalness: 0.0, envMapIntensity: 0.04,
     });
     this.roadMat = roadSurface;
     this.crossMat = crossSurface;
