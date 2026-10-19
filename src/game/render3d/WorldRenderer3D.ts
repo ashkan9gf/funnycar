@@ -253,6 +253,8 @@ export class WorldRenderer3D {
   private sun: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private dayNightFactor = 0;
+  /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
+  private playerHeadlightGlows: THREE.Sprite[] = [];
   private octx: CanvasRenderingContext2D;
 
   // افکت‌ها
@@ -477,6 +479,20 @@ export class WorldRenderer3D {
     const pw = 112;
     this.playerModel = buildCar3D('player', pw, Math.round(pw * 1.75), { paint: this.playerPaint });
     this.scene.add(this.playerModel.group);
+    // Soft additive halos sit just ahead of the two existing headlamps.
+    // They use the already-cached cloud texture and add no lights or render pass.
+    for (const side of [-1, 1]) {
+      const glowMat = new THREE.SpriteMaterial({
+        map: getCloudTexture(), color: '#ffe9b0', transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      });
+      const glow = new THREE.Sprite(glowMat);
+      glow.position.set(side * pw * 0.33, 43, -Math.round(pw * 1.75) * 0.48 - 25);
+      glow.scale.set(76, 48, 1);
+      glow.renderOrder = 2;
+      this.playerModel.group.add(glow);
+      this.playerHeadlightGlows.push(glow);
+    }
 
     // سکه‌ها — هندسه/متریال مشترک (InstancedMesh per قطعه در buildChunkVisual)
     this.coinGeo = new THREE.CylinderGeometry(17, 17, 6, 18);
@@ -2171,6 +2187,10 @@ export class WorldRenderer3D {
     crossing.envMapIntensity = 0.20 + wetSheen * 0.48;
     crossing.color.lerpColors(ROAD_DAY_TINT, ROAD_NIGHT_TINT, wetSheen * 0.24);
     const nightVisibility = Math.min(1, Math.max(0, (night - 0.12) / 0.72));
+    // Fade headlamp halos smoothly through dusk; no per-frame allocations.
+    for (const glow of this.playerHeadlightGlows) {
+      (glow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.46;
+    }
     if (this.starField) (this.starField.material as THREE.PointsMaterial).opacity = nightVisibility * 0.92;
     if (this.moon) (this.moon.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.96;
     if (this.moonGlow) (this.moonGlow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.22;
