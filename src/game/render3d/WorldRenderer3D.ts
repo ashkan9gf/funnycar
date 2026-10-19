@@ -333,7 +333,7 @@ export class WorldRenderer3D {
   }));
   private tireSmokeEmitTimer = 0;
   private tireSmokeCursor = 0;
-  private skidData: Array<{ x: number; z: number; rot: number; life: number; width: number; length: number }> = [];
+  private skidData: Array<{ x: number; z: number; rot: number; life: number; width: number; length: number; intensity: number }> = [];
   private bubbles: AmbientBubble[] = [];
 
   // پویاها
@@ -654,7 +654,7 @@ export class WorldRenderer3D {
     this.skidMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.skidMesh.renderOrder = 2;
     this.scene.add(this.skidMesh);
-    for (let i = 0; i < RENDER3D.skidMax; i++) this.skidData.push({ x: 0, z: 0, rot: 0, life: 0, width: 9, length: 26 });
+    for (let i = 0; i < RENDER3D.skidMax; i++) this.skidData.push({ x: 0, z: 0, rot: 0, life: 0, width: 9, length: 26, intensity: 0 });
 
     // Soft tire smoke uses one cached radial texture and a fixed instanced pool.
     const smokeGeo = new THREE.PlaneGeometry(1, 1);
@@ -2594,13 +2594,14 @@ export class WorldRenderer3D {
     const halfTrack = 14;
     const sideX = Math.cos(angle) * halfTrack;
     const sideZ = -Math.sin(angle) * halfTrack;
-    const width = 9 + Math.max(0, Math.min(1, driftIntensity)) * 2.2;
-    const length = 26 + Math.max(0, Math.min(1, driftIntensity)) * 5;
+    const intensity = Math.max(0, Math.min(1, driftIntensity));
+    const width = 9 + intensity * 2.2;
+    const length = 26 + intensity * 5;
     for (const side of [-1, 1]) {
       const idx = this.skidIdx;
       this.skidData[idx] = {
         x: x + sideX * side, z: y + sideZ * side, rot: -angle,
-        life: SKID_LIFE, width, length,
+        life: SKID_LIFE, width, length, intensity,
       };
       this.skidIdx = (this.skidIdx + 1) % RENDER3D.skidMax;
     }
@@ -3131,8 +3132,12 @@ export class WorldRenderer3D {
       this.tmpQ.setFromEuler(this.eul.set(0, s.rot, 0));
       this.tmpM.compose(this.tmpV.set(s.x, 2.2, s.z), this.tmpQ, this.tmpS.set(s.width, 1, s.length));
       this.skidMesh.setMatrixAt(skidCount, this.tmpM);
-      // fade با نزدیک شدن رنگ به آسفالت
-      const col = this.tmpC.copy(this.asphaltC).lerp(this.darkC, k * 0.85);
+      // Fresh, hard drifts leave darker rubber; old marks blend smoothly back into asphalt.
+      const ageFade = k * k * (3 - 2 * k);
+      const markStrength = (0.32 + s.intensity * 0.48) * ageFade;
+      const nightContrast = 1 - (1 - this.dayNightFactor) * 0.12;
+      const col = this.tmpC.copy(this.asphaltC).lerp(this.darkC, markStrength);
+      col.multiplyScalar(nightContrast);
       this.skidMesh.setColorAt(skidCount, col);
       skidCount++;
     }
