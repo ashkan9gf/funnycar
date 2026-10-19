@@ -432,7 +432,7 @@ export class WorldRenderer3D {
   private buildStaticWorld(): void {
     this.groundMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(9200, 9200),
-      new THREE.MeshLambertMaterial({ color: '#C9B98A' }),
+      new THREE.MeshStandardMaterial({ color: '#C9B98A', roughness: 0.98, metalness: 0.0 }),
     );
     this.groundMesh.rotation.x = -Math.PI / 2;
     this.groundMesh.receiveShadow = true;
@@ -442,11 +442,26 @@ export class WorldRenderer3D {
     const roadTex = getRoadStraightTexture();
     roadTex.wrapT = THREE.RepeatWrapping;
     roadTex.colorSpace = THREE.SRGBColorSpace;
-    this.roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
-    this.crossMat = new THREE.MeshLambertMaterial({ map: getCrossroadTexture() });
-    this.swMat = new THREE.MeshLambertMaterial({ map: getSidewalkTexture() });
-    this.grassMat = new THREE.MeshLambertMaterial({ map: getGrassTexture() });
-    this.yardMat = new THREE.MeshLambertMaterial({ color: '#d4c49a' });
+    // PBR surface pass: road/sidewalk/terrain now react to the scene's sun and
+    // image-based environment instead of using unlit-looking Lambert response.
+    // Keep non-metallic, high-roughness values appropriate for outdoor materials.
+    const roadSurface = new THREE.MeshStandardMaterial({
+      map: roadTex, roughness: 0.94, metalness: 0.015, envMapIntensity: 0.22,
+    });
+    const crossSurface = new THREE.MeshStandardMaterial({
+      map: getCrossroadTexture(), roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
+    });
+    const sidewalkSurface = new THREE.MeshStandardMaterial({
+      map: getSidewalkTexture(), roughness: 0.88, metalness: 0.0, envMapIntensity: 0.16,
+    });
+    const grassSurface = new THREE.MeshStandardMaterial({
+      map: getGrassTexture(), roughness: 1.0, metalness: 0.0, envMapIntensity: 0.04,
+    });
+    this.roadMat = roadSurface;
+    this.crossMat = crossSurface;
+    this.swMat = sidewalkSurface;
+    this.grassMat = grassSurface;
+    this.yardMat = new THREE.MeshStandardMaterial({ color: '#d4c49a', roughness: 0.96, metalness: 0.0 });
 
     const blockS = WR.pitch - WR.roadW; // 840
     // جاده: 560×1400 — تکرار بافت (1400/560=2.5) داخل UV بیک می‌شود تا متریال مشترک بماند
