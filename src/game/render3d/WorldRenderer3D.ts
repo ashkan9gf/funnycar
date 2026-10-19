@@ -259,6 +259,10 @@ export class WorldRenderer3D {
   private playerHeadlightSpill: THREE.Mesh | null = null;
   /** Soft contact shadow under the player car, reused with the cached radial cloud texture. */
   private playerContactShadow: THREE.Mesh | null = null;
+  /** Batched contact shadows for traffic vehicles; capped to avoid per-car draw-call growth. */
+  private trafficContactShadows: THREE.InstancedMesh | null = null;
+  private trafficShadowDummy = new THREE.Object3D();
+  private readonly trafficShadowCapacity = 64;
   private playerBrakeGlows: THREE.Sprite[] = [];
   private brakeGlowLevel = 0;
   private octx: CanvasRenderingContext2D;
@@ -511,6 +515,22 @@ export class WorldRenderer3D {
     this.playerContactShadow.position.set(0, 1.1, 0);
     this.playerContactShadow.renderOrder = 0;
     this.playerModel.group.add(this.playerContactShadow);
+
+    // One instanced batch keeps traffic cars grounded without one draw call per vehicle.
+    // The cached radial texture is shared; instance transforms are refreshed in the traffic loop.
+    const trafficShadowGeo = new THREE.PlaneGeometry(1, 1, 1, 1);
+    trafficShadowGeo.rotateX(-Math.PI / 2);
+    const trafficShadowMat = new THREE.MeshBasicMaterial({
+      map: getCloudTexture(), color: '#111722', transparent: true, opacity: 0.22,
+      depthWrite: false, fog: false, side: THREE.DoubleSide,
+    });
+    this.trafficContactShadows = new THREE.InstancedMesh(
+      trafficShadowGeo, trafficShadowMat, this.trafficShadowCapacity,
+    );
+    this.trafficContactShadows.count = 0;
+    this.trafficContactShadows.frustumCulled = false;
+    this.trafficContactShadows.renderOrder = 0;
+    this.scene.add(this.trafficContactShadows);
 
     // A soft ground-projected beam adds visible light spill ahead of the car without
     // creating dynamic lights or extra render passes. It follows the player's heading.
@@ -2245,6 +2265,9 @@ export class WorldRenderer3D {
     if (this.playerContactShadow) {
       (this.playerContactShadow.material as THREE.MeshBasicMaterial).opacity = 0.12 + easedDay * 0.16;
     }
+    if (this.trafficContactShadows) {
+      (this.trafficContactShadows.material as THREE.MeshBasicMaterial).opacity = 0.10 + easedDay * 0.14;
+    }
     if (this.starField) (this.starField.material as THREE.PointsMaterial).opacity = nightVisibility * 0.92;
     if (this.moon) (this.moon.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.96;
     if (this.moonGlow) (this.moonGlow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.22;
@@ -2659,6 +2682,7 @@ export class WorldRenderer3D {
 
     // ---------- ترافیک (GLB با fallback procedural + LOD + چراغ ترمز) ----------
     const seen = new Set<TrafficCar>();
+    let trafficShadowIndex = 0;
     for (const c of opts.traffic) {
       seen.add(c);
       let model = this.trafficModels.get(c);
@@ -2670,6 +2694,15 @@ export class WorldRenderer3D {
       }
       model.group.position.set(c.x, 0, c.y);
       model.group.rotation.y = -c.angle;
+      // Batch a soft oval under each traffic vehicle; scale follows its actual dimensions.
+      if (this.trafficContactShadows && trafficShadowIndex < this.trafficShadowCapacity) {
+        const shadow = this.trafficShadowDummy;
+        shadow.position.set(c.x, 1.05, c.y);
+        shadow.rotation.set(0, -c.angle, 0);
+        shadow.scale.set(Math.max(80, c.drawW * 1.75), Math.max(150, c.drawH * 1.55), 1);
+        shadow.updateMatrix();
+        this.trafficContactShadows.setMatrixAt(trafficShadowIndex++, shadow.matrix);
+      }
       const wr = c.drawH * 0.135;
       spinWheels(model, (c.speed / wr) * this.drawDt());
       // چراغ ترمز ترافیک: کند شدن ناگهانی
@@ -2698,6 +2731,10 @@ export class WorldRenderer3D {
         model.lightBar.red.visible = on;
         model.lightBar.blue.visible = !on;
       }
+    }
+    if (this.trafficContactShadows) {
+      this.trafficContactShadows.count = trafficShadowIndex;
+      if (trafficShadowIndex > 0) this.trafficContactShadows.instanceMatrix.needsUpdate = true;
     }
     for (const [tc, model] of this.trafficModels) {
       if (!seen.has(tc)) {
