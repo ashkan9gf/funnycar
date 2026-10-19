@@ -3801,11 +3801,36 @@ export class WorldRenderer3D {
 
   // ============ اندازه و پاک‌سازی ============
 
-  /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی */
+  /** Device-aware render-buffer budget. This changes raster resolution only,
+   * not camera FOV, geometry, texture detail, shadow quality, or overlay size. */
+  private getAdaptiveRenderScale(pixelW: number, pixelH: number): number {
+    const pixels = Math.max(1, pixelW) * Math.max(1, pixelH);
+    const nav = typeof navigator !== 'undefined' ? navigator : null;
+    const cores = nav?.hardwareConcurrency || 4;
+    const reportedMemory = nav && 'deviceMemory' in nav
+      ? Number((nav as Navigator & { deviceMemory?: number }).deviceMemory)
+      : Number.NaN;
+    const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
+
+    // Conservative caps: low-end 1.45 MP, standard 2.3 MP, high-end 3.6 MP.
+    // Unknown memory never qualifies as high-end; never upscale small screens.
+    const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
+    const highEnd = cores >= 8 && memory !== null && memory >= 8;
+    const maxPixels = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    if (pixels <= maxPixels) return 1;
+    return Math.max(0.72, Math.min(1, Math.sqrt(maxPixels / pixels)));
+  }
+
+  /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی.
+   * Phase 38: cap only the WebGL drawing buffer on pixel-heavy devices; keep
+   * overlay resolution and all world-space detail unchanged. */
   resize(pixelW: number, pixelH: number, dpr: number): void {
     this.dpr = dpr;
     this.r3.setPixelRatio(1);
-    this.r3.setSize(pixelW, pixelH, false);
+    const renderScale = this.getAdaptiveRenderScale(pixelW, pixelH);
+    const renderW = Math.max(1, Math.round(pixelW * renderScale));
+    const renderH = Math.max(1, Math.round(pixelH * renderScale));
+    this.r3.setSize(renderW, renderH, false);
     this.overlay.width = pixelW;
     this.overlay.height = pixelH;
     // ابعاد منطقی برای پروجکشن = پیکسل CSS
