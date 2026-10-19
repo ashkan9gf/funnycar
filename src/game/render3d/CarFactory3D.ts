@@ -361,6 +361,46 @@ export function buildCar3D(
         g.add(h);
       }
     }
+
+    // Subtle body-panel details: hood/trunk shut-lines and wheel-arch lips.
+    // Full-detail only; use one shared material and low-segment tubes to limit cost.
+    const panelMat = darkMat as THREE.MeshToonMaterial;
+    const hoodSeam = new THREE.Mesh(
+      new THREE.BoxGeometry(s.wid * 0.76, 1.25, 1.5),
+      panelMat,
+    );
+    hoodSeam.position.set(0, 47, profile[0][0] + s.len * 0.27);
+    const trunkSeam = new THREE.Mesh(
+      new THREE.BoxGeometry(s.wid * 0.72, 1.25, 1.5),
+      panelMat,
+    );
+    trunkSeam.position.set(0, 46, profile[profile.length - 1][0] - s.len * 0.19);
+    hoodSeam.castShadow = trunkSeam.castShadow = false;
+    g.add(hoodSeam, trunkSeam);
+
+    const archRadius = Math.max(12, s.wheelR - (s.wid * 0.16) * 0.5 + 1.5);
+    for (const wheelZ of [-s.len * 0.31, s.len * 0.31]) {
+      for (const side of [-1, 1]) {
+        const x = side * (s.wid / 2 + 0.15);
+        const points: THREE.Vector3[] = [];
+        for (let i = 0; i <= 12; i++) {
+          const angle = Math.PI - (Math.PI * i) / 12;
+          points.push(new THREE.Vector3(
+            x,
+            s.wheelR + Math.sin(angle) * archRadius + 0.8,
+            wheelZ + Math.cos(angle) * archRadius,
+          ));
+        }
+        const archCurve = new THREE.CatmullRomCurve3(points);
+        const arch = new THREE.Mesh(
+          new THREE.TubeGeometry(archCurve, 12, 1.05, 5, false),
+          panelMat,
+        );
+        arch.castShadow = false;
+        arch.receiveShadow = false;
+        g.add(arch);
+      }
+    }
   }
 
   // ---------- سپرها (جداشدنی — سیستم آسیب) ----------
