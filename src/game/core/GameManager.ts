@@ -284,18 +284,13 @@ export class GameManager {
     } catch (err) {
       console.warn('[Game] asset boot error (continuing with placeholders):', err);
     }
-    // فاز GLB-READY (بهینه‌سازی): انتظار برای همهٔ GLBها (ساختمان/خودرو/پارکی/کیت) —
-    // شهر از اولین فریم نسخهٔ «سینمایی» نهایی است و نسخهٔ رنگی placeholder (پازلی)
-    // هرگز به صحنه نمی‌رسد. گارد ۱۲ ثانیه‌ای داخل whenReady — boot هرگز قفل نمی‌شود.
-    // پیش‌بارگذاری‌ها هم‌زمان با assets.loadAll اجرا شده‌اند → فقط مابقی منتظر می‌مانیم.
-    // 🔕 لایهٔ محافظ ۲: حتی اگر whenReady به هر دلیل خطا بدهد، boot ادامه می‌یابد
-    // (باگ v0.2.28: یک reject تنها = گیر ابدی در صفحهٔ لودینگ — منبع «خطای آخرین بیلد»)
-    // ⏱ سقف ۸ ثانیه: برای جلوگیری از لودینگ طولانی؛ مدل‌های دیررس در پس‌زمینه ارتقا می‌یابند؛
-    // اگر باز دیر شد، flush دیرهنگام در رندرر بصری‌های جایگزین را با GLB بازمی‌سازد
+    // تمام Assetهای دوبعدی و تمام مدل‌های GLB (خودروها، LODها، ساختمان‌ها، پارکی و کیت شهر)
+    // باید پیش از بازشدن منو/گاراژ تعیین تکلیف شوند. روی دستگاه کند صبر می‌کنیم؛
+    // timeout کوتاه باعث نمایش مدل موقت یا بارگذاری پس‌زمینه بعد از ورود نمی‌شود.
     try {
-      await this.renderer3d?.whenReady(8000);
+      await this.renderer3d?.whenReady();
     } catch (err) {
-      console.warn('[Game] GLB preload wait failed (continuing with fallbacks):', err);
+      console.warn('[Game] GLB preload failed:', err);
     }
     // مقیاس رسم ماشین از اندازه Asset واقعی/Placeholder — نسبت ثابت 4:7
     const size = this.assets.getSize('veh_player_01');
