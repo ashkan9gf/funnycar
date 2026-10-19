@@ -101,6 +101,8 @@ function parseColor(c: string): { color: THREE.Color; alpha: number } {
 // Shared façade materials; details are merged into three meshes per building.
 const FACADE_FRAME_MAT = new THREE.MeshStandardMaterial({ color: '#e7dfce', roughness: 0.78, metalness: 0.04 });
 const FACADE_GLASS_MAT = new THREE.MeshStandardMaterial({ color: '#426d82', roughness: 0.26, metalness: 0.16, envMapIntensity: 0.72 });
+// Selective warm apartment windows add urban life without spawning expensive point lights.
+const FACADE_LIT_WINDOW_MAT = new THREE.MeshStandardMaterial({ color: '#f4bd70', emissive: '#ff9e3d', emissiveIntensity: 0.52, roughness: 0.42, metalness: 0.02 });
 const FACADE_RAIL_MAT = new THREE.MeshStandardMaterial({ color: '#41484a', roughness: 0.42, metalness: 0.62 });
 
 function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: number, apartment: boolean): THREE.BufferGeometry[] {
@@ -113,7 +115,7 @@ function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: n
   const depth = Math.max(0.8, Math.min(w, d) * 0.012);
   const frontZ = bounds.max.z + depth * 0.55, sideX = bounds.max.x + depth * 0.55;
   const startY = bounds.min.y + h * 0.13, floorGap = h * 0.72 / floors;
-  const buckets: THREE.BufferGeometry[][] = [[], [], []];
+  const buckets: THREE.BufferGeometry[][] = [[], [], [], []];
   const temp = new THREE.Object3D();
   const addBox = (bucket: number, sx: number, sy: number, sz: number, x: number, y: number, z: number) => {
     temp.position.set(x, y, z); temp.rotation.set(0, 0, 0); temp.scale.set(sx, sy, sz); temp.updateMatrix();
@@ -124,7 +126,8 @@ function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: n
     for (let col = 0; col < columns; col++) {
       const x = bounds.min.x + w * ((col + 0.5) / columns);
       addBox(0, winW * 1.16, winH * 1.16, depth, x, y, frontZ);
-      addBox(1, winW, winH, depth * 0.45, x, y, frontZ + depth * 0.32);
+      const litWindow = (floor * 7 + col * 3 + variance) % 5 === 0;
+      addBox(litWindow ? 3 : 1, winW, winH, depth * 0.45, x, y, frontZ + depth * 0.32);
       if (apartment && (floor + col + variance) % 3 === 0) {
         const bw = winW * 1.48, by = y - winH * 0.66;
         addBox(0, bw, Math.max(1, winH * 0.1), depth * 2.4, x, by, frontZ + depth * 1.5);
@@ -137,10 +140,11 @@ function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: n
     for (let col = 0; col < sideColumns; col++) {
       const z = bounds.min.z + d * ((col + 0.5) / sideColumns), sw = Math.min(winW, d / (sideColumns * 2.6));
       addBox(0, depth, winH * 1.16, sw * 1.16, sideX, y, z);
-      addBox(1, depth * 0.45, winH, sw, sideX + depth * 0.32, y, z);
+      const litSideWindow = (floor * 5 + col * 2 + variance) % 6 === 0;
+      addBox(litSideWindow ? 3 : 1, depth * 0.45, winH, sw, sideX + depth * 0.32, y, z);
     }
   }
-  const materials = [FACADE_FRAME_MAT, FACADE_GLASS_MAT, FACADE_RAIL_MAT];
+  const materials = [FACADE_FRAME_MAT, FACADE_GLASS_MAT, FACADE_RAIL_MAT, FACADE_LIT_WINDOW_MAT];
   const owned: THREE.BufferGeometry[] = [];
   for (let i = 0; i < buckets.length; i++) {
     if (!buckets[i].length) continue;
