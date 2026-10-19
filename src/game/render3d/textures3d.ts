@@ -111,17 +111,18 @@ export function getRoadMicroMaps(): { normalMap: THREE.CanvasTexture; roughnessM
 
 /** خطوط ترک آسفالت (پلی‌لاین‌های باریک تیره) */
 function drawCracks(ctx: CanvasRenderingContext2D, w: number, h: number, count: number): void {
+  const scale = w / 512;
   for (let i = 0; i < count; i++) {
     let x = Math.random() * w;
     let y = Math.random() * h;
     ctx.strokeStyle = 'rgba(20,18,16,0.30)';
-    ctx.lineWidth = 1 + Math.random() * 1.6;
+    ctx.lineWidth = (1 + Math.random() * 1.6) * scale;
     ctx.beginPath();
     ctx.moveTo(x, y);
     const segs = 4 + Math.floor(Math.random() * 5);
     for (let s = 0; s < segs; s++) {
-      x += (Math.random() - 0.5) * 42;
-      y += (Math.random() - 0.5) * 42;
+      x += (Math.random() - 0.5) * 42 * scale;
+      y += (Math.random() - 0.5) * 42 * scale;
       ctx.lineTo(x, y);
     }
     ctx.stroke();
@@ -130,15 +131,16 @@ function drawCracks(ctx: CanvasRenderingContext2D, w: number, h: number, count: 
 
 /** وصله آسفالت (مستطیل تیره‌تر — تعمیر جاده‌های ایران!) */
 function drawPatches(ctx: CanvasRenderingContext2D, w: number, h: number, count: number): void {
+  const scale = w / 512;
   for (let i = 0; i < count; i++) {
-    const pw = 26 + Math.random() * 40;
-    const ph = 18 + Math.random() * 34;
+    const pw = (26 + Math.random() * 40) * scale;
+    const ph = (18 + Math.random() * 34) * scale;
     const px = Math.random() * (w - pw);
     const py = Math.random() * (h - ph);
     ctx.fillStyle = 'rgba(30,28,26,0.22)';
     ctx.fillRect(px, py, pw, ph);
     ctx.strokeStyle = 'rgba(15,13,11,0.28)';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * scale;
     ctx.strokeRect(px, py, pw, ph);
   }
 }
@@ -152,47 +154,49 @@ function drawPatches(ctx: CanvasRenderingContext2D, w: number, h: number, count:
  */
 export function getRoadStraightTexture(): THREE.CanvasTexture {
   if (roadStraightTex) return roadStraightTex;
-  const S = 512;
+  // 2× resolution over the old 512 atlas; all markings preserve their world-space scale.
+  const S = 1024;
+  const scale = S / 512;
   const { c, ctx } = makeCanvas(S, S);
-  // آسفالت پایه
+  // Multi-scale asphalt grain: subtle albedo variation rather than large, obvious speckles.
   ctx.fillStyle = '#58585c';
   ctx.fillRect(0, 0, S, S);
-  // نویز دو رنگ
-  for (let i = 0; i < 700; i++) {
-    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
-    ctx.fillRect(Math.random() * S, Math.random() * S, 2 + Math.random() * 5, 2 + Math.random() * 4);
+  for (let i = 0; i < 2800; i++) {
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.055)';
+    const grain = (1.2 + Math.random() * 2.8) * scale;
+    ctx.fillRect(Math.random() * S, Math.random() * S, grain, grain * (0.7 + Math.random() * 0.8));
   }
-  drawCracks(ctx, S, S, 14);
-  drawPatches(ctx, S, S, 3);
+  // Broad, fine, and repaired areas remain legible at high camera angles.
+  drawCracks(ctx, S, S, 28);
+  drawPatches(ctx, S, S, 7);
 
-  // منهول (دایره تیره با حلقه)
-  const mx = 100, my = 170;
+  // Manhole
+  const mx = 100 * scale, my = 170 * scale;
   ctx.fillStyle = '#3c3a38';
-  ctx.beginPath(); ctx.arc(mx, my, 17, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(200,200,190,0.4)'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(mx, my, 17, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(mx, my, 17 * scale, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(200,200,190,0.4)'; ctx.lineWidth = 3 * scale;
+  ctx.beginPath(); ctx.arc(mx, my, 17 * scale, 0, Math.PI * 2); ctx.stroke();
 
-  // خط دوگانه زرد وسط (تفکیک دو جهت — دوطرفه!)
+  // Double yellow center line
   ctx.fillStyle = 'rgba(226,190,80,0.85)';
-  ctx.fillRect(S / 2 - 9, 0, 6, S);
-  ctx.fillRect(S / 2 + 3, 0, 6, S);
+  ctx.fillRect(S / 2 - 9 * scale, 0, 6 * scale, S);
+  ctx.fillRect(S / 2 + 3 * scale, 0, 6 * scale, S);
 
-  // خط‌چین سفید بین لاین داخلی/بیرونی هر جهت (±130px از مرکز → ±119 در بافت)
+  // Dashed white lane separators
   ctx.fillStyle = 'rgba(245,245,240,0.8)';
-  for (const lx of [137, 375]) {
-    for (let y = 20; y < S; y += 120) {
-      ctx.fillRect(lx - 4, y, 8, 84);
+  for (const lx of [137 * scale, 375 * scale]) {
+    for (let y = 20 * scale; y < S; y += 120 * scale) {
+      ctx.fillRect(lx - 4 * scale, y, 8 * scale, 84 * scale);
     }
   }
 
-  // لبه‌های زرد کم‌رنگ و ساییده
+  // Worn yellow edge markings and grime
   ctx.fillStyle = 'rgba(226,190,80,0.55)';
-  ctx.fillRect(10, 0, 7, S);
-  ctx.fillRect(S - 17, 0, 7, S);
-  // کثیفی لبه جاده
+  ctx.fillRect(10 * scale, 0, 7 * scale, S);
+  ctx.fillRect(S - 17 * scale, 0, 7 * scale, S);
   ctx.fillStyle = 'rgba(40,36,30,0.14)';
-  ctx.fillRect(0, 0, 12, S);
-  ctx.fillRect(S - 12, 0, 12, S);
+  ctx.fillRect(0, 0, 12 * scale, S);
+  ctx.fillRect(S - 12 * scale, 0, 12 * scale, S);
 
   roadStraightTex = toTex(c);
   return roadStraightTex;
