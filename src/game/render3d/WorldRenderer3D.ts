@@ -427,6 +427,12 @@ export class WorldRenderer3D {
   private steerVis = 0;
   private pitchVis = 0;
   private rollVis = 0;
+  /** فاز ۳۶: میرایی فنربندی شاسی و حافظهٔ ارتفاع پایهٔ هر چرخ */
+  private suspensionY = 0;
+  private suspensionVelocity = 0;
+  private wheelRestY = new WeakMap<THREE.Object3D, number>();
+  private previousPlayerSpeed = 0;
+  private cameraRoll = 0;
   /** PMREM محیط استودیویی برای انعکاس کنترل‌شده روی رنگ بدنه و نمای ساختمان‌ها (ادغام از شاخهٔ کاربر) */
   private environmentTarget: THREE.WebGLRenderTarget | null = null;
 
@@ -2894,11 +2900,23 @@ export class WorldRenderer3D {
     this.groundMesh.position.set(Math.round(car.x / 700) * 700, 0, Math.round(car.y / 700) * 700);
 
     // ---------- ماشین بازیکن ----------
-    this.playerModel.group.position.set(car.x, 0, car.y);
+    // فاز ۳۶: فنربندی نرم شاسی و ارتعاش جاده با دامنهٔ محدود.
+    const speedFrac = Math.min(1, Math.abs(car.speed) / 380);
+    const accelVisual = Math.max(-1, Math.min(1, (car.speed - this.previousPlayerSpeed) / Math.max(1, frameDt) / 900));
+    this.previousPlayerSpeed = car.speed;
+    const roadInput = Math.sin(t * (13 + speedFrac * 13)) * speedFrac * 1.15;
+    const lateralLoad = Math.max(-1, Math.min(1, car.latVel / 140));
+    const springTarget = roadInput - accelVisual * 1.2 - Math.abs(lateralLoad) * 0.22;
+    const springDt = Math.min(frameDt, 1 / 30);
+    this.suspensionVelocity += (springTarget - this.suspensionY) * 34 * springDt;
+    this.suspensionVelocity *= Math.exp(-9.5 * springDt);
+    this.suspensionY = Math.max(-2.2, Math.min(2.2, this.suspensionY + this.suspensionVelocity * springDt));
+    this.playerModel.group.position.set(car.x, this.suspensionY, car.y);
     this.playerModel.group.rotation.y = -car.angle;
     const wheelR = car.drawH * 0.135;
     const spin = (car.speed / wheelR) * frameDt;
     spinWheels(this.playerModel, spin);
+    this.animateWheelSuspension(this.playerModel, t, speedFrac, accelVisual, lateralLoad);
 
     // ---------- فاز OVERHAUL: ترمز/فرمان/رول/پیک بدنه بازیکن ----------
     const pmodel = this.playerModel;
@@ -2955,6 +2973,7 @@ export class WorldRenderer3D {
       const wr = c.drawH * 0.135;
       // Reuse the frame delta already sampled at draw3D entry; avoid per-vehicle clock reads.
       spinWheels(model, (c.speed / wr) * frameDt);
+      this.animateWheelSuspension(model, t, Math.min(1, Math.abs(c.speed) / 380), 0, 0);
       // چراغ ترمز ترافیک: کند شدن ناگهانی
       const prev = (model as unknown as { __prevSpeed?: number }).__prevSpeed ?? c.speed;
       const braking = c.speed < prev - 1.5 || (c.speed < 8 && prev < 8 && c.atLight);
@@ -3268,35 +3287,67 @@ export class WorldRenderer3D {
     this.drawOverlay(opts, t);
   }
 
-  private updateChaseCamera(car: Vehicle, dt: number, _t: number): void {
-    // نرم‌سازی زاویه (کوتاه‌ترین مسیر)
+  private updateChaseCamera(car: Vehicle, dt: number, t: number): void {
+    // زاویهٔ دوربین با کوتاه‌ترین مسیر دنبال می‌شود.
     let diff = car.angle - this.camAngle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     this.camAngle += diff * Math.min(1, RENDER3D.camAngleLerp * dt);
 
+    const speedFrac = Math.min(1, Math.abs(car.speed) / 380);
     const fx = Math.sin(this.camAngle);
     const fz = -Math.cos(this.camAngle);
-    const back = RENDER3D.camBack + Math.abs(car.speed) * RENDER3D.camBackPerSpeed;
-    const desired = this.tmpP.set(car.x - fx * back, RENDER3D.camHeight, car.y - fz * back);
-    const k = 1 - Math.exp(-RENDER3D.camPosLerp * dt);
+    const back = RENDER3D.camBack + Math.abs(car.speed) * RENDER3D.camBackPerSpeed + speedFrac * 24;
+    const targetHeight = RENDER3D.camHeight + speedFrac * 18;
+    const desired = this.tmpP.set(car.x - fx * back, targetHeight, car.y - fz * back);
+    const safeDt = Math.min(dt, 1 / 30);
+    const k = 1 - Math.exp(-(RENDER3D.camPosLerp + speedFrac * 0.8) * safeDt);
     this.cam3.position.lerp(desired, k);
 
-    // لرزش از دوربین دوبعدی (برخورد)
+    // لرزش برخورد محدود و کوتاه.
     const sh = this.camera.getShake();
     this.cam3.position.x += sh.x * 0.9;
     this.cam3.position.y += Math.abs(sh.y) * 0.5;
     this.cam3.position.z += sh.y * 0.9;
 
-    // نگاه به جلوی ماشین
-    const look = this.tmpV.set(car.x + fx * 260, 60, car.y + fz * 260);
+    // نگاه به مسیر، با فاصلهٔ پیش‌بینی متناسب با سرعت.
+    const lookAhead = 230 + speedFrac * 170;
+    const look = this.tmpV.set(car.x + fx * lookAhead, 54 + speedFrac * 12, car.y + fz * lookAhead);
     this.cam3.lookAt(look);
 
-    // فاز OVERHAUL: FOV سرعتی — با سرعت، دید کمی بازتر می‌شود (حس سرعت)
-    const speedFrac = Math.min(1, Math.abs(car.speed) / 380);
+    // رول بسیار ظریف در پیچ‌ها؛ محدود برای جلوگیری از افق کج.
+    const rollTarget = Math.max(-0.035, Math.min(0.035, -car.latVel * 0.00018));
+    this.cameraRoll += (rollTarget - this.cameraRoll) * (1 - Math.exp(-5 * safeDt));
+    this.cam3.rotateZ(this.cameraRoll + Math.sin(t * 7) * speedFrac * 0.0015);
+
     const targetFov = this.fovBase + speedFrac * 9;
     this.cam3.fov += (targetFov - this.cam3.fov) * Math.min(1, 4 * dt);
     this.cam3.updateProjectionMatrix();
+  }
+
+  /** حرکت محدود چرخ‌ها نسبت به شاسی؛ موقعیت پایه هر چرخ فقط یک‌بار ثبت می‌شود. */
+  private animateWheelSuspension(
+    model: CarModel3D,
+    t: number,
+    speedFrac: number,
+    longitudinalLoad: number,
+    lateralLoad: number,
+  ): void {
+    const wheels = model.wheels;
+    for (let i = 0; i < wheels.length; i++) {
+      const wheel = wheels[i];
+      let restY = this.wheelRestY.get(wheel);
+      if (restY === undefined) {
+        restY = wheel.position.y;
+        this.wheelRestY.set(wheel, restY);
+      }
+      const frontFactor = i % 2 === 0 ? 1 : -0.55;
+      const sideFactor = i < 2 ? -1 : 1;
+      const road = Math.sin(t * (15 + speedFrac * 12) + i * 1.7) * speedFrac * 0.75;
+      const travel = Math.max(-1.4, Math.min(1.4,
+        road - longitudinalLoad * frontFactor * 1.05 + lateralLoad * sideFactor * 0.22));
+      wheel.position.y = restY + travel;
+    }
   }
 
   private syncParticles(): void {
