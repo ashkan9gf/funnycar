@@ -1104,11 +1104,8 @@ export class WorldRenderer3D {
     }
     for (const g of vis.geos) g.dispose();
     for (const m of vis.mats) m.dispose();
-    // شکستنی‌های این قطعه از نگاشت سراسری خارج
-    for (const [prop, ref] of [...this.breakableInst]) {
-      if (vis.breakableProps.includes(prop)) this.breakableInst.delete(prop);
-      void ref;
-    }
+    // شکستنی‌های همین قطعه را مستقیم حذف کن؛ از کپی‌کردن کل Map و includes تکراری پرهیز می‌شود.
+    for (const prop of vis.breakableProps) this.breakableInst.delete(prop);
     // اسلات چراغ
     this.releaseLightSlot(key);
     this.chunkVis.delete(key);
