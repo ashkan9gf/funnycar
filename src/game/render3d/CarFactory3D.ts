@@ -125,7 +125,7 @@ export interface CarModel3D {
 }
 
 // ---------- متریال مشترک ----------
-let glassMat: THREE.MeshPhongMaterial | null = null;
+let glassMat: THREE.MeshPhysicalMaterial | null = null;
 let tireMat: THREE.MeshToonMaterial | null = null;
 let rimMat: THREE.MeshPhongMaterial | null = null;
 let darkMat: THREE.MeshToonMaterial | null = null;
@@ -152,7 +152,18 @@ function ensureShared(): void {
   gradientMap.magFilter = THREE.NearestFilter;
   gradientMap.needsUpdate = true;
 
-  glassMat = new THREE.MeshPhongMaterial({ color: '#20303c', shininess: 130, specular: '#9fb6c4', transparent: true, opacity: 0.94 });
+  // PBR glazing: controlled clearcoat highlights give procedural car windows a glass-like response.
+  // Keep opacity and tint close to the original stylized look for readability on mobile.
+  glassMat = new THREE.MeshPhysicalMaterial({
+    color: '#20303c',
+    transparent: true,
+    opacity: 0.94,
+    roughness: 0.2,
+    metalness: 0.08,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 0.7,
+  });
   tireMat = new THREE.MeshToonMaterial({ color: '#23211f', gradientMap });
   rimMat = new THREE.MeshPhongMaterial({ color: '#cfd3d8', shininess: 90, specular: '#ffffff' });
   darkMat = new THREE.MeshToonMaterial({ color: '#2e2622', gradientMap });
