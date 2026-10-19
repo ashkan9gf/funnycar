@@ -318,8 +318,10 @@ export function assembleCarFromGLB(
           // Automotive paint: physical clearcoat adds a restrained lacquer highlight.
           // Preserve all imported maps, vertex colors and base material parameters.
           const paint = new THREE.MeshPhysicalMaterial();
-          paint.copy(material);
-          paint.clearcoat = /paint|body|car|exterior| кузов/i.test(materialName) ? 0.32 : 0.12;
+          // Copy only properties present on the imported Standard material;
+          // Object.assign leaves Physical-only defaults intact when absent.
+          Object.assign(paint, material);
+          paint.clearcoat = /paint|body|car|exterior|кузов/i.test(materialName) ? 0.32 : 0.12;
           paint.clearcoatRoughness = 0.28;
           paint.roughness = Math.max(0.3, Math.min(0.68, material.roughness));
           paint.metalness = Math.max(0, Math.min(0.28, material.metalness));
