@@ -1184,7 +1184,7 @@ export class WorldRenderer3D {
           try {
             this.glbCars.set(v, scene);
             if (v === this.playerVariant) this.upgradePlayerToGLB();
-            else this.upgradeTrafficToGLB(v);
+            this.upgradeTrafficToGLB(v);
           } catch (e) {
             console.warn('[Renderer] car GLB upgrade failed (kept procedural):', v, e);
           }
