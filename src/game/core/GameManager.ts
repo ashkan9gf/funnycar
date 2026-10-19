@@ -289,6 +289,7 @@ export class GameManager {
     // تا آماده‌شدن همهٔ مدل‌ها صفحهٔ لودینگ فعال می‌ماند؛ زمان لودینگ عمداً محدود نشده است.
     try {
       await this.renderer3d?.whenReady();
+      onProgress?.(100, 100);
     } catch (err) {
       console.warn('[Game] GLB preload failed:', err);
     }
@@ -1388,8 +1389,8 @@ export class GameManager {
     const fps = this.fpsValue;
     let nd = this.dpr3d;
     // React sooner to sustained frame drops, and allow sub-1 DPR on very weak GPUs.
-    if (fps < 42) nd = Math.max(0.75, this.dpr3d - 0.25);
-    else if (fps > 55 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.1);
+    if (fps < 38) nd = Math.max(1.1, this.dpr3d - 0.3);
+    else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.2);
     if (Math.abs(nd - this.dpr3d) > 0.01) {
       this.dpr3d = Math.round(nd * 100) / 100;
       this.handleResize();
