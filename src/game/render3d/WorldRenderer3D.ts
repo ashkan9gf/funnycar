@@ -2756,8 +2756,11 @@ export class WorldRenderer3D {
           p.z = rearZ + Math.sin(car.angle) * sideOffset * side;
           p.y = 2.5;
           const backwards = -Math.sign(car.speed || 1) * (driftLoad ? 22 : 12);
-          p.vx = -Math.sin(car.angle) * backwards + (Math.random() - 0.5) * 15;
-          p.vz = Math.cos(car.angle) * backwards + (Math.random() - 0.5) * 15;
+          // Lateral velocity pushes smoke outward along the car's slip direction,
+          // making long drifts read clearly without adding particles or draw calls.
+          const slip = Math.max(-1, Math.min(1, car.latVel / 140));
+          p.vx = -Math.sin(car.angle) * backwards + Math.cos(car.angle) * slip * 18 + (Math.random() - 0.5) * 15;
+          p.vz = Math.cos(car.angle) * backwards + Math.sin(car.angle) * slip * 18 + (Math.random() - 0.5) * 15;
           p.vy = 9 + Math.random() * 10;
           p.life = p.maxLife = driftLoad ? 0.72 : 0.58;
           p.size = 13 + Math.random() * 5;
@@ -2787,14 +2790,16 @@ export class WorldRenderer3D {
       const age = 1 - p.life / p.maxLife;
       const size = p.size * (0.72 + age * 0.8);
       const fade = age <= 0.42 ? 1 : Math.max(0, 1 - (age - 0.42) / 0.58);
-      this.tireSmokeOpacity.setX(i, fade);
+      // Smoke remains readable in daylight but becomes subtler and cooler at night.
+      const night = 1 - this.dayNightFactor;
+      this.tireSmokeOpacity.setX(i, fade * (1 - night * 0.16));
       dummy.position.set(p.x, p.y, p.z);
       dummy.rotation.set(0, p.rot + age * 0.35, 0);
       dummy.scale.set(size, size, 1);
       dummy.updateMatrix();
       this.tireSmokeMesh.setMatrixAt(i, dummy.matrix);
       const shade = 0.82 - age * 0.12;
-      this.tireSmokeColor.setRGB(shade, shade, shade);
+      this.tireSmokeColor.setRGB(shade * (1 - night * 0.13), shade * (1 - night * 0.08), Math.min(1, shade * (1 + night * 0.035)));
       this.tireSmokeMesh.setColorAt(i, this.tireSmokeColor);
     }
     this.tireSmokeMesh.instanceMatrix.needsUpdate = true;
