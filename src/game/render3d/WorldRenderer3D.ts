@@ -1706,6 +1706,8 @@ export class WorldRenderer3D {
     return n * n;
   }
   private lightSlots = new Map<string, number>();
+  /** Cached intersection coordinates avoid parsing `i_j` keys during every rendered frame. */
+  private lightSlotCoordinates = new Map<number, { i: number; j: number }>();
   private freeLightSlots: number[] = [];
 
   private buildTrafficLights(): void {
@@ -1750,6 +1752,7 @@ export class WorldRenderer3D {
     const slot = this.freeLightSlots.pop();
     if (slot === undefined) return; // ظرفیت پر — قطعه دور دیده نمی‌شود
     this.lightSlots.set(key, slot);
+    this.lightSlotCoordinates.set(slot, { i, j });
     const half = WR.roadW / 2;
     const tmpQ = new THREE.Quaternion();
     this.tmpM.compose(
@@ -1768,6 +1771,7 @@ export class WorldRenderer3D {
     const slot = this.lightSlots.get(key);
     if (slot === undefined) return;
     this.lightSlots.delete(key);
+    this.lightSlotCoordinates.delete(slot);
     const zero = new THREE.Matrix4().compose(
       new THREE.Vector3(0, -9999, 0), new THREE.Quaternion(), new THREE.Vector3(0.0001, 0.0001, 0.0001),
     );
@@ -1822,9 +1826,8 @@ export class WorldRenderer3D {
   /** هر فریم — وضعیت لامپ تقاطع‌های اسلات‌دار (حداکثر ۲۵) */
   private updateTrafficLightLamps(): void {
     if (!this.lightPoleMesh || this.lightLamps.length !== 3) return;
-    for (const [key, slot] of this.lightSlots) {
-      const p = key.split('_');
-      this.updateLightSlotLamps(slot, Number(p[0]), Number(p[1]));
+    for (const [slot, coordinates] of this.lightSlotCoordinates) {
+      this.updateLightSlotLamps(slot, coordinates.i, coordinates.j);
     }
   }
 
