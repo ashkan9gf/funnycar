@@ -1512,6 +1512,9 @@ export class GameManager {
     if (this.dprCheck < 4) return; // هر ۲ ثانیه — نوسان‌گیر
     this.dprCheck = 0;
     const fps = this.fpsValue;
+    // Shadow updates are cheaper on sustained low-FPS devices; the renderer restores
+    // its device-specific default once frame-rate headroom is stable again.
+    this.renderer3d?.setPerformanceHint(fps);
     let nd = this.dpr3d;
     // React sooner to sustained frame drops, and allow sub-1 DPR on very weak GPUs.
     if (fps < 38) nd = Math.max(0.75, this.dpr3d - 0.3);
