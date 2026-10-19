@@ -329,6 +329,17 @@ function getShadowQualityProfile(
 }
 
 export class WorldRenderer3D {
+  /** Keep the game loop alive through transient Android WebGL context loss. */
+  private webglContextLost = false;
+  private readonly handleWebGLContextLost = (event: Event): void => {
+    event.preventDefault();
+    this.webglContextLost = true;
+  };
+  private readonly handleWebGLContextRestored = (): void => {
+    this.webglContextLost = false;
+    this.r3.shadowMap.needsUpdate = true;
+  };
+
   private r3: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private cam3: THREE.PerspectiveCamera;
@@ -508,6 +519,10 @@ export class WorldRenderer3D {
     private lights: TrafficLights,
   ) {
     this.r3 = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl as WebGL2RenderingContext, antialias: true, powerPreference: 'high-performance' });
+    // Three.js registers its own context handlers during renderer construction.
+    // These listeners only gate rendering and request a fresh shadow map after recovery.
+    glCanvas.addEventListener('webglcontextlost', this.handleWebGLContextLost, false);
+    glCanvas.addEventListener('webglcontextrestored', this.handleWebGLContextRestored, false);
     this.r3.shadowMap.enabled = true;
     // PCFSoftShadowMap در three r186 حذف شده — PCF استاندارد
     this.r3.shadowMap.type = THREE.PCFShadowMap;
@@ -3314,7 +3329,7 @@ export class WorldRenderer3D {
     }
 
     // ---------- رندر ----------
-    this.r3.render(this.scene, this.cam3);
+    if (!this.webglContextLost) this.r3.render(this.scene, this.cam3);
 
     // ---------- اورلی (حباب‌ها + فلش هدف) ----------
     this.drawOverlay(opts, t);
@@ -3847,6 +3862,8 @@ export class WorldRenderer3D {
   }
 
   dispose(): void {
+    this.r3.domElement.removeEventListener('webglcontextlost', this.handleWebGLContextLost);
+    this.r3.domElement.removeEventListener('webglcontextrestored', this.handleWebGLContextRestored);
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
