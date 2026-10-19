@@ -41,7 +41,7 @@ import {
 import {
   getRoadStraightTexture, getSidewalkTexture, getGrassTexture, getFacadeTextures,
   getCrossroadTexture, getSkyTexture, getSkyDomeTexture, getCloudTexture, getAwningTexture,
-  getBillboardTexture,
+  getBillboardTexture, getRoadMicroMaps,
 } from './textures3d';
 
 // ---------- فاز CITY-FULL — پالت اشباع ایرانی برای نماها (رنگی‌تر!) ----------
@@ -445,11 +445,20 @@ export class WorldRenderer3D {
     // PBR surface pass: road/sidewalk/terrain now react to the scene's sun and
     // image-based environment instead of using unlit-looking Lambert response.
     // Keep non-metallic, high-roughness values appropriate for outdoor materials.
+    const roadMicroMaps = getRoadMicroMaps();
     const roadSurface = new THREE.MeshStandardMaterial({
-      map: roadTex, roughness: 0.94, metalness: 0.015, envMapIntensity: 0.22,
+      map: roadTex,
+      normalMap: roadMicroMaps.normalMap,
+      normalScale: new THREE.Vector2(0.18, 0.18),
+      roughnessMap: roadMicroMaps.roughnessMap,
+      roughness: 0.94, metalness: 0.015, envMapIntensity: 0.22,
     });
     const crossSurface = new THREE.MeshStandardMaterial({
-      map: getCrossroadTexture(), roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
+      map: getCrossroadTexture(),
+      normalMap: roadMicroMaps.normalMap,
+      normalScale: new THREE.Vector2(0.16, 0.16),
+      roughnessMap: roadMicroMaps.roughnessMap,
+      roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
     });
     const sidewalkSurface = new THREE.MeshStandardMaterial({
       map: getSidewalkTexture(), roughness: 0.88, metalness: 0.0, envMapIntensity: 0.16,
