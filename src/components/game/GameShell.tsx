@@ -571,6 +571,23 @@ export default function GameShell() {
                         <p className="mt-0.5 text-[10px] leading-4 text-[#3a2e2a]/70">{v.description}</p>
                       </div>
                     </div>
+                    <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
+                      {([
+                        ["سرعت", v.speed],
+                        ["شتاب", v.acceleration],
+                        ["فرمان و چسبندگی", v.handling],
+                        ["مقاومت بدنه", v.durability],
+                      ] as const).map(([label, value]) => (
+                        <div key={label}>
+                          <div className="mb-1 flex items-center justify-between gap-1 text-[10px] font-bold text-[#3a2e2a]/75">
+                            <span>{label}</span><span>{fa(value)}٪</span>
+                          </div>
+                          <div className="h-1.5 overflow-hidden rounded-full bg-[#3a2e2a]/10">
+                            <div className="h-full rounded-full bg-[#F2B705]" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                     <button
                       type="button"
                       disabled={v.selected}
