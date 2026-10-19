@@ -293,7 +293,7 @@ export class GameManager {
     // ⏱ سقف ۳۰ ثانیه: گوشی کند بیشتر منتظر می‌ماند تا شهر سینمایی کامل برسد؛
     // اگر باز دیر شد، flush دیرهنگام در رندرر بصری‌های جایگزین را با GLB بازمی‌سازد
     try {
-      await this.renderer3d?.whenReady(30000);
+      await this.renderer3d?.whenReady(8000);
     } catch (err) {
       console.warn('[Game] GLB preload wait failed (continuing with fallbacks):', err);
     }
