@@ -295,6 +295,36 @@ interface Particle3D {
 
 // 🔑 PERF-4: dequantizeGeoNew به GlbModels.ts منتقل شد (اشتراک با mergeTemplateStatics)
 
+/** Device-aware shadow budget: preserve crisp shadows on capable GPUs without forcing
+ * a 2048² depth map on low-memory/low-core phones. No GPU renderer-string probing. */
+interface ShadowQualityProfile {
+  mapSize: number;
+  refreshEvery: number;
+  normalBias: number;
+  radius: number;
+}
+
+function getShadowQualityProfile(
+  gl: WebGL2RenderingContext | WebGLRenderingContext,
+): ShadowQualityProfile {
+  const maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 2048;
+  const nav = typeof navigator !== 'undefined' ? navigator : null;
+  const cores = nav?.hardwareConcurrency || 4;
+  const memory = nav && 'deviceMemory' in nav
+    ? Number((nav as Navigator & { deviceMemory?: number }).deviceMemory) || 4
+    : 4;
+  const lowEnd = cores <= 4 || memory <= 4 || maxTextureSize < 4096;
+  const highEnd = cores >= 8 && memory >= 8 && maxTextureSize >= 8192;
+
+  if (lowEnd) {
+    return { mapSize: 1024, refreshEvery: 4, normalBias: 0.022, radius: 1.25 };
+  }
+  if (highEnd) {
+    return { mapSize: 2048, refreshEvery: 2, normalBias: 0.014, radius: 1.75 };
+  }
+  return { mapSize: 2048, refreshEvery: 3, normalBias: 0.018, radius: 1.5 };
+}
+
 export class WorldRenderer3D {
   private r3: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -302,6 +332,8 @@ export class WorldRenderer3D {
   private sun: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private dayNightFactor = 0;
+  /** Adaptive shadow refresh cadence selected once at renderer startup. */
+  private shadowRefreshEvery = 3;
   /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
   private playerHeadlightGlows: THREE.Sprite[] = [];
   /** Wide, low-cost headlight spill projected onto the road; one transparent mesh, no extra light. */
@@ -518,7 +550,9 @@ export class WorldRenderer3D {
     // 🔑 PERF-4 (لگ حین رانندگی): کادر قبلی ±۶۲۰ با نقشهٔ ۱۰۲۴ — حین رانندگی صدها
     // سایه‌انداز دور و بر داخل shadow pass رندر می‌شدند و تراکم تکسل فقط ۰٫۸۳/واحد بود.
     // حالا کادر ±۳۳۰ دور ماشین + نقشهٔ ۲۰۴۸ → سایهٔ «شارپ‌تر» (کیفیت بالاتر) با کسری از هزینه.
-    this.sun.shadow.mapSize.set(2048, 2048);
+    const shadowProfile = getShadowQualityProfile(gl);
+    this.shadowRefreshEvery = shadowProfile.refreshEvery;
+    this.sun.shadow.mapSize.set(shadowProfile.mapSize, shadowProfile.mapSize);
     this.sun.shadow.camera.left = -330;
     this.sun.shadow.camera.right = 330;
     this.sun.shadow.camera.top = 330;
@@ -526,6 +560,8 @@ export class WorldRenderer3D {
     this.sun.shadow.camera.near = 100;
     this.sun.shadow.camera.far = 1800;
     this.sun.shadow.bias = -0.0006;
+    this.sun.shadow.normalBias = shadowProfile.normalBias;
+    this.sun.shadow.radius = shadowProfile.radius;
     this.scene.add(this.sun, this.sun.target);
 
     // دنیا — فاز ENDLESS-1: زمین دنبال‌کننده + منابع مشترک قطعه‌ها
@@ -2847,8 +2883,9 @@ export class WorldRenderer3D {
 
     this.updateTireSmoke(frameDt, opts, brakingLoad, driftLoad);
 
-    // 🔕 سایهٔ ۲۰Hz — نقشهٔ سایه فقط هر ۳ فریم بازتولید می‌شود
-    this.shadowTick = (this.shadowTick + 1) % 3;
+    // Device-aware shadow refresh: 2 frames on high-end, 3 standard, 4 low-end.
+    // Sun movement still updates; this bounds GPU shadow-pass cost on mobile.
+    this.shadowTick = (this.shadowTick + 1) % this.shadowRefreshEvery;
     if (this.shadowTick === 0) this.r3.shadowMap.needsUpdate = true;
 
     // ---------- فاز ENDLESS-1: جریان بصری قطعه‌ها با بودجهٔ فریمی + زمین دنبال‌کننده ----------
