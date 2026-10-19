@@ -312,8 +312,8 @@ export default function GameShell() {
 
       {/* ============ منوی اصلی ============ */}
       {phase === "menu" && (
-        <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
-          <div className="fc-pop mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 px-6 py-8">
+        <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto overscroll-y-contain touch-pan-y bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
+          <div className="fc-pop mx-auto flex min-h-full w-full max-w-md shrink-0 flex-col items-center justify-start gap-5 px-6 py-8 sm:justify-center">
             {/* لوگو */}
             <div className="flex flex-col items-center gap-2">
               <div className="fc-btn flex h-20 w-20 items-center justify-center rounded-3xl bg-[#F2B705]">
@@ -341,8 +341,7 @@ export default function GameShell() {
             <button
               type="button"
               className="fc-btn w-full max-w-xs rounded-3xl bg-[#8AC926] py-4 text-2xl font-extrabold text-[#3a2e2a]"
-              onPointerDown={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 gameRef.current?.startGameplay();
               }}
             >
@@ -361,8 +360,7 @@ export default function GameShell() {
                   key={m.cat}
                   type="button"
                   className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#8AC926] py-3 text-[#3a2e2a]"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
+                  onClick={() => {
                     setMissionFilter(m.cat);
                     setMissions(gameRef.current?.listMissions(m.cat) ?? []);
                     setShowMissions(true);
@@ -370,7 +368,6 @@ export default function GameShell() {
                 >
                   {m.icon}
                   <span className="text-sm font-extrabold">{m.label}</span>
-                  <span className="text-[10px] font-bold opacity-60">فاز ۵ ✓</span>
                 </button>
               ))}
             </div>
@@ -379,8 +376,7 @@ export default function GameShell() {
             <button
               type="button"
               className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#F2B705] py-3 text-lg font-extrabold text-[#3a2e2a]"
-              onPointerDown={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 openGarage();
               }}
             >
@@ -428,8 +424,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex items-center gap-2 rounded-2xl bg-[#FFF9EC] px-6 py-2.5 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   setShowSettings(true);
                 }}
               >
