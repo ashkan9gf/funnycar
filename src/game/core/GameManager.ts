@@ -372,21 +372,31 @@ export class GameManager {
     return {
       coins: d.coins,
       vehicles: PLAYER_VEHICLES.map((v) => {
-        const handling = this.vehicleHandling(v.variant);
+        const base = this.vehicleHandling(v.variant);
+        const upgraded = d.upgrades ? upgradeTuning(d.upgrades) : { ...NEUTRAL_TUNING };
+        // Show the actual car setup, not just its factory baseline. The same
+        // upgrade tuning is applied to the live vehicle in applyGarageToVehicle().
+        const tuned = {
+          maxSpeedMul: base.maxSpeedMul * upgraded.maxSpeedMul,
+          accelMul: base.accelMul * upgraded.accelMul,
+          gripMul: base.gripMul * upgraded.gripMul,
+          steerMul: base.steerMul * upgraded.steerMul,
+          armorMul: base.armorMul * upgraded.armorMul,
+        };
         return {
-        id: v.id,
-        name: v.name,
-        variant: v.variant,
-        speed: Math.round(handling.maxSpeedMul * 100),
-        acceleration: Math.round(handling.accelMul * 100),
-        handling: Math.round(((handling.gripMul + handling.steerMul) / 2) * 100),
-        durability: Math.round(handling.armorMul * 100),
-        price: v.price,
-        description: v.description,
-        flavor: v.flavor,
-        owned: d.unlockedVehicles.includes(v.id),
-        selected: d.selectedVehicle === v.id,
-      };
+          id: v.id,
+          name: v.name,
+          variant: v.variant,
+          speed: Math.round(tuned.maxSpeedMul * 100),
+          acceleration: Math.round(tuned.accelMul * 100),
+          handling: Math.round(((tuned.gripMul + tuned.steerMul) / 2) * 100),
+          durability: Math.round(tuned.armorMul * 100),
+          price: v.price,
+          description: v.description,
+          flavor: v.flavor,
+          owned: d.unlockedVehicles.includes(v.id),
+          selected: d.selectedVehicle === v.id,
+        };
       }),
       upgrades: UPGRADES.map((u) => {
         const level = d.upgrades[u.id] ?? 0;
