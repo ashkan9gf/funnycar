@@ -31,6 +31,25 @@ function toTex(c: HTMLCanvasElement, repeatX = 1, repeatY = 1): THREE.CanvasText
 /** فونت مشترک متن فارسی روی بافت‌ها */
 const FA_FONT = (size: number, weight = 900) => `${weight} ${size}px Vazirmatn, Tahoma, sans-serif`;
 
+/** Fit Persian signage to its plaque while keeping the intended font weight. */
+function fitPersianText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  preferredSize: number,
+  minSize = 14,
+  weight = 900,
+): number {
+  let size = preferredSize;
+  while (size > minSize) {
+    ctx.font = FA_FONT(size, weight);
+    if (ctx.measureText(text).width <= maxWidth) break;
+    size -= 1;
+  }
+  ctx.font = FA_FONT(size, weight);
+  return size;
+}
+
 let roadStraightTex: THREE.CanvasTexture | null = null;
 let crossroadTex: THREE.CanvasTexture | null = null;
 let asphaltPlainTex: THREE.CanvasTexture | null = null;
@@ -406,17 +425,35 @@ export function getStreetSignTexture(name: string): THREE.CanvasTexture {
   const key = `st_${name}`;
   const cached = labelTexCache.get(key);
   if (cached) return cached;
-  const { c, ctx } = makeCanvas(192, 64);
-  ctx.fillStyle = '#2a6db5';
-  ctx.fillRect(0, 0, 192, 64);
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(4, 4, 184, 56);
+  // Match the real plaque's wide aspect ratio; use a reflective blue gradient,
+  // layered borders, and fitted Persian text so long street names stay legible.
+  const { c, ctx } = makeCanvas(256, 80);
+  const gradient = ctx.createLinearGradient(0, 0, 0, 80);
+  gradient.addColorStop(0, '#438bd0');
+  gradient.addColorStop(0.48, '#2464a5');
+  gradient.addColorStop(1, '#174979');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 256, 80);
+  ctx.fillStyle = 'rgba(255,255,255,0.13)';
+  ctx.fillRect(9, 8, 238, 18);
+  ctx.strokeStyle = '#d9efff';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, 250, 74);
+  ctx.strokeStyle = 'rgba(255,255,255,0.48)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(8, 8, 240, 64);
+  // Small reflective end markers make the sign readable at a glance.
+  ctx.fillStyle = '#f7d66a';
+  ctx.fillRect(13, 32, 5, 16);
+  ctx.fillRect(238, 32, 5, 16);
   ctx.fillStyle = '#ffffff';
-  ctx.font = FA_FONT(26);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(name, 96, 34);
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = 2;
+  fitPersianText(ctx, name, 210, 29, 16, 900);
+  ctx.fillText(name, 128, 43, 210);
+  ctx.shadowBlur = 0;
   const t = toTex(c);
   labelTexCache.set(key, t);
   return t;
@@ -545,16 +582,25 @@ export function getFacadeTextures(assetId: string, signOverride?: string): THREE
   }
   if (signText) {
     // تابلوی فارسی بالای ورودی
-    gx.fillStyle = '#3a2e2a';
+    const signGradient = gx.createLinearGradient(28, 96, 228, 138);
+    signGradient.addColorStop(0, '#292d32');
+    signGradient.addColorStop(1, '#4a3428');
+    gx.fillStyle = signGradient;
     gx.fillRect(28, 96, 200, 42);
-    gx.fillStyle = '#FFF9EC';
-    gx.font = FA_FONT(26);
-    gx.textAlign = 'center';
-    gx.textBaseline = 'middle';
-    gx.fillText(signText, 128, 118);
-    gx.strokeStyle = '#FFF9EC';
+    gx.strokeStyle = '#d9b56d';
     gx.lineWidth = 3;
     gx.strokeRect(28, 96, 200, 42);
+    gx.strokeStyle = 'rgba(255,249,236,0.55)';
+    gx.lineWidth = 1;
+    gx.strokeRect(33, 101, 190, 32);
+    gx.fillStyle = '#FFF9EC';
+    gx.textAlign = 'center';
+    gx.textBaseline = 'middle';
+    gx.shadowColor = 'rgba(0,0,0,0.65)';
+    gx.shadowBlur = 2;
+    fitPersianText(gx, signText, 180, 26, 15, 900);
+    gx.fillText(signText, 128, 118, 180);
+    gx.shadowBlur = 0;
   }
   if (awning) {
     // آویز راه‌راه مغازه

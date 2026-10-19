@@ -290,18 +290,64 @@ interface Particle3D {
   life: number; maxLife: number; size: number; active: boolean; color: THREE.Color;
   /** لاشه: با جهش و چرخش روی زمین می‌ماند (فاز OVERHAUL) */
   debris?: boolean;
+  /** برخورد: ذرهٔ کشیده با سرعت اولیهٔ جهت‌دار و عمر کوتاه */
+  spark?: boolean;
   spin?: number; spinRate?: number; rested?: boolean;
 }
 
 // 🔑 PERF-4: dequantizeGeoNew به GlbModels.ts منتقل شد (اشتراک با mergeTemplateStatics)
 
+/** Device-aware shadow budget: preserve crisp shadows on capable GPUs without forcing
+ * a 2048² depth map on low-memory/low-core phones. No GPU renderer-string probing. */
+interface ShadowQualityProfile {
+  mapSize: number;
+  refreshEvery: number;
+  normalBias: number;
+  radius: number;
+}
+
+function getShadowQualityProfile(
+  gl: WebGL2RenderingContext | WebGLRenderingContext,
+): ShadowQualityProfile {
+  const maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 2048;
+  const nav = typeof navigator !== 'undefined' ? navigator : null;
+  const cores = nav?.hardwareConcurrency || 4;
+  const reportedMemory = nav && 'deviceMemory' in nav
+    ? Number((nav as Navigator & { deviceMemory?: number }).deviceMemory)
+    : Number.NaN;
+  const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
+  const lowEnd = cores <= 4 || (memory !== null && memory <= 4) || maxTextureSize < 4096;
+  const highEnd = cores >= 8 && memory !== null && memory >= 8 && maxTextureSize >= 8192;
+
+  if (lowEnd) {
+    return { mapSize: 1024, refreshEvery: 4, normalBias: 0.022, radius: 1.25 };
+  }
+  if (highEnd) {
+    return { mapSize: 2048, refreshEvery: 2, normalBias: 0.014, radius: 1.75 };
+  }
+  return { mapSize: 2048, refreshEvery: 3, normalBias: 0.018, radius: 1.5 };
+}
+
 export class WorldRenderer3D {
+  /** Keep the game loop alive through transient Android WebGL context loss. */
+  private webglContextLost = false;
+  private readonly handleWebGLContextLost = (event: Event): void => {
+    event.preventDefault();
+    this.webglContextLost = true;
+  };
+  private readonly handleWebGLContextRestored = (): void => {
+    this.webglContextLost = false;
+    this.r3.shadowMap.needsUpdate = true;
+  };
+
   private r3: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private cam3: THREE.PerspectiveCamera;
   private sun: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private dayNightFactor = 0;
+  /** Adaptive shadow refresh cadence selected once at renderer startup. */
+  private shadowRefreshEvery = 3;
   /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
   private playerHeadlightGlows: THREE.Sprite[] = [];
   /** Wide, low-cost headlight spill projected onto the road; one transparent mesh, no extra light. */
@@ -394,6 +440,12 @@ export class WorldRenderer3D {
   private steerVis = 0;
   private pitchVis = 0;
   private rollVis = 0;
+  /** فاز ۳۶: میرایی فنربندی شاسی و حافظهٔ ارتفاع پایهٔ هر چرخ */
+  private suspensionY = 0;
+  private suspensionVelocity = 0;
+  private wheelRestY = new WeakMap<THREE.Object3D, number>();
+  private previousPlayerSpeed = 0;
+  private cameraRoll = 0;
   /** PMREM محیط استودیویی برای انعکاس کنترل‌شده روی رنگ بدنه و نمای ساختمان‌ها (ادغام از شاخهٔ کاربر) */
   private environmentTarget: THREE.WebGLRenderTarget | null = null;
 
@@ -467,6 +519,10 @@ export class WorldRenderer3D {
     private lights: TrafficLights,
   ) {
     this.r3 = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl as WebGL2RenderingContext, antialias: true, powerPreference: 'high-performance' });
+    // Three.js registers its own context handlers during renderer construction.
+    // These listeners only gate rendering and request a fresh shadow map after recovery.
+    glCanvas.addEventListener('webglcontextlost', this.handleWebGLContextLost, false);
+    glCanvas.addEventListener('webglcontextrestored', this.handleWebGLContextRestored, false);
     this.r3.shadowMap.enabled = true;
     // PCFSoftShadowMap در three r186 حذف شده — PCF استاندارد
     this.r3.shadowMap.type = THREE.PCFShadowMap;
@@ -518,7 +574,9 @@ export class WorldRenderer3D {
     // 🔑 PERF-4 (لگ حین رانندگی): کادر قبلی ±۶۲۰ با نقشهٔ ۱۰۲۴ — حین رانندگی صدها
     // سایه‌انداز دور و بر داخل shadow pass رندر می‌شدند و تراکم تکسل فقط ۰٫۸۳/واحد بود.
     // حالا کادر ±۳۳۰ دور ماشین + نقشهٔ ۲۰۴۸ → سایهٔ «شارپ‌تر» (کیفیت بالاتر) با کسری از هزینه.
-    this.sun.shadow.mapSize.set(2048, 2048);
+    const shadowProfile = getShadowQualityProfile(gl);
+    this.shadowRefreshEvery = shadowProfile.refreshEvery;
+    this.sun.shadow.mapSize.set(shadowProfile.mapSize, shadowProfile.mapSize);
     this.sun.shadow.camera.left = -330;
     this.sun.shadow.camera.right = 330;
     this.sun.shadow.camera.top = 330;
@@ -526,6 +584,8 @@ export class WorldRenderer3D {
     this.sun.shadow.camera.near = 100;
     this.sun.shadow.camera.far = 1800;
     this.sun.shadow.bias = -0.0006;
+    this.sun.shadow.normalBias = shadowProfile.normalBias;
+    this.sun.shadow.radius = shadowProfile.radius;
     this.scene.add(this.sun, this.sun.target);
 
     // دنیا — فاز ENDLESS-1: زمین دنبال‌کننده + منابع مشترک قطعه‌ها
@@ -2635,6 +2695,30 @@ export class WorldRenderer3D {
     return this.playerPaint;
   }
 
+  /** جرقه‌های جهت‌دار تصادف؛ از pool ذرات فعلی استفاده می‌کند و mesh جدید نمی‌سازد. */
+  private spawnImpactSparks(x: number, z: number, front: boolean, intensity: number): void {
+    const count = Math.max(4, Math.min(12, Math.round(4 + intensity * 8)));
+    const baseAngle = front ? Math.PI / 2 : -Math.PI / 2;
+    const colors = ['#fff1b0', '#ffb347', '#ff7b38'];
+    for (let i = 0; i < count; i++) {
+      if (this.particles.length >= RENDER3D.particleMax) break;
+      const angle = baseAngle + (Math.random() - 0.5) * Math.PI * 1.35;
+      const power = 150 + Math.random() * (180 + intensity * 180);
+      const life = 0.16 + Math.random() * 0.22;
+      this.particles.push({
+        x, z, y: 28 + Math.random() * 24,
+        vx: Math.cos(angle) * power,
+        vz: Math.sin(angle) * power,
+        vy: 45 + Math.random() * (70 + intensity * 80),
+        life, maxLife: life,
+        size: 3.5 + Math.random() * 3.5,
+        active: true,
+        color: parseColor(colors[i % colors.length]).color,
+        spark: true,
+      });
+    }
+  }
+
   /**
    * آسیب بازیکن — نقطه برخورد داینامیک (فاز BIG-IR):
    * تیرگی بدنه + کج شدن + جدا شدن سپر با پرتاب ذرات در نقطه سپر
@@ -2652,8 +2736,10 @@ export class WorldRenderer3D {
         this.spawnBurst(this.tmpV.x, this.tmpV.z, '#3a3a3a', 10, 220);
       }
     }
-    // جرقه در نقطه تماس
-    this.spawnBurst(contactX, contactY, front ? '#ffd27a' : '#c9c9c9', 6, 200);
+    // افکت برخورد چندلایه: جرقه‌های جهت‌دار کوتاه + ذرات روشن پخش‌شونده.
+    const impactIntensity = Math.max(0.25, Math.min(1, damage / 30));
+    this.spawnImpactSparks(contactX, contactY, front, impactIntensity);
+    this.spawnBurst(contactX, contactY, front ? '#ffd27a' : '#c9c9c9', 4 + Math.round(impactIntensity * 4), 150 + impactIntensity * 90);
   }
   private playerFrontHits = 0;
   private playerRearHits = 0;
@@ -2704,10 +2790,15 @@ export class WorldRenderer3D {
         p.x += p.vx * dt;
         p.z += p.vz * dt;
         p.y += p.vy * dt;
-        p.vy -= 560 * dt;
-        p.vx *= 0.94;
-        p.vz *= 0.94;
-        if (p.y < 12) { p.y = 12; p.vy *= -0.3; }
+        p.vy -= p.spark ? 880 * dt : 560 * dt;
+        const drag = p.spark ? Math.exp(-2.8 * dt) : Math.pow(0.94, dt * 60);
+        p.vx *= drag;
+        p.vz *= drag;
+        if (p.y < 12) {
+          p.y = 12;
+          p.vy *= p.spark ? -0.12 : -0.3;
+          if (p.spark) p.life = Math.min(p.life, 0.07);
+        }
         anyAlive = true;
       }
     }
@@ -2847,8 +2938,9 @@ export class WorldRenderer3D {
 
     this.updateTireSmoke(frameDt, opts, brakingLoad, driftLoad);
 
-    // 🔕 سایهٔ ۲۰Hz — نقشهٔ سایه فقط هر ۳ فریم بازتولید می‌شود
-    this.shadowTick = (this.shadowTick + 1) % 3;
+    // Device-aware shadow refresh: 2 frames on high-end, 3 standard, 4 low-end.
+    // Sun movement still updates; this bounds GPU shadow-pass cost on mobile.
+    this.shadowTick = (this.shadowTick + 1) % this.shadowRefreshEvery;
     if (this.shadowTick === 0) this.r3.shadowMap.needsUpdate = true;
 
     // ---------- فاز ENDLESS-1: جریان بصری قطعه‌ها با بودجهٔ فریمی + زمین دنبال‌کننده ----------
@@ -2856,11 +2948,23 @@ export class WorldRenderer3D {
     this.groundMesh.position.set(Math.round(car.x / 700) * 700, 0, Math.round(car.y / 700) * 700);
 
     // ---------- ماشین بازیکن ----------
-    this.playerModel.group.position.set(car.x, 0, car.y);
+    // فاز ۳۶: فنربندی نرم شاسی و ارتعاش جاده با دامنهٔ محدود.
+    const speedFrac = Math.min(1, Math.abs(car.speed) / 380);
+    const accelVisual = Math.max(-1, Math.min(1, (car.speed - this.previousPlayerSpeed) / Math.max(1, frameDt) / 900));
+    this.previousPlayerSpeed = car.speed;
+    const roadInput = Math.sin(t * (13 + speedFrac * 13)) * speedFrac * 1.15;
+    const lateralLoad = Math.max(-1, Math.min(1, car.latVel / 140));
+    const springTarget = roadInput - accelVisual * 1.2 - Math.abs(lateralLoad) * 0.22;
+    const springDt = Math.min(frameDt, 1 / 30);
+    this.suspensionVelocity += (springTarget - this.suspensionY) * 34 * springDt;
+    this.suspensionVelocity *= Math.exp(-9.5 * springDt);
+    this.suspensionY = Math.max(-2.2, Math.min(2.2, this.suspensionY + this.suspensionVelocity * springDt));
+    this.playerModel.group.position.set(car.x, this.suspensionY, car.y);
     this.playerModel.group.rotation.y = -car.angle;
     const wheelR = car.drawH * 0.135;
     const spin = (car.speed / wheelR) * frameDt;
     spinWheels(this.playerModel, spin);
+    this.animateWheelSuspension(this.playerModel, t, speedFrac, accelVisual, lateralLoad);
 
     // ---------- فاز OVERHAUL: ترمز/فرمان/رول/پیک بدنه بازیکن ----------
     const pmodel = this.playerModel;
@@ -2915,7 +3019,9 @@ export class WorldRenderer3D {
         this.trafficContactShadows.setMatrixAt(trafficShadowIndex++, shadow.matrix);
       }
       const wr = c.drawH * 0.135;
-      spinWheels(model, (c.speed / wr) * this.drawDt());
+      // Reuse the frame delta already sampled at draw3D entry; avoid per-vehicle clock reads.
+      spinWheels(model, (c.speed / wr) * frameDt);
+      this.animateWheelSuspension(model, t, Math.min(1, Math.abs(c.speed) / 380), 0, 0);
       // چراغ ترمز ترافیک: کند شدن ناگهانی
       const prev = (model as unknown as { __prevSpeed?: number }).__prevSpeed ?? c.speed;
       const braking = c.speed < prev - 1.5 || (c.speed < 8 && prev < 8 && c.atLight);
@@ -3053,16 +3159,38 @@ export class WorldRenderer3D {
       const ch = this.world.chunks.get(vis.key);
       if (!ch) continue;
       let visible = false;
+      let matrixDirty = false;
+      // Cache collected state per instanced coin. A collected coin is hidden once,
+      // rather than rewriting its matrix on every frame; uncollected coins retain
+      // the same rotation/bob animation and full visual quality.
+      let takenState = mesh.userData.coinTakenState as Uint8Array | undefined;
+      if (!takenState || takenState.length !== ch.coins.length) {
+        takenState = new Uint8Array(ch.coins.length);
+        mesh.userData.coinTakenState = takenState;
+      }
       for (let i = 0; i < ch.coins.length; i++) {
         const c = ch.coins[i];
+        if (c.taken) {
+          if (takenState[i] !== 1) {
+            this.tmpS.setScalar(0.0001);
+            this.tmpQ.identity();
+            this.tmpM.compose(this.tmpV.set(c.x, 26, c.y), this.tmpQ, this.tmpS);
+            mesh.setMatrixAt(i, this.tmpM);
+            takenState[i] = 1;
+            matrixDirty = true;
+          }
+          continue;
+        }
+        takenState[i] = 0;
+        visible = true;
         const bob = Math.sin(t * 3 + c.seed) * 5;
-        this.tmpS.setScalar(c.taken ? 0.0001 : 1);
-        if (!c.taken) visible = true;
+        this.tmpS.setScalar(1);
         this.tmpQ.setFromEuler(this.eul.set(0, t * 2.6 + c.seed, 0));
         this.tmpM.compose(this.tmpV.set(c.x, 26 + bob, c.y), this.tmpQ, this.tmpS);
         mesh.setMatrixAt(i, this.tmpM);
+        matrixDirty = true;
       }
-      mesh.instanceMatrix.needsUpdate = true;
+      if (matrixDirty) mesh.instanceMatrix.needsUpdate = true;
       mesh.visible = visible;
     }
 
@@ -3201,41 +3329,73 @@ export class WorldRenderer3D {
     }
 
     // ---------- رندر ----------
-    this.r3.render(this.scene, this.cam3);
+    if (!this.webglContextLost) this.r3.render(this.scene, this.cam3);
 
     // ---------- اورلی (حباب‌ها + فلش هدف) ----------
     this.drawOverlay(opts, t);
   }
 
-  private updateChaseCamera(car: Vehicle, dt: number, _t: number): void {
-    // نرم‌سازی زاویه (کوتاه‌ترین مسیر)
+  private updateChaseCamera(car: Vehicle, dt: number, t: number): void {
+    // زاویهٔ دوربین با کوتاه‌ترین مسیر دنبال می‌شود.
     let diff = car.angle - this.camAngle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     this.camAngle += diff * Math.min(1, RENDER3D.camAngleLerp * dt);
 
+    const speedFrac = Math.min(1, Math.abs(car.speed) / 380);
     const fx = Math.sin(this.camAngle);
     const fz = -Math.cos(this.camAngle);
-    const back = RENDER3D.camBack + Math.abs(car.speed) * RENDER3D.camBackPerSpeed;
-    const desired = this.tmpP.set(car.x - fx * back, RENDER3D.camHeight, car.y - fz * back);
-    const k = 1 - Math.exp(-RENDER3D.camPosLerp * dt);
+    const back = RENDER3D.camBack + Math.abs(car.speed) * RENDER3D.camBackPerSpeed + speedFrac * 24;
+    const targetHeight = RENDER3D.camHeight + speedFrac * 18;
+    const desired = this.tmpP.set(car.x - fx * back, targetHeight, car.y - fz * back);
+    const safeDt = Math.min(dt, 1 / 30);
+    const k = 1 - Math.exp(-(RENDER3D.camPosLerp + speedFrac * 0.8) * safeDt);
     this.cam3.position.lerp(desired, k);
 
-    // لرزش از دوربین دوبعدی (برخورد)
+    // لرزش برخورد محدود و کوتاه.
     const sh = this.camera.getShake();
     this.cam3.position.x += sh.x * 0.9;
     this.cam3.position.y += Math.abs(sh.y) * 0.5;
     this.cam3.position.z += sh.y * 0.9;
 
-    // نگاه به جلوی ماشین
-    const look = this.tmpV.set(car.x + fx * 260, 60, car.y + fz * 260);
+    // نگاه به مسیر، با فاصلهٔ پیش‌بینی متناسب با سرعت.
+    const lookAhead = 230 + speedFrac * 170;
+    const look = this.tmpV.set(car.x + fx * lookAhead, 54 + speedFrac * 12, car.y + fz * lookAhead);
     this.cam3.lookAt(look);
 
-    // فاز OVERHAUL: FOV سرعتی — با سرعت، دید کمی بازتر می‌شود (حس سرعت)
-    const speedFrac = Math.min(1, Math.abs(car.speed) / 380);
+    // رول بسیار ظریف در پیچ‌ها؛ محدود برای جلوگیری از افق کج.
+    const rollTarget = Math.max(-0.035, Math.min(0.035, -car.latVel * 0.00018));
+    this.cameraRoll += (rollTarget - this.cameraRoll) * (1 - Math.exp(-5 * safeDt));
+    this.cam3.rotateZ(this.cameraRoll + Math.sin(t * 7) * speedFrac * 0.0015);
+
     const targetFov = this.fovBase + speedFrac * 9;
     this.cam3.fov += (targetFov - this.cam3.fov) * Math.min(1, 4 * dt);
     this.cam3.updateProjectionMatrix();
+  }
+
+  /** حرکت محدود چرخ‌ها نسبت به شاسی؛ موقعیت پایه هر چرخ فقط یک‌بار ثبت می‌شود. */
+  private animateWheelSuspension(
+    model: CarModel3D,
+    t: number,
+    speedFrac: number,
+    longitudinalLoad: number,
+    lateralLoad: number,
+  ): void {
+    const wheels = model.wheels;
+    for (let i = 0; i < wheels.length; i++) {
+      const wheel = wheels[i];
+      let restY = this.wheelRestY.get(wheel);
+      if (restY === undefined) {
+        restY = wheel.position.y;
+        this.wheelRestY.set(wheel, restY);
+      }
+      const frontFactor = i % 2 === 0 ? 1 : -0.55;
+      const sideFactor = i < 2 ? -1 : 1;
+      const road = Math.sin(t * (15 + speedFrac * 12) + i * 1.7) * speedFrac * 0.75;
+      const travel = Math.max(-1.4, Math.min(1.4,
+        road - longitudinalLoad * frontFactor * 1.05 + lateralLoad * sideFactor * 0.22));
+      wheel.position.y = restY + travel;
+    }
   }
 
   private syncParticles(): void {
@@ -3251,6 +3411,15 @@ export class WorldRenderer3D {
           this.tmpV.set(p.x, p.y, p.z),
           this.tmpQ,
           this.tmpS.set(p.size, p.size * 0.55, p.size * 0.8).multiplyScalar(0.4 + fade * 0.6),
+        );
+      } else if (p.spark) {
+        // جرقه‌ها کشیده و هم‌جهت حرکت دیده می‌شوند، بدون متریال یا draw call تازه.
+        const angle = Math.atan2(p.vz, p.vx);
+        this.tmpQ.setFromEuler(this.eul.set(0, -angle, Math.max(-0.8, Math.min(0.8, p.vy * 0.002))));
+        this.tmpM.compose(
+          this.tmpV.set(p.x, p.y, p.z),
+          this.tmpQ,
+          this.tmpS.set(p.size * (1.3 + k), p.size * 0.24 * (0.35 + k * 0.65), p.size * 0.24),
         );
       } else {
         this.tmpQ.identity();
@@ -3647,11 +3816,36 @@ export class WorldRenderer3D {
 
   // ============ اندازه و پاک‌سازی ============
 
-  /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی */
+  /** Device-aware render-buffer budget. This changes raster resolution only,
+   * not camera FOV, geometry, texture detail, shadow quality, or overlay size. */
+  private getAdaptiveRenderScale(pixelW: number, pixelH: number): number {
+    const pixels = Math.max(1, pixelW) * Math.max(1, pixelH);
+    const nav = typeof navigator !== 'undefined' ? navigator : null;
+    const cores = nav?.hardwareConcurrency || 4;
+    const reportedMemory = nav && 'deviceMemory' in nav
+      ? Number((nav as Navigator & { deviceMemory?: number }).deviceMemory)
+      : Number.NaN;
+    const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
+
+    // Conservative caps: low-end 1.45 MP, standard 2.3 MP, high-end 3.6 MP.
+    // Unknown memory never qualifies as high-end; never upscale small screens.
+    const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
+    const highEnd = cores >= 8 && memory !== null && memory >= 8;
+    const maxPixels = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    if (pixels <= maxPixels) return 1;
+    return Math.max(0.72, Math.min(1, Math.sqrt(maxPixels / pixels)));
+  }
+
+  /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی.
+   * Phase 38: cap only the WebGL drawing buffer on pixel-heavy devices; keep
+   * overlay resolution and all world-space detail unchanged. */
   resize(pixelW: number, pixelH: number, dpr: number): void {
     this.dpr = dpr;
     this.r3.setPixelRatio(1);
-    this.r3.setSize(pixelW, pixelH, false);
+    const renderScale = this.getAdaptiveRenderScale(pixelW, pixelH);
+    const renderW = Math.max(1, Math.round(pixelW * renderScale));
+    const renderH = Math.max(1, Math.round(pixelH * renderScale));
+    this.r3.setSize(renderW, renderH, false);
     this.overlay.width = pixelW;
     this.overlay.height = pixelH;
     // ابعاد منطقی برای پروجکشن = پیکسل CSS
@@ -3668,6 +3862,8 @@ export class WorldRenderer3D {
   }
 
   dispose(): void {
+    this.r3.domElement.removeEventListener('webglcontextlost', this.handleWebGLContextLost);
+    this.r3.domElement.removeEventListener('webglcontextrestored', this.handleWebGLContextRestored);
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
