@@ -35,7 +35,8 @@ export interface GameInstance {
   setVirtualBrake: (v: boolean) => void;
   pressHorn: () => void;
   setSetting: <K extends 'music' | 'sfx' | 'voice'>(k: K, v: number) => void;
-  getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean };
+  setGraphicsQuality: (quality: 'performance' | 'balanced' | 'quality') => void;
+  getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean; graphicsQuality: 'performance' | 'balanced' | 'quality' };
   getSave: () => { coins: number; reputation: number };
   toggleDebugFps: () => void;
   /** فاز 4: مأموریت‌ها (فاز ۵: با فیلتر دسته — park/taxi/challenge) */
@@ -44,8 +45,10 @@ export interface GameInstance {
   abandonMission: () => void;
   /** فاز BIG-IR: اسکران به تعمیرگاه بعد از خاموشی */
   towToRepair: () => void;
-  /** فاز ۶: گاراژ عمو نقی — آپگرید و رنگ */
+  /** گاراژ عمو نقی — خودروها، آپگرید و رنگ */
   listGarage: () => GarageView;
+  buyVehicle: (id: string) => PurchaseResult;
+  selectVehicle: (id: string) => PurchaseResult;
   buyUpgrade: (id: UpgradeId) => PurchaseResult;
   buyPaint: (id: string) => PurchaseResult;
   selectPaint: (id: string) => PurchaseResult;
@@ -72,6 +75,7 @@ export async function createGame(
     setVirtualBrake: (v) => gm.setVirtualBrake(v),
     pressHorn: () => gm.pressHorn(),
     setSetting: (k, v) => gm.setSetting(k, v),
+    setGraphicsQuality: (quality) => gm.setGraphicsQuality(quality),
     getSettings: () => gm.getSettings(),
     getSave: () => gm.getSave(),
     toggleDebugFps: () => gm.toggleDebugFps(),
@@ -80,6 +84,8 @@ export async function createGame(
     abandonMission: () => gm.abandonMission(),
     towToRepair: () => gm.towToRepair(),
     listGarage: () => gm.listGarage(),
+    buyVehicle: (id) => gm.buyVehicle(id),
+    selectVehicle: (id) => gm.selectVehicle(id),
     buyUpgrade: (id) => gm.buyUpgrade(id),
     buyPaint: (id) => gm.buyPaint(id),
     selectPaint: (id) => gm.selectPaint(id),

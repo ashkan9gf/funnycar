@@ -10,12 +10,14 @@
 import { SAVE } from '../data/balance';
 import { DEFAULT_PAINT_ID, PAINT_IDS, UPGRADES, MAX_UPGRADE_LEVEL, type UpgradeId } from '../data/garage';
 import { DEFAULT_HORN_ID, HORN_IDS } from '../data/horns';
+import { PLAYER_VEHICLES } from '../data/vehicles';
 
 export interface GameSettings {
   music: number;  // 0..1
   sfx: number;
   voice: number;
   vibration: boolean;
+  graphicsQuality: 'performance' | 'balanced' | 'quality';
 }
 
 export interface SaveData {
@@ -47,7 +49,7 @@ function defaultSave(): SaveData {
     unlockedVehicles: ['veh_player_01'],
     selectedVehicle: 'veh_player_01',
     completedMissions: [],
-    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true },
+    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true, graphicsQuality: 'balanced' },
     progress: { tutorialDone: false, firstRunDone: false },
     upgrades: defaultUpgrades(),
     ownedPaints: [DEFAULT_PAINT_ID],
@@ -70,6 +72,17 @@ function migrate(raw: unknown): SaveData {
   if (typeof raw !== 'object' || raw === null) return base;
   const data = raw as Partial<SaveData>;
   // نسخه‌های آینده اینجا زنجیره‌وار ارتقا می‌یابند: if (data.version === 1) {...}
+  const knownVehicleIds = new Set(PLAYER_VEHICLES.map((vehicle) => vehicle.id));
+  const rawUnlocked = Array.isArray(data.unlockedVehicles)
+    ? data.unlockedVehicles.filter((v): v is string => typeof v === 'string' && knownVehicleIds.has(v))
+    : [...base.unlockedVehicles];
+  const unlockedVehicles = [...new Set(rawUnlocked)];
+  if (!unlockedVehicles.includes('veh_player_01')) unlockedVehicles.unshift('veh_player_01');
+  const selectedVehicle = typeof data.selectedVehicle === 'string'
+    && knownVehicleIds.has(data.selectedVehicle)
+    && unlockedVehicles.includes(data.selectedVehicle)
+    ? data.selectedVehicle
+    : (unlockedVehicles[0] ?? 'veh_player_01');
   return {
     version: SAVE.version,
     coins: typeof data.coins === 'number' && Number.isFinite(data.coins) && data.coins >= 0
@@ -78,12 +91,8 @@ function migrate(raw: unknown): SaveData {
     reputation: typeof data.reputation === 'number' && Number.isFinite(data.reputation)
       ? Math.min(100, Math.max(0, data.reputation))
       : base.reputation,
-    unlockedVehicles: Array.isArray(data.unlockedVehicles) && data.unlockedVehicles.some((v) => typeof v === 'string')
-      ? [...new Set(data.unlockedVehicles.filter((v): v is string => typeof v === 'string' && v.length > 0))]
-      : base.unlockedVehicles,
-    selectedVehicle: typeof data.selectedVehicle === 'string' && data.selectedVehicle.length > 0
-      ? data.selectedVehicle
-      : base.selectedVehicle,
+    unlockedVehicles,
+    selectedVehicle,
     completedMissions: Array.isArray(data.completedMissions)
       ? [...new Set(data.completedMissions.filter((id): id is string => typeof id === 'string' && id.length > 0))]
       : [],
@@ -137,6 +146,9 @@ function migrateSettings(raw: unknown, base: GameSettings): GameSettings {
     sfx: volume(value.sfx, base.sfx),
     voice: volume(value.voice, base.voice),
     vibration: typeof value.vibration === 'boolean' ? value.vibration : base.vibration,
+    graphicsQuality: value.graphicsQuality === 'performance' || value.graphicsQuality === 'quality'
+      ? value.graphicsQuality
+      : 'balanced',
   };
 }
 

@@ -354,6 +354,9 @@ export class WorldRenderer3D {
   private dayNightFactor = 0;
   /** Adaptive shadow refresh cadence selected once at renderer startup. */
   private shadowRefreshEvery = 3;
+  private graphicsQuality: 'performance' | 'balanced' | 'quality' = 'balanced';
+  /** Device-specific quality ceiling captured from the startup GPU profile. */
+  private shadowRefreshDefault = 3;
   /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
   private playerHeadlightGlows: THREE.Sprite[] = [];
   /** Wide, low-cost headlight spill projected onto the road; one transparent mesh, no extra light. */
@@ -406,7 +409,6 @@ export class WorldRenderer3D {
   /** 🔑 PERF-3-ج: صف merge پراپ‌های ویژه‌ی یک قطعه — buildProp به‌جای مش تکی، هندسه به صف می‌دهد
    *  و آخر buildChunkVisual per (متریال همسان × امضا) merge می‌شود — صدها درخواست ترسیم → چند ده */
   private propStage: Array<{ key: string; mat: THREE.Material; geo: THREE.BufferGeometry; cast: boolean }> | null = null;
-  private propGroups = new Map<WorldProp, THREE.Group>();
   private repairRings: THREE.Group[] = [];
 
   // ---------- فاز GRAPHICS_OVERHAUL ----------
@@ -485,6 +487,8 @@ export class WorldRenderer3D {
   private chunkVis = new Map<string, ChunkVisual>();
   /** صف ساخت بصری (مرتب بر فاصله — هر فریم با بودجه مصرف می‌شود) */
   private buildQueue: string[] = [];
+  /** Cached integer coordinates avoid repeated split/Number allocations while prioritizing chunks. */
+  private readonly buildQueueCoordinates = new Map<string, { i: number; j: number }>();
   private queued = new Set<string>();
   /** جمع‌کننده فعلی — buildBuilding/buildProp اشیاء را ثبت می‌کنند */
   private visCollector: ChunkVisual | null = null;
@@ -582,6 +586,7 @@ export class WorldRenderer3D {
     // حالا کادر ±۳۳۰ دور ماشین + نقشهٔ ۲۰۴۸ → سایهٔ «شارپ‌تر» (کیفیت بالاتر) با کسری از هزینه.
     const shadowProfile = getShadowQualityProfile(gl);
     this.shadowRefreshEvery = shadowProfile.refreshEvery;
+    this.shadowRefreshDefault = shadowProfile.refreshEvery;
     this.sun.shadow.mapSize.set(shadowProfile.mapSize, shadowProfile.mapSize);
     this.sun.shadow.camera.left = -330;
     this.sun.shadow.camera.right = 330;
@@ -943,18 +948,20 @@ export class WorldRenderer3D {
         const key = `${ci + di}_${cj + dj}`;
         if (!this.chunkVis.has(key) && !this.queued.has(key)) {
           this.queued.add(key);
+          this.buildQueueCoordinates.set(key, { i: ci + di, j: cj + dj });
           this.buildQueue.push(key);
         }
       }
     }
     // مرتب‌سازی صف بر فاصله تا بازیکن (نزدیک‌تر اول — حذف صفِ خارج از شعاع)
     if (this.buildQueue.length > 1) {
+      // Sort farthest-first and pop: Array.shift() would move every remaining entry.
       this.buildQueue.sort((a, b) => {
-        const pa = a.split('_');
-        const pb = b.split('_');
-        const da = Math.abs(Number(pa[0]) - ci) + Math.abs(Number(pa[1]) - cj);
-        const db = Math.abs(Number(pb[0]) - ci) + Math.abs(Number(pb[1]) - cj);
-        return da - db;
+        const pa = this.buildQueueCoordinates.get(a)!;
+        const pb = this.buildQueueCoordinates.get(b)!;
+        const da = Math.abs(pa.i - ci) + Math.abs(pa.j - cj);
+        const db = Math.abs(pb.i - ci) + Math.abs(pb.j - cj);
+        return db - da;
       });
     }
     // ۳) ⏱ بودجه فریمی سخت‌گیرانه: حداکثر N قطعه و حداکثر X ms در این فریم
@@ -963,14 +970,16 @@ export class WorldRenderer3D {
     while (this.buildQueue.length > 0) {
       if (builds >= ENDLESS.maxChunkBuildsPerFrame) break;
       if (performance.now() - t0 >= ENDLESS.buildBudgetMs) break;
-      const key = this.buildQueue.shift()!;
+      const key = this.buildQueue.pop()!;
       this.queued.delete(key);
-      const p = key.split('_');
-      const di = Math.abs(Number(p[0]) - ci);
-      const dj = Math.abs(Number(p[1]) - cj);
+      const coords = this.buildQueueCoordinates.get(key);
+      this.buildQueueCoordinates.delete(key);
+      if (!coords) continue;
+      const di = Math.abs(coords.i - ci);
+      const dj = Math.abs(coords.j - cj);
       if (di > R || dj > R) continue; // از صف خارج شده
       if (this.chunkVis.has(key)) continue;
-      this.buildChunkVisual(Number(p[0]), Number(p[1]), key);
+      this.buildChunkVisual(coords.i, coords.j, key);
       if (!this.allJobsDone) this.builtWithFallback = true; // 🔕 برای فلاش دیرهنگام
       builds++;
     }
@@ -1102,8 +1111,10 @@ export class WorldRenderer3D {
       const idx = this.repairRings.indexOf(obj as THREE.Group);
       if (idx >= 0) this.repairRings.splice(idx, 1);
     }
-    for (const g of vis.geos) g.dispose();
-    for (const m of vis.mats) m.dispose();
+    // یک هندسه یا متریال ممکن است توسط چند Mesh همین قطعه ثبت شده باشد.
+    // منابع هر قطعه را یکتا آزاد کن تا dispose تکراری رخ ندهد.
+    for (const g of new Set(vis.geos)) g.dispose();
+    for (const m of new Set(vis.mats)) m.dispose();
     // شکستنی‌های همین قطعه را مستقیم حذف کن؛ از کپی‌کردن کل Map و includes تکراری پرهیز می‌شود.
     for (const prop of vis.breakableProps) this.breakableInst.delete(prop);
     // اسلات چراغ
@@ -1165,7 +1176,7 @@ export class WorldRenderer3D {
 
   /** پیش‌بارگذاری GLB همه واریانت‌ها + تعویض بازیکن/ترافیک پس از آماده‌شدن */
   private preloadCars(): void {
-    const variants: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police'];
+    const variants: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police', 'renault4', 'vintage'];
     for (const v of variants) {
       this.readyJobs.push(
         this.glb.loadCar(v, false).then((scene) => {
@@ -1176,8 +1187,8 @@ export class WorldRenderer3D {
           // 🔕 شکست ارتقا هرگز job را reject نمی‌کند — مدل procedural می‌ماند
           try {
             this.glbCars.set(v, scene);
-            if (v === 'player') this.upgradePlayerToGLB();
-            else this.upgradeTrafficToGLB(v);
+            if (v === this.playerVariant) this.upgradePlayerToGLB();
+            this.upgradeTrafficToGLB(v);
           } catch (e) {
             console.warn('[Renderer] car GLB upgrade failed (kept procedural):', v, e);
           }
@@ -1209,19 +1220,51 @@ export class WorldRenderer3D {
     }
   }
 
-  /** تعویض مدل بازیکن به GLB (حفظ موقعیت/چرخش فعلی) */
+  /** انتقال جلوه‌های وابسته به خودرو هنگام تعویض مدل؛ بدون ساخت دوبارهٔ منابع */
+  private transferPlayerEffects(from: CarModel3D, to: CarModel3D): void {
+    const effects: THREE.Object3D[] = [
+      ...this.playerHeadlightGlows,
+      ...this.playerBrakeGlows,
+      ...(this.playerHeadlightSpill ? [this.playerHeadlightSpill] : []),
+      ...(this.playerContactShadow ? [this.playerContactShadow] : []),
+    ];
+    for (const effect of effects) {
+      from.group.remove(effect);
+      to.group.add(effect);
+    }
+  }
+
+  /** تعویض مدل بازیکن به GLB برای خودروی انتخاب‌شده (حفظ موقعیت و جلوه‌ها) */
   private upgradePlayerToGLB(): void {
-    const scene = this.glbCars.get('player');
+    const scene = this.glbCars.get(this.playerVariant);
     if (!scene || !this.playerModel) return;
     const old = this.playerModel;
-    const model = assembleCarFromGLB('player', scene, { bodyColor: old.bodyColor });
-    const s = old.group.scale.x; // مقیاس قبلی حفظ شود
-    model.group.scale.setScalar(s);
+    const model = assembleCarFromGLB(this.playerVariant, scene, { bodyColor: old.bodyColor });
+    model.group.scale.setScalar(old.group.scale.x);
     model.group.position.copy(old.group.position);
     model.group.rotation.copy(old.group.rotation);
+    this.transferPlayerEffects(old, model);
     this.scene.remove(old.group);
     this.scene.add(model.group);
     this.playerModel = model;
+  }
+
+  /** انتخاب خودروی بازیکن از گاراژ؛ مدل GLB یا procedural، بدون ریست موقعیت */
+  setPlayerVehicle(variant: CarVariant): void {
+    const allowed: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'renault4', 'vintage'];
+    if (!allowed.includes(variant) || variant === this.playerVariant || !this.playerModel) return;
+    this.playerVariant = variant;
+    const old = this.playerModel;
+    const model = buildCar3D(variant, 112, Math.round(112 * 1.75), { paint: this.playerPaint });
+    model.group.scale.setScalar(old.group.scale.x);
+    model.group.position.copy(old.group.position);
+    model.group.rotation.copy(old.group.rotation);
+    this.transferPlayerEffects(old, model);
+    this.scene.remove(old.group);
+    this.scene.add(model.group);
+    this.playerModel = model;
+    // If the GLB for this variant has already loaded, upgrade immediately.
+    this.upgradePlayerToGLB();
   }
 
   /** ترافیک GLB موجود؟ — مدل‌های خارجی کاربر از نسخه سبک lod1 (عملکرد — فیکس FPS) */
@@ -2284,7 +2327,6 @@ export class WorldRenderer3D {
     }
     this.scene.add(wrap);
     this.regVisDeep(wrap);
-    if (p.breakable) this.propGroups.set(p, wrap);
   }
 
   /** 🔑 PERF-3-ج: تخلیهٔ صف merge پراپ‌های یک قطعه — per (متریال همسان × امضای اتریبیوت × سایه)
@@ -2432,13 +2474,20 @@ export class WorldRenderer3D {
     crossing.envMapIntensity = 0.20 + wetSheen * 0.48;
     crossing.color.lerpColors(ROAD_DAY_TINT, ROAD_NIGHT_TINT, wetSheen * 0.24);
     const nightVisibility = Math.min(1, Math.max(0, (night - 0.12) / 0.72));
-    // Fade headlamp halos smoothly through dusk; no per-frame allocations.
+    // Fade headlamp halos smoothly through dusk, then give them a readable night-time
+    // presence. Reuse the existing sprites; do not add point lights or extra passes.
+    const headlampStrength = nightVisibility * (0.52 + nightVisibility * 0.12);
     for (const glow of this.playerHeadlightGlows) {
-      (glow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.46;
+      (glow.material as THREE.SpriteMaterial).opacity = headlampStrength;
+      const glowScale = 0.92 + nightVisibility * 0.18;
+      glow.scale.set(76 * glowScale, 48 * glowScale, 1);
     }
-    // Keep the beam subtle at dusk and stronger at night; material/geometry are reused.
+    // A broader, brighter ground spill makes night roads readable without dynamic lights.
+    // Keep the beam at zero during daylight and reuse its existing geometry/material.
     if (this.playerHeadlightSpill) {
-      (this.playerHeadlightSpill.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.16;
+      (this.playerHeadlightSpill.material as THREE.MeshBasicMaterial).opacity = nightVisibility * (0.18 + nightVisibility * 0.07);
+      const beamScale = 0.96 + nightVisibility * 0.10;
+      this.playerHeadlightSpill.scale.set(beamScale, 1, beamScale);
     }
     // Contact shadows read most clearly in daylight and soften naturally at night.
     if (this.playerContactShadow) {
@@ -2701,6 +2750,7 @@ export class WorldRenderer3D {
 
   /** رنگ انتخابی گاراژ (فاز ۶) — قبل از ساخت مدل ست می‌شود */
   private playerPaint = '#f4f4f0';
+  private playerVariant: CarVariant = 'player';
 
   /**
    * فاز ۶ گاراژ — تغییر رنگ بدنه بازیکن (در منو یا حین بازی)
@@ -2890,19 +2940,19 @@ export class WorldRenderer3D {
           p.x = rearX + Math.cos(car.angle) * sideOffset * side;
           p.z = rearZ + Math.sin(car.angle) * sideOffset * side;
           p.y = 2.5;
-          const backwards = -Math.sign(car.speed || 1) * (driftLoad ? 22 : 12);
+          const backwards = -Math.sign(car.speed || 1) * (driftLoad ? 25 : 12);
           // Lateral velocity pushes smoke outward along the car's slip direction,
           // making long drifts read clearly without adding particles or draw calls.
           const slip = Math.max(-1, Math.min(1, car.latVel / 140));
           p.vx = -Math.sin(car.angle) * backwards + Math.cos(car.angle) * slip * 18 + (Math.random() - 0.5) * 15;
           p.vz = Math.cos(car.angle) * backwards + Math.sin(car.angle) * slip * 18 + (Math.random() - 0.5) * 15;
           p.vy = 9 + Math.random() * 10;
-          p.life = p.maxLife = driftLoad ? 0.72 : 0.58;
-          p.size = 13 + Math.random() * 5;
+          p.life = p.maxLife = driftLoad ? 0.82 : 0.62;
+          p.size = (driftLoad ? 15 : 13) + Math.random() * (driftLoad ? 7 : 5);
           p.rot = Math.random() * Math.PI;
           p.active = true;
         }
-        this.tireSmokeEmitTimer = driftLoad ? 0.13 : 0.17;
+        this.tireSmokeEmitTimer = driftLoad ? 0.105 : 0.16;
       }
     } else {
       this.tireSmokeEmitTimer = Math.min(this.tireSmokeEmitTimer, 0.05);
@@ -2963,7 +3013,7 @@ export class WorldRenderer3D {
         const slipCorrection = driftLoad ? Math.max(-0.32, Math.min(0.32, slipAngle)) : 0;
         const driftIntensity = driftLoad ? Math.min(1, Math.abs(car.latVel) / 130) : 0;
         this.addSkidMark(rearX, rearY, car.angle + slipCorrection, driftIntensity);
-        this.skidEmitTimer = driftLoad ? 0.075 : 0.105;
+        this.skidEmitTimer = driftLoad ? 0.06 : 0.10;
       }
     } else {
       this.skidEmitTimer = Math.min(this.skidEmitTimer, 0.04);
@@ -3047,6 +3097,16 @@ export class WorldRenderer3D {
       }
       model.group.position.set(c.x, 0, c.y);
       model.group.rotation.y = -c.angle;
+      // Turn the front wheels into corners too. Derive steering from the wrapped
+      // heading delta and smooth it, so traffic doesn't snap its wheels at angle wrap.
+      const trafficVisual = model as unknown as { __prevAngle?: number; __steerVisual?: number };
+      const prevAngle = trafficVisual.__prevAngle ?? c.angle;
+      const angleDelta = Math.atan2(Math.sin(c.angle - prevAngle), Math.cos(c.angle - prevAngle));
+      const steerTarget = Math.max(-0.36, Math.min(0.36, angleDelta / Math.max(frameDt, 1 / 120) * 0.12));
+      const steerCurrent = trafficVisual.__steerVisual ?? 0;
+      trafficVisual.__steerVisual = steerCurrent + (steerTarget - steerCurrent) * Math.min(1, 8 * frameDt);
+      trafficVisual.__prevAngle = c.angle;
+      steerWheels(model, trafficVisual.__steerVisual);
       // Batch a soft oval under each traffic vehicle; scale follows its actual dimensions.
       if (this.trafficContactShadows && trafficShadowIndex < this.trafficShadowCapacity) {
         const shadow = this.trafficShadowDummy;
@@ -3390,8 +3450,19 @@ export class WorldRenderer3D {
     const fz = -Math.cos(this.camAngle);
     const back = RENDER3D.camBack + Math.abs(car.speed) * RENDER3D.camBackPerSpeed + speedFrac * 24;
     const targetHeight = RENDER3D.camHeight + speedFrac * 18;
-    const desired = this.tmpP.set(car.x - fx * back, targetHeight, car.y - fz * back);
     const safeDt = Math.min(dt, 1 / 30);
+    // During a fast drift, slide the chase camera slightly toward the outside
+    // of the car's lateral motion. The bounded offset adds speed/weight cues
+    // without changing vehicle physics or creating extra scene objects.
+    const slip = Math.max(-1, Math.min(1, car.latVel / 105));
+    const driftLead = slip * speedFrac * 20;
+    const rightX = Math.cos(this.camAngle);
+    const rightZ = Math.sin(this.camAngle);
+    const desired = this.tmpP.set(
+      car.x - fx * back + rightX * driftLead,
+      targetHeight,
+      car.y - fz * back + rightZ * driftLead,
+    );
     const k = 1 - Math.exp(-(RENDER3D.camPosLerp + speedFrac * 0.8) * safeDt);
     this.cam3.position.lerp(desired, k);
 
@@ -3401,18 +3472,23 @@ export class WorldRenderer3D {
     this.cam3.position.y += Math.abs(sh.y) * 0.5;
     this.cam3.position.z += sh.y * 0.9;
 
-    // نگاه به مسیر، با فاصلهٔ پیش‌بینی متناسب با سرعت.
+    // نگاه به مسیر، با فاصلهٔ پیش‌بینی متناسب با سرعت و کمی lead هنگام دریفت.
     const lookAhead = 230 + speedFrac * 170;
-    const look = this.tmpV.set(car.x + fx * lookAhead, 54 + speedFrac * 12, car.y + fz * lookAhead);
+    const look = this.tmpV.set(
+      car.x + fx * lookAhead + rightX * driftLead * 0.65,
+      54 + speedFrac * 12,
+      car.y + fz * lookAhead + rightZ * driftLead * 0.65,
+    );
     this.cam3.lookAt(look);
 
     // رول بسیار ظریف در پیچ‌ها؛ محدود برای جلوگیری از افق کج.
-    const rollTarget = Math.max(-0.035, Math.min(0.035, -car.latVel * 0.00018));
+    const rollTarget = Math.max(-0.05, Math.min(0.05, -car.latVel * 0.00024));
     this.cameraRoll += (rollTarget - this.cameraRoll) * (1 - Math.exp(-5 * safeDt));
     this.cam3.rotateZ(this.cameraRoll + Math.sin(t * 7) * speedFrac * 0.0015);
 
-    const targetFov = this.fovBase + speedFrac * 9;
-    this.cam3.fov += (targetFov - this.cam3.fov) * Math.min(1, 4 * dt);
+    const targetFov = this.fovBase + speedFrac * 10;
+    // Exponential easing stays stable when a frame stalls on mobile.
+    this.cam3.fov += (targetFov - this.cam3.fov) * (1 - Math.exp(-4 * safeDt));
     this.cam3.updateProjectionMatrix();
   }
 
@@ -3857,6 +3933,24 @@ export class WorldRenderer3D {
     ctx.restore();
   }
 
+  /**
+   * Adapt shadow refresh work to sustained frame rate without rebuilding the shadow map.
+   * Low FPS skips more shadow refreshes; stable headroom restores the device's startup profile.
+   */
+  /** User-selected raster budget. This never changes physics or world detail. */
+  setGraphicsQuality(quality: 'performance' | 'balanced' | 'quality'): void {
+    this.graphicsQuality = quality;
+  }
+
+  setPerformanceHint(fps: number): void {
+    if (!Number.isFinite(fps) || fps <= 0) return;
+    if (fps < 32) this.shadowRefreshEvery = 6;
+    else if (fps < 40) this.shadowRefreshEvery = 5;
+    else if (fps < 46) this.shadowRefreshEvery = 4;
+    else if (fps > 50) this.shadowRefreshEvery = this.shadowRefreshDefault;
+    // Between 46 and 50 FPS, retain the current cadence to avoid quality oscillation.
+  }
+
   // ============ اندازه و پاک‌سازی ============
 
   /** Device-aware render-buffer budget. This changes raster resolution only,
@@ -3874,9 +3968,13 @@ export class WorldRenderer3D {
     // Unknown memory never qualifies as high-end; never upscale small screens.
     const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
     const highEnd = cores >= 8 && memory !== null && memory >= 8;
-    const maxPixels = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    const deviceBudget = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    const qualityFactor = this.graphicsQuality === 'performance' ? 0.72
+      : this.graphicsQuality === 'quality' ? 1.25 : 1;
+    const maxPixels = Math.max(850_000, Math.round(deviceBudget * qualityFactor));
     if (pixels <= maxPixels) return 1;
-    return Math.max(0.72, Math.min(1, Math.sqrt(maxPixels / pixels)));
+    const floor = this.graphicsQuality === 'performance' ? 0.62 : 0.72;
+    return Math.max(floor, Math.min(1, Math.sqrt(maxPixels / pixels)));
   }
 
   /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی.

@@ -24,10 +24,12 @@ import { World, type WorldProp } from '../world/World';
 import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
+import type { CarVariant } from '../render3d/CarFactory3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
-import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
+import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId, type VehicleTuning } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
+import { PLAYER_VEHICLES, vehicleById } from '../data/vehicles';
 import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
@@ -61,6 +63,8 @@ export interface HudData {
 /** نتیجه مأموریت برای پوسته React (فاز 4) */
 export interface MissionResultData {
   success: boolean;
+  /** رتبهٔ عملکرد مأموریت: صفر در شکست، ۱ تا ۳ ستاره در پیروزی */
+  stars: number;
   missionId: string;
   title: string;
   /** جایزه نهایی سکه (با بونوس آبروی بالا) */
@@ -84,6 +88,20 @@ export interface GameCallbacks {
 /** نمای کامل گاراژ برای پوسته React (فاز ۶) */
 export interface GarageView {
   coins: number;
+  vehicles: Array<{
+    id: string;
+    name: string;
+    variant: string;
+    speed: number;
+    acceleration: number;
+    handling: number;
+    durability: number;
+    price: number;
+    description: string;
+    flavor: string;
+    owned: boolean;
+    selected: boolean;
+  }>;
   upgrades: Array<{
     id: UpgradeId;
     title: string;
@@ -206,6 +224,7 @@ export class GameManager {
       overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;';
       canvas.parentElement?.appendChild(overlay);
       this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera, this.lights);
+      this.renderer3d.setGraphicsQuality(this.save.get().settings.graphicsQuality);
       this.fx = this.renderer3d;
     } else {
       this.is3D = false;
@@ -309,16 +328,43 @@ export class GameManager {
     this.applyGarageToVehicle();
     const savedPaint = paintById(this.save.get().paint);
     if (savedPaint && this.renderer3d) this.renderer3d.setPlayerPaint(savedPaint.hex);
+    const savedVehicle = vehicleById(this.save.get().selectedVehicle);
+    if (savedVehicle && this.renderer3d) this.renderer3d.setPlayerVehicle(savedVehicle.variant as CarVariant);
     this.setState('menu');
     this.loop(performance.now());
   }
 
   // ============ گاراژ عمو نقی (فاز ۶) ============
 
-  /** اعمال ضرایب آپگرید سیو روی خودروی بازیکن */
+  /** تیون پایه هر خودرو؛ انتخاب ماشین باید در حس رانندگی هم اثر واقعی داشته باشد. */
+  private vehicleHandling(variant: string): VehicleTuning {
+    const presets: Record<string, VehicleTuning> = {
+      player:    { maxSpeedMul: 1.00, accelMul: 1.00, brakeMul: 1.00, gripMul: 1.00, steerMul: 1.00, armorMul: 1.00 },
+      pride:     { maxSpeedMul: 0.97, accelMul: 1.07, brakeMul: 0.98, gripMul: 1.08, steerMul: 1.10, armorMul: 0.92 },
+      tiba:      { maxSpeedMul: 1.02, accelMul: 1.03, brakeMul: 1.00, gripMul: 1.04, steerMul: 1.05, armorMul: 0.96 },
+      peugeot405:{ maxSpeedMul: 1.05, accelMul: 0.99, brakeMul: 1.04, gripMul: 0.98, steerMul: 0.97, armorMul: 1.08 },
+      samand:    { maxSpeedMul: 0.99, accelMul: 0.98, brakeMul: 1.06, gripMul: 1.01, steerMul: 0.95, armorMul: 1.12 },
+      nissan:    { maxSpeedMul: 0.89, accelMul: 0.91, brakeMul: 1.08, gripMul: 0.90, steerMul: 0.86, armorMul: 1.25 },
+      renault4:  { maxSpeedMul: 0.92, accelMul: 0.96, brakeMul: 1.00, gripMul: 1.10, steerMul: 1.07, armorMul: 0.93 },
+      vintage:   { maxSpeedMul: 1.08, accelMul: 1.04, brakeMul: 0.93, gripMul: 0.92, steerMul: 1.02, armorMul: 0.86 },
+    };
+    return presets[variant] ?? NEUTRAL_TUNING;
+  }
+
+  /** ترکیب ویژگی ذاتی خودرو با آپگریدهای گاراژ؛ آپگریدها روی همه خودروها حفظ می‌شوند. */
   private applyGarageToVehicle(): void {
-    const up = this.save.get().upgrades;
-    this.vehicle.tune = up ? upgradeTuning(up) : { ...NEUTRAL_TUNING };
+    const d = this.save.get();
+    const vehicle = vehicleById(d.selectedVehicle);
+    const base = this.vehicleHandling(vehicle?.variant ?? 'player');
+    const upgraded = d.upgrades ? upgradeTuning(d.upgrades) : { ...NEUTRAL_TUNING };
+    this.vehicle.tune = {
+      maxSpeedMul: base.maxSpeedMul * upgraded.maxSpeedMul,
+      accelMul: base.accelMul * upgraded.accelMul,
+      brakeMul: base.brakeMul * upgraded.brakeMul,
+      gripMul: base.gripMul * upgraded.gripMul,
+      steerMul: base.steerMul * upgraded.steerMul,
+      armorMul: base.armorMul * upgraded.armorMul,
+    };
   }
 
   /** فهرست کامل گاراژ برای پوسته React (آپگریدها + رنگ‌ها + سکه) */
@@ -326,6 +372,33 @@ export class GameManager {
     const d = this.save.get();
     return {
       coins: d.coins,
+      vehicles: PLAYER_VEHICLES.map((v) => {
+        const base = this.vehicleHandling(v.variant);
+        const upgraded = d.upgrades ? upgradeTuning(d.upgrades) : { ...NEUTRAL_TUNING };
+        // Show the actual car setup, not just its factory baseline. The same
+        // upgrade tuning is applied to the live vehicle in applyGarageToVehicle().
+        const tuned = {
+          maxSpeedMul: base.maxSpeedMul * upgraded.maxSpeedMul,
+          accelMul: base.accelMul * upgraded.accelMul,
+          gripMul: base.gripMul * upgraded.gripMul,
+          steerMul: base.steerMul * upgraded.steerMul,
+          armorMul: base.armorMul * upgraded.armorMul,
+        };
+        return {
+          id: v.id,
+          name: v.name,
+          variant: v.variant,
+          speed: Math.round(tuned.maxSpeedMul * 100),
+          acceleration: Math.round(tuned.accelMul * 100),
+          handling: Math.round(((tuned.gripMul + tuned.steerMul) / 2) * 100),
+          durability: Math.round(tuned.armorMul * 100),
+          price: v.price,
+          description: v.description,
+          flavor: v.flavor,
+          owned: d.unlockedVehicles.includes(v.id),
+          selected: d.selectedVehicle === v.id,
+        };
+      }),
       upgrades: UPGRADES.map((u) => {
         const level = d.upgrades[u.id] ?? 0;
         return {
@@ -355,6 +428,41 @@ export class GameManager {
         selected: d.horn === h.id,
       })),
     };
+  }
+
+  /** خرید خودروی جدید با سکه و انتخاب آن */
+  buyVehicle(id: string): { ok: boolean; coins: number; msg: string } {
+    const vehicle = vehicleById(id);
+    const d = this.save.get();
+    if (!vehicle) return { ok: false, coins: d.coins, msg: 'این ماشین تو نمایشگاه عمو نقی نیست!' };
+    if (d.unlockedVehicles.includes(id)) return this.selectVehicle(id);
+    if (d.coins < vehicle.price) return { ok: false, coins: d.coins, msg: 'سکه‌ات کمه؛ چند مسافر دیگه ببر!' };
+    this.save.mutate((s) => {
+      s.coins -= vehicle.price;
+      s.unlockedVehicles.push(id);
+      s.selectedVehicle = id;
+    });
+    this.applyGarageToVehicle();
+    this.renderer3d?.setPlayerVehicle(vehicle.variant as CarVariant);
+    const paint = paintById(this.save.get().paint);
+    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    this.audio.coin();
+    return { ok: true, coins: this.save.get().coins, msg: `ماشین «${vehicle.name}» خریدی؛ عمو نقی هم یه دور افتخار زد!` };
+  }
+
+  /** انتخاب خودرویی که قبلاً خریداری شده */
+  selectVehicle(id: string): { ok: boolean; coins: number; msg: string } {
+    const vehicle = vehicleById(id);
+    const d = this.save.get();
+    if (!vehicle || !d.unlockedVehicles.includes(id)) {
+      return { ok: false, coins: d.coins, msg: 'اول باید این ماشین رو بخری!' };
+    }
+    this.save.mutate((s) => { s.selectedVehicle = id; });
+    this.applyGarageToVehicle();
+    this.renderer3d?.setPlayerVehicle(vehicle.variant as CarVariant);
+    const paint = paintById(this.save.get().paint);
+    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    return { ok: true, coins: this.save.get().coins, msg: `ماشین «${vehicle.name}» آمادهٔ حرکته!` };
   }
 
   /** خرید یک سطح آپگرید — خروجی برای toast پوسته */
@@ -518,6 +626,11 @@ export class GameManager {
     this.save.mutate((d) => { d.settings[k] = v; });
     this.audio.setVolumes(this.save.get().settings);
   }
+  setGraphicsQuality(quality: 'performance' | 'balanced' | 'quality'): void {
+    this.save.mutate((d) => { d.settings.graphicsQuality = quality; });
+    this.renderer3d?.setGraphicsQuality(quality);
+    this.handleResize();
+  }
   getSettings() { return this.save.get().settings; }
   getSave() { return this.save.get(); }
 
@@ -586,10 +699,25 @@ export class GameManager {
 
     let coins = 0;
     let rep = 0;
+    let stars = 0;
     if (success) {
+      // رتبه‌بندی سه‌ستاره: زمان، تصادف و برخورد با چاله روی پاداش اثر می‌گذارند.
+      const s = stats && typeof stats === 'object' ? stats as { elapsedSec?: number; hardCrashes?: number; potholeHits?: number } : {};
+      const elapsed = Math.max(0, s.elapsedSec ?? 0);
+      const crashes = Math.max(0, s.hardCrashes ?? 0);
+      const potholes = Math.max(0, s.potholeHits ?? 0);
+      const limit = def?.timeLimitSec ?? 0;
+      stars = crashes === 0 && potholes === 0 && (limit <= 0 || elapsed <= limit * 0.7)
+        ? 3
+        : crashes <= 1 && (limit <= 0 || elapsed <= limit)
+          ? 2
+          : 1;
+      // بونوس عملکرد: ۳ ستاره +۱۵٪، ۲ ستاره +۷٪؛ بدون تغییر پاداش پایه.
+      const performanceBonus = stars === 3 ? 0.15 : stars === 2 ? 0.07 : 0;
       // بونوس آبروی بالا (سند بخش ۷: ×1.25 وقتی آبرو ≥ ۸۰)
       const repNow = this.save.get().reputation;
       coins = Math.round(baseCoins * (repNow >= MISSIONS.bonusRepThreshold ? MISSIONS.bonusFactor : 1));
+      coins += Math.round(baseCoins * performanceBonus);
       // فاز ۵: انعام تاکسی (اگر سریع برسی)
       const statsBonus = stats && typeof stats === 'object' && 'bonusCoins' in stats
         ? (stats as { bonusCoins?: number }).bonusCoins ?? 0
@@ -625,7 +753,7 @@ export class GameManager {
       if (next) unlockedNext = next.title;
     }
 
-    this.callbacks.onMissionEnd?.({ success, missionId, title, coins, rep, reason, line, unlockedNext });
+    this.callbacks.onMissionEnd?.({ success, stars, missionId, title, coins, rep, reason, line, unlockedNext });
   }
 
   // ============ ترافیک و رویدادها (فاز 2) ============
@@ -1390,9 +1518,12 @@ export class GameManager {
     if (this.dprCheck < 4) return; // هر ۲ ثانیه — نوسان‌گیر
     this.dprCheck = 0;
     const fps = this.fpsValue;
+    // Shadow updates are cheaper on sustained low-FPS devices; the renderer restores
+    // its device-specific default once frame-rate headroom is stable again.
+    this.renderer3d?.setPerformanceHint(fps);
     let nd = this.dpr3d;
     // React sooner to sustained frame drops, and allow sub-1 DPR on very weak GPUs.
-    if (fps < 38) nd = Math.max(1.1, this.dpr3d - 0.3);
+    if (fps < 38) nd = Math.max(0.75, this.dpr3d - 0.3);
     else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.2);
     if (Math.abs(nd - this.dpr3d) > 0.01) {
       this.dpr3d = Math.round(nd * 100) / 100;

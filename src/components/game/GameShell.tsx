@@ -69,6 +69,7 @@ interface Settings {
   music: number;
   sfx: number;
   voice: number;
+  graphicsQuality: 'performance' | 'balanced' | 'quality';
 }
 
 /** پنل تنظیمات صدا (در منو و Pause استفاده می‌شود) */
@@ -102,10 +103,26 @@ function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => 
           <span className="w-10 text-center text-sm font-bold text-[#3a2e2a]">{fa(Math.round(s[r.key] * 100))}٪</span>
         </div>
       ))}
-      <div className="flex items-center gap-3 opacity-50">
-        <span className="text-sm font-bold text-[#3a2e2a]">لرزش گوشی</span>
-        <span className="text-xs text-[#3a2e2a]">(فازهای بعدی)</span>
+      <div className="flex flex-wrap items-center gap-3 pt-2">
+        <span className="w-24 text-sm font-bold text-[#3a2e2a]">کیفیت گرافیک</span>
+        <select
+          aria-label="کیفیت گرافیک"
+          className="min-w-0 flex-1 rounded-xl border border-[#c8b89b] bg-[#fffaf0] px-3 py-2 text-sm font-bold text-[#3a2e2a]"
+          value={s.graphicsQuality}
+          onChange={(e) => {
+            const quality = e.target.value as Settings['graphicsQuality'];
+            setS((p) => ({ ...p, graphicsQuality: quality }));
+            game.setGraphicsQuality(quality);
+          }}
+        >
+          <option value="performance">روان‌تر — مناسب گوشی ضعیف</option>
+          <option value="balanced">متعادل — پیشنهاد ما</option>
+          <option value="quality">کیفیت بالاتر — مناسب گوشی قوی</option>
+        </select>
       </div>
+      <p className="text-xs leading-5 text-[#6b5b49]">
+        تغییر کیفیت فوراً اعمال و ذخیره می‌شود؛ جزئیات جهان ثابت می‌ماند و فقط بودجهٔ وضوح رندر سه‌بعدی تغییر می‌کند.
+      </p>
       {onClose && (
         <button
           type="button"
@@ -312,8 +329,8 @@ export default function GameShell() {
 
       {/* ============ منوی اصلی ============ */}
       {phase === "menu" && (
-        <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
-          <div className="fc-pop mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 px-6 py-8">
+        <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto overscroll-y-contain touch-pan-y bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
+          <div className="fc-pop mx-auto flex min-h-full w-full max-w-md shrink-0 flex-col items-center justify-start gap-5 px-6 py-8 sm:justify-center">
             {/* لوگو */}
             <div className="flex flex-col items-center gap-2">
               <div className="fc-btn flex h-20 w-20 items-center justify-center rounded-3xl bg-[#F2B705]">
@@ -341,8 +358,7 @@ export default function GameShell() {
             <button
               type="button"
               className="fc-btn w-full max-w-xs rounded-3xl bg-[#8AC926] py-4 text-2xl font-extrabold text-[#3a2e2a]"
-              onPointerDown={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 gameRef.current?.startGameplay();
               }}
             >
@@ -361,8 +377,7 @@ export default function GameShell() {
                   key={m.cat}
                   type="button"
                   className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#8AC926] py-3 text-[#3a2e2a]"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
+                  onClick={() => {
                     setMissionFilter(m.cat);
                     setMissions(gameRef.current?.listMissions(m.cat) ?? []);
                     setShowMissions(true);
@@ -370,7 +385,6 @@ export default function GameShell() {
                 >
                   {m.icon}
                   <span className="text-sm font-extrabold">{m.label}</span>
-                  <span className="text-[10px] font-bold opacity-60">فاز ۵ ✓</span>
                 </button>
               ))}
             </div>
@@ -379,8 +393,7 @@ export default function GameShell() {
             <button
               type="button"
               className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#F2B705] py-3 text-lg font-extrabold text-[#3a2e2a]"
-              onPointerDown={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 openGarage();
               }}
             >
@@ -428,8 +441,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex items-center gap-2 rounded-2xl bg-[#FFF9EC] px-6 py-2.5 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   setShowSettings(true);
                 }}
               >
@@ -482,8 +494,7 @@ export default function GameShell() {
                 className={`fc-btn fc-panel flex w-full flex-col items-start gap-1 p-4 text-right ${
                   locked ? "bg-[#FFF9EC]/60 opacity-75" : "bg-[#FFF9EC]"
                 }`}
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   if (locked) return;
                   gameRef.current?.startMission(m.id);
                   setShowMissions(false);
@@ -533,7 +544,7 @@ export default function GameShell() {
 
       {/* ============ گاراژ عمو نقی (فاز ۶) ============ */}
       {phase === "menu" && showGarage && garage && (
-        <div className="absolute inset-0 z-40 flex flex-col overflow-y-auto bg-[#3a2e2a]/70 px-4 py-6 backdrop-blur-[2px]">
+        <div className="absolute inset-0 z-40 flex flex-col overflow-y-auto overscroll-y-contain touch-pan-y bg-[#3a2e2a]/70 px-4 py-6 backdrop-blur-[2px]">
           <div className="fc-pop mx-auto flex w-full max-w-md flex-col gap-3 pb-4">
             {/* هدر */}
             <div className="flex items-center justify-between">
@@ -554,6 +565,62 @@ export default function GameShell() {
                   <X className="h-6 w-6" />
                 </TapButton>
               </div>
+            </div>
+
+            {/* نمایشگاه خودرو — خرید و تعویض با سکه */}
+            <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-white/85">
+              <Car className="h-4 w-4 text-[#F2B705]" /> نمایشگاه ماشین‌ها — با سکه بخر و هر وقت خواستی عوض کن:
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {garage.vehicles.map((v) => {
+                const affordable = garage.coins >= v.price;
+                return (
+                  <div key={v.id} className={`fc-panel p-3 ${v.selected ? "bg-[#DDF5B4]" : "bg-[#FFF9EC]"}`}>
+                    <div className="flex items-start gap-2">
+                      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${v.selected ? "bg-[#8AC926]" : "bg-[#FFF3D6]"} text-[#3a2e2a]`}>
+                        <Car className="h-6 w-6" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-sm font-extrabold text-[#3a2e2a]">{v.name}</span>
+                          {v.selected && <Check className="h-4 w-4 shrink-0 text-[#2A7A23]" />}
+                        </div>
+                        <p className="mt-0.5 text-[10px] leading-4 text-[#3a2e2a]/70">{v.description}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
+                      {([
+                        ["سرعت", v.speed],
+                        ["شتاب", v.acceleration],
+                        ["فرمان و چسبندگی", v.handling],
+                        ["مقاومت بدنه", v.durability],
+                      ] as const).map(([label, value]) => (
+                        <div key={label}>
+                          <div className="mb-1 flex items-center justify-between gap-1 text-[10px] font-bold text-[#3a2e2a]/75">
+                            <span>{label}</span><span>{fa(value)}٪</span>
+                          </div>
+                          <div className="h-1.5 overflow-hidden rounded-full bg-[#3a2e2a]/10">
+                            <div className="h-full rounded-full bg-[#F2B705]" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={v.selected}
+                      className={`fc-btn mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-extrabold ${
+                        v.selected ? "bg-[#3a2e2a]/10 text-[#3a2e2a]/60" : v.owned ? "bg-[#8AC926] text-[#3a2e2a]" : affordable ? "bg-[#F2B705] text-[#3a2e2a]" : "bg-[#FFF3D6] text-[#3a2e2a]/60"
+                      }`}
+                      onClick={() => {
+                        if (v.selected) return;
+                        purchase(() => v.owned ? gameRef.current!.selectVehicle(v.id) : gameRef.current!.buyVehicle(v.id));
+                      }}
+                    >
+                      {v.selected ? "ماشین فعلی ✓" : v.owned ? "انتخاب این ماشین" : <><Coins className="h-4 w-4" />{fa(v.price)} سکه — خرید</>}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
 
             {/* آپگریدها */}
@@ -596,8 +663,7 @@ export default function GameShell() {
                             ? "bg-[#8AC926] text-[#3a2e2a]"
                             : "bg-[#FFF3D6] text-[#3a2e2a]/60"
                       }`}
-                      onPointerDown={(e) => {
-                        e.preventDefault();
+                      onClick={() => {
                         if (maxed) return;
                         purchase(() => gameRef.current!.buyUpgrade(u.id));
                       }}
@@ -629,8 +695,7 @@ export default function GameShell() {
                   className={`fc-btn flex flex-col items-center gap-1 rounded-2xl p-2 ${
                     p.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
                   }`}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
+                  onClick={() => {
                     if (p.owned) {
                       if (!p.selected) purchase(() => gameRef.current!.selectPaint(p.id));
                     } else {
@@ -673,8 +738,7 @@ export default function GameShell() {
                   className={`fc-btn flex items-center gap-2 rounded-2xl p-2.5 text-right ${
                     h.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
                   }`}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
+                  onClick={() => {
                     if (h.owned) {
                       if (!h.selected) purchase(() => gameRef.current!.selectHorn(h.id));
                     } else {
@@ -935,6 +999,19 @@ export default function GameShell() {
             <p className="mt-3 rounded-2xl bg-[#FFF3D6] px-3 py-2 text-sm font-bold leading-6 text-[#3a2e2a]">
               «{missionResult.line}»
             </p>
+            {missionResult.success && (
+              <div className="mt-3 rounded-2xl border border-[#F2B705]/50 bg-[#FFF8DF] px-4 py-3 text-center text-[#3a2e2a]">
+                <div className="text-xs font-extrabold opacity-75">رتبهٔ رانندگی</div>
+                <div className="mt-1 flex items-center justify-center gap-2 text-2xl" aria-label={`${missionResult.stars} از ۳ ستاره`}>
+                  {[1, 2, 3].map((star) => (
+                    <span key={star} className={star <= missionResult.stars ? "text-[#E0A800]" : "text-[#B9B3A3]"}>★</span>
+                  ))}
+                </div>
+                <div className="mt-1 text-xs font-bold">
+                  {missionResult.stars === 3 ? "رانندگی بی‌نقص! پاداش ویژه گرفتی." : missionResult.stars === 2 ? "خوب بود! برای پاداش کامل تمیزتر برون." : "مأموریت انجام شد؛ برای ستاره‌های بیشتر تصادف نکن."}
+                </div>
+              </div>
+            )}
             {missionResult.success && missionResult.unlockedNext && (
               <p className="mt-2 flex items-center justify-center gap-1.5 rounded-2xl bg-[#8AC926]/25 px-3 py-2 text-sm font-extrabold text-[#3a2e2a]">
                 <Lock className="h-4 w-4" />
