@@ -34,6 +34,10 @@ export interface GameInstance {
   setVirtualGas: (v: boolean) => void;
   setVirtualBrake: (v: boolean) => void;
   pressHorn: () => void;
+  /** پیش‌نمایش بوق فروشگاه بدون خرید */
+  previewHorn: (id: string) => void;
+  /** پیش‌نمایش رنگ بدون خرید؛ null رنگ خریداری‌شده را برمی‌گرداند */
+  previewPaint: (id: string | null) => void;
   setSetting: <K extends 'music' | 'sfx' | 'voice'>(k: K, v: number) => void;
   getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean };
   getSave: () => { coins: number; reputation: number };
@@ -71,6 +75,8 @@ export async function createGame(
     setVirtualGas: (v) => gm.setVirtualGas(v),
     setVirtualBrake: (v) => gm.setVirtualBrake(v),
     pressHorn: () => gm.pressHorn(),
+    previewHorn: (id) => gm.previewHorn(id),
+    previewPaint: (id) => gm.previewPaint(id),
     setSetting: (k, v) => gm.setSetting(k, v),
     getSettings: () => gm.getSettings(),
     getSave: () => gm.getSave(),
