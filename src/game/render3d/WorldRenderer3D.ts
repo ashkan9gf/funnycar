@@ -3859,6 +3859,17 @@ export class WorldRenderer3D {
     ctx.restore();
   }
 
+  /** Compile visible scene shaders during the loading screen to avoid the first-menu camera hitch. */
+  async warmup(): Promise<void> {
+    try {
+      await this.r3.compileAsync(this.scene, this.cam3);
+      this.r3.render(this.scene, this.cam3);
+    } catch (err) {
+      // Shader warm-up is an optimization only; a device without support still runs normally.
+      console.debug('[Renderer] shader warm-up skipped:', err);
+    }
+  }
+
   // ============ اندازه و پاک‌سازی ============
 
   /** Device-aware render-buffer budget. This changes raster resolution only,
