@@ -1076,3 +1076,24 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.40-test.apk
 - لینک: https://uploadkon.ir/uploads/43b820_26fc0240.zip
 - نکته: اسکرین‌شات‌ها scripts/v0240_*.png (منو/لیست بی‌پایان/گیم‌پلی تاکسی مولد)
+
+---
+Task ID: 55
+Agent: main (Z.ai)
+Task: حذف ماشین چپ‌شده + فیکس جای پارک‌ها + ضدلگ پیچیدن + پیش‌نمایش مدل واقعی و رنگ بدنه (v0.2.41)
+
+Work Log:
+- ریشه‌یابی «ماشین چپ‌شده»: vintage.glb وارونه مودل‌سازی شده (چرخ‌ها y≈63 از ۸۳ — سقف روی زمین)؛ probe AABB/vertex در مرورگر + تحلیل binary GLB
+- حذف vintage از خیابان (هر دو لیست پارک) و ترافیک؛ فیکس جهت GLB در GlbModels.load (چرخش z=π + پایه روی زمین) → نمایشگاه سالم ماند
+- فیکس پارک‌ها با گزارش داده‌ای درون بازی (۱۲۴ ماشین): edge ۳۱۰→۲۸۴ (بدون تداخل با دیوار/درخت)، pk2/pk3 از ۱۱۵۰/۱۱۱۰ به ۷۰۰ (بدون پارک سر چهارراه)، گارد مرز مبدأ برای pk (رفع دوبله‌پارکی روی هم)، عقب‌نشینی ساختمان پمپ بنزین ۶۶۰→۶۰۰+۶۰، خانهٔ شرقی rowHouses ۲۶۰→۲۰۰ (از لبهٔ بلوک رد می‌شد!)، حذف ۳ فرمول درخت کنار جدول → نتیجه نهایی: ۰ تداخل ماشین/ماشین، ۰ دیوار، ۰ درخت، ۰ چهارراه (قبلاً ۳۰/۶/۱۲)
+- ضدلگ پیچیدن: کشف buildChunkVisual تا ۹۶ms در یک فریم → (۱) جنراتور قابل‌ادامه با بودجهٔ ۳٫۵ms (باسگ کلیدی: next() قبل از چک vis)، (۲) پارکی‌ها InstancedMesh (صفر کپی هندسهٔ ۲۶۱K) → قطعه ۷۴→۱۰ms و بدترین فریم ۹۵→۱۳ms
+- پیش‌نمایش مدل واقعی: renderCarPreviewAsync با GlbLibrary → کارت‌های نمایشگاه اول procedural فوری، بعد GLB واقعی؛ paintMats در assembleCarFromGLB (بدنه = orig×رنگ) + setPlayerPaint روی GLB واقعی کار می‌کند
+- رنگ کارخانه‌ای: VEHICLE_FACTORY_COLORS per واریانت + سواچ رنگ در کارت خرید + buyVehicle(id, colorHex?) + save.paintHex (اولویت روی paint id)
+- tsc/lint سبز؛ E2E: گزارش پارک ۰/۰/۰/۰، سواچ قرمز روی GLB واقعی، زنگاری/رنو۴ قائم در پیش‌نمایش، استریم قطعه ۱۵ active
+- بیلد v0.2.41/VCODE=41 (SIGN OK)؛ push 0f15c47..e181c05؛ uploadkon HEAD 200
+
+Stage Summary:
+- main = e181c05
+- APK: download/FunnyCarIR-v0.2.41-test.apk
+- لینک: https://uploadkon.ir/uploads/c40520_26fc0241.zip
+- درس: MultiEdit ممکن است نیمه‌اعمال شود (isPaintable تکراری ماند) — بعد از هر MultiEdit حتماً Read
