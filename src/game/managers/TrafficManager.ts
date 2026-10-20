@@ -272,6 +272,24 @@ export class TrafficManager {
         continue;
       }
 
+      // پلیس و تاکسیِ تحریک‌شده برای مدتی از شبکهٔ عادی جدا می‌شوند و بازیکن را دنبال می‌کنند.
+      // حرکت محوربه‌محور از مختصات واقعی انجام می‌شود؛ پس از پایان تعقیب مسیر عادی دوباره ساخته می‌شود.
+      if (car.pursuitSec > 0) {
+        car.pursuitSec = Math.max(0, car.pursuitSec - dt);
+        const dx = player.x - car.x;
+        const dy = player.y - car.y;
+        if (Math.abs(dx) > Math.abs(dy) * 0.85) {
+          car.setDir(dx >= 0 ? 'E' : 'W', false);
+          car.lane = car.y;
+        } else {
+          car.setDir(dy >= 0 ? 'S' : 'N', false);
+          car.lane = car.x;
+        }
+        car.update(dt, car.cruise * (car.assetId.includes('police') ? 1.38 : 1.22));
+        if (car.pursuitSec <= 0) car.routeRecoveryPending = true;
+        continue;
+      }
+
       // تصمیم‌های تقاطع
       const s = signOf(car.dir);
       const along = alongOf(car.dir, car.x, car.y);
