@@ -559,7 +559,7 @@ export default function GameShell() {
               </div>
             </div>
 
-            <VehicleShowcase paint={garage.paints.find((p) => p.selected)?.hex ?? "#f4f4f0"} />
+            <VehicleShowcase paint={garage.paints.find((p) => p.selected)?.hex ?? "#f4f4f0"} vehicles={garage.vehicles} onBuy={(id) => purchase(() => gameRef.current!.buyVehicle(id))} onSelect={(id) => purchase(() => gameRef.current!.selectVehicle(id))} />
 
             {/* آپگریدها */}
             <p className="text-xs font-bold text-white/80">با سکه‌های مأموریت‌ها ماشینت را توپ کن:</p>
