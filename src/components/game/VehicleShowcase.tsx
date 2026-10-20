@@ -44,7 +44,7 @@ function CarRender({ variant, paint }: { variant: CarVariant; paint: string }) {
     const rim = new THREE.DirectionalLight(0x91c7ff, 1.8);
     rim.position.set(-220, 120, -200);
     scene.add(rim);
-    const model = buildCar3D(variant, 100, 200, { lite: true, paint: variant === "player" ? paint : undefined });
+    const model = buildCar3D(variant, 100, 200, { lite: true, paint });
     model.group.position.y = 0;
     scene.add(model.group);
     let frame = 0;
