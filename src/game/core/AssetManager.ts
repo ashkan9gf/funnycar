@@ -113,6 +113,7 @@ export class AssetManager {
       img.onerror = () => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeoutId);
         resolve(fallback());
       };
       // cache-busting نمی‌گذاریم — مرورگر اجازه کش دارد (آفلاین بودن مهم‌تر است)
