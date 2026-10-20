@@ -53,6 +53,8 @@ export interface GameInstance {
   buyUpgrade: (id: UpgradeId) => PurchaseResult;
   buyPaint: (id: string) => PurchaseResult;
   selectPaint: (id: string) => PurchaseResult;
+  buyVehicle: (id: string) => PurchaseResult;
+  selectVehicle: (id: string) => PurchaseResult;
   /** فاز ۷: فروشگاه بوق‌های طنز */
   buyHorn: (id: string) => PurchaseResult;
   selectHorn: (id: string) => PurchaseResult;
@@ -89,6 +91,8 @@ export async function createGame(
     buyUpgrade: (id) => gm.buyUpgrade(id),
     buyPaint: (id) => gm.buyPaint(id),
     selectPaint: (id) => gm.selectPaint(id),
+    buyVehicle: (id) => gm.buyVehicle(id),
+    selectVehicle: (id) => gm.selectVehicle(id),
     buyHorn: (id) => gm.buyHorn(id),
     selectHorn: (id) => gm.selectHorn(id),
     dispose: () => gm.dispose(),
