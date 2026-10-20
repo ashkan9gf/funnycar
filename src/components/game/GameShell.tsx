@@ -48,7 +48,7 @@ import {
 } from "lucide-react";
 import type { MissionCategory, UpgradeId } from "@/game";
 import type { CarVariant } from "@/game/render3d/CarFactory3D";
-import { renderCarPreview } from "@/game/render3d/CarPreview";
+import { renderCarPreview, renderCarPreviewAsync } from "@/game/render3d/CarPreview";
 import {
   createGame,
   GARAGE_FOOTER,
@@ -143,8 +143,20 @@ function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => 
 
 /** پیش‌نمایش سه‌بعدی خودرو (بازار v0.2.39) — رندر تک‌فریمی کش‌شده؛ بدون WebGL → کارت رنگی */
 function CarPreviewImg({ variant, paint, className }: { variant: string; paint: string | null; className?: string }) {
-  // رندر همگام + کش داخلی؛ روی SSR سرور (بدون document) → null و کارت رنگی می‌نشیند
-  const src = useMemo(() => renderCarPreview(variant as CarVariant, paint), [variant, paint]);
+  // 🔑 v0.2.41: تصویر فوری procedural (کش) → بعد از رسیدن GLB، همان «مدل واقعی» جایگزین می‌شود
+  const syncSrc = renderCarPreview(variant as CarVariant, paint);
+  const glbKey = `${variant}|${paint ?? "default"}`;
+  const [glbSrc, setGlbSrc] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    void renderCarPreviewAsync(variant as CarVariant, paint).then((url) => {
+      if (alive && url) setGlbSrc((m) => (m[glbKey] === url ? m : { ...m, [glbKey]: url }));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [variant, paint, glbKey]);
+  const src = glbSrc[glbKey] ?? syncSrc;
   const fallbackPaint = paint ?? '#d9d9d4';
   if (src) {
     return <img src={src} alt="پیش‌نمایش خودرو" className={className} draggable={false} />;
@@ -224,6 +236,8 @@ export default function GameShell() {
   /** بازار (v0.2.39): پیش‌نمایش رنگ/بوق قبل از خرید — بدون پرداخت */
   const [previewPaintId, setPreviewPaintId] = useState<string | null>(null);
   const [previewHornId, setPreviewHornId] = useState<string | null>(null);
+  /** 🔑 v0.2.41 — رنگ کارخانه‌ای انتخابی هر خودرو در نمایشگاه (id → hex) */
+  const [chosenColors, setChosenColors] = useState<Record<string, string>>({});
 
   /** باز کردن گاراژ + تازه‌سازی داده */
   const openGarage = useCallback(() => {
@@ -626,13 +640,33 @@ export default function GameShell() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {garage.vehicles.map((v) => {
                 const affordable = garage.coins >= v.price;
+                const palette = v.colors ?? ['#f4f4f0'];
                 return (
                   <div key={v.id} className={`fc-panel p-3 ${v.selected ? "bg-[#DDF5B4]" : "bg-[#FFF9EC]"}`}>
                     <CarPreviewImg
                       variant={v.variant}
-                      paint={v.selected ? (garage.paints.find((p) => p.selected)?.hex ?? null) : null}
+                      paint={chosenColors[v.id] ?? (v.selected ? (garage.paints.find((p) => p.selected)?.hex ?? null) : null)}
                       className="h-24 w-full rounded-xl border border-[#3a2e2a]/10 object-cover"
                     />
+                    {/* 🔑 v0.2.41 — رنگ‌های کارخانه‌ای: خریدار رنگ بدنه را انتخاب می‌کند */}
+                    {palette.length > 1 && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {palette.map((hex) => {
+                          const active = (chosenColors[v.id] ?? palette[0]) === hex;
+                          return (
+                            <button
+                              key={hex}
+                              type="button"
+                              aria-label={`رنگ ${hex}`}
+                              className={`h-6 w-6 rounded-full border-2 ${active ? "border-[#3a2e2a] ring-2 ring-[#F2B705]" : "border-[#3a2e2a]/25"}`}
+                              style={{ backgroundColor: hex }}
+                              onClick={() => setChosenColors((m) => ({ ...m, [v.id]: hex }))}
+                            />
+                          );
+                        })}
+                        <span className="text-[10px] font-bold text-[#3a2e2a]/55">رنگ بدنه</span>
+                      </div>
+                    )}
                     <div className="mt-2 flex items-start gap-2">
                       <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${v.selected ? "bg-[#8AC926]" : "bg-[#FFF3D6]"} text-[#3a2e2a]`}>
                         <Car className="h-6 w-6" />
@@ -670,7 +704,7 @@ export default function GameShell() {
                       }`}
                       onClick={() => {
                         if (v.selected) return;
-                        purchase(() => v.owned ? gameRef.current!.selectVehicle(v.id) : gameRef.current!.buyVehicle(v.id));
+                        purchase(() => v.owned ? gameRef.current!.selectVehicle(v.id) : gameRef.current!.buyVehicle(v.id, chosenColors[v.id]));
                       }}
                     >
                       {v.selected ? "ماشین فعلی ✓" : v.owned ? "انتخاب این ماشین" : <><Coins className="h-4 w-4" />{fa(v.price)} سکه — خرید</>}

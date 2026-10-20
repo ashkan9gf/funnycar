@@ -49,7 +49,7 @@ export interface GameInstance {
   towToRepair: () => void;
   /** گاراژ عمو نقی — خودروها، آپگرید و رنگ */
   listGarage: () => GarageView;
-  buyVehicle: (id: string) => PurchaseResult;
+  buyVehicle: (id: string, colorHex?: string) => PurchaseResult;
   selectVehicle: (id: string) => PurchaseResult;
   buyUpgrade: (id: UpgradeId) => PurchaseResult;
   buyPaint: (id: string) => PurchaseResult;
@@ -89,7 +89,7 @@ export async function createGame(
     abandonMission: () => gm.abandonMission(),
     towToRepair: () => gm.towToRepair(),
     listGarage: () => gm.listGarage(),
-    buyVehicle: (id) => gm.buyVehicle(id),
+    buyVehicle: (id, colorHex) => gm.buyVehicle(id, colorHex),
     selectVehicle: (id) => gm.selectVehicle(id),
     buyUpgrade: (id) => gm.buyUpgrade(id),
     buyPaint: (id) => gm.buyPaint(id),

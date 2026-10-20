@@ -26,3 +26,19 @@ export const PLAYER_VEHICLES: PlayerVehicleDef[] = [
 export function vehicleById(id: string): PlayerVehicleDef | undefined {
   return PLAYER_VEHICLES.find((vehicle) => vehicle.id === id);
 }
+
+/**
+ * 🔑 v0.2.41 — رنگ‌های کارخانه‌ای هر خودرو (رایگان همراه خرید)
+ * درخواست کاربر: «ماشین‌هایی که مدل دارن با بدنه رنگی متفاوت قابل خرید باشن»
+ * هنگام خرید، خریدار رنگ بدنه را از همین پالت انتخاب می‌کند.
+ */
+export const VEHICLE_FACTORY_COLORS: Record<PlayerVehicleVariant, string[]> = {
+  player: ['#f4f4f0'],
+  pride: ['#f4f4f0', '#b03a2e', '#3f7fd4', '#7f8c8d', '#e8a33d'],
+  tiba: ['#f4f4f0', '#b03a2e', '#1a5276', '#d5dbdb'],
+  peugeot405: ['#f7f7f2', '#7b241c', '#34495e', '#5d6d7e', '#e8a33d'],
+  samand: ['#f2f3f4', '#bfc9ca', '#424949', '#5d8aa8'],
+  nissan: ['#2f6fae', '#f4f4f0'],
+  renault4: ['#d9d9d4', '#a04000', '#616a6b', '#7b241c'],
+  vintage: ['#8a6d3b', '#5d6d7e'],
+};

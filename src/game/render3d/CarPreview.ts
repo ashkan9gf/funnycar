@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { buildCar3D, type CarVariant } from './CarFactory3D';
+import { GlbLibrary, assembleCarFromGLB, pickBodyColor } from './GlbModels';
 
 const PREVIEW_W = 384;
 const PREVIEW_H = 232;
@@ -87,4 +88,44 @@ export function renderCarPreview(variant: CarVariant, paintHex: string | null): 
   } catch {
     return null;
   }
+}
+
+// ==================== 🔑 v0.2.41 — پیش‌نمایش با «مدل واقعی» (GLB) ====================
+// درخواست کاربر: «الگوی خودروهایی که زدی باید از مدل‌هایی که داریم باشه»
+// و «ماشین‌هایی که مدل دارن با بدنه رنگی متفاوت» — رنگ روی همان مدل واقعی اعمال می‌شود.
+// مسیر همگام (procedural) تصویر فوری می‌دهد؛ مسیر GLB هر بار که مدل رسید جایگزین می‌شود.
+
+let previewGlb: GlbLibrary | null = null;
+const glbPreviewJobs = new Map<string, Promise<string | null>>();
+
+export function renderCarPreviewAsync(variant: CarVariant, paintHex: string | null): Promise<string | null> {
+  const key = `${variant}|${paintHex ?? 'default'}|glb`;
+  const cached = previewCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  const running = glbPreviewJobs.get(key);
+  if (running) return running;
+  const job = (async (): Promise<string | null> => {
+    try {
+      if (!previewGlb) previewGlb = new GlbLibrary('/assets/models');
+      const scene = await previewGlb.loadCar(variant, false);
+      if (!scene || !ensurePreviewStage() || !sharedRenderer || !sharedScene || !sharedCamera) return null;
+      const model = assembleCarFromGLB(variant, scene, {
+        external: true,
+        bodyColor: paintHex ?? pickBodyColor(variant),
+      });
+      model.group.rotation.y = -0.62;
+      sharedScene.add(model.group);
+      sharedRenderer.render(sharedScene, sharedCamera);
+      const url = sharedRenderer.domElement.toDataURL('image/png');
+      sharedScene.remove(model.group);
+      previewCache.set(key, url);
+      return url;
+    } catch {
+      return null;
+    } finally {
+      glbPreviewJobs.delete(key);
+    }
+  })();
+  glbPreviewJobs.set(key, job);
+  return job;
 }

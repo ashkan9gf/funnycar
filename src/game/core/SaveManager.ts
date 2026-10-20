@@ -35,6 +35,8 @@ export interface SaveData {
   ownedPaints: string[];
   /** فاز ۶ — رنگ انتخابی فعلی */
   paint: string;
+  /** 🔑 v0.2.41 — رنگ لحظه‌ای بدنه (رنگ کارخانه‌ای هنگام خرید / رنگ فروشگاه) — hex */
+  paintHex: string | null;
   /** فاز ۷ — بوق‌های خریده‌شده (بوق استاندارد همیشه هست) */
   ownedHorns: string[];
   /** فاز ۷ — بوق انتخابی فعلی */
@@ -54,6 +56,7 @@ function defaultSave(): SaveData {
     upgrades: defaultUpgrades(),
     ownedPaints: [DEFAULT_PAINT_ID],
     paint: DEFAULT_PAINT_ID,
+    paintHex: null,
     ownedHorns: [DEFAULT_HORN_ID],
     horn: DEFAULT_HORN_ID,
   };
@@ -101,6 +104,7 @@ function migrate(raw: unknown): SaveData {
     upgrades: migrateUpgrades(data.upgrades),
     ownedPaints: migratePaints(data.ownedPaints),
     paint: typeof data.paint === 'string' && PAINT_IDS.includes(data.paint) ? data.paint : DEFAULT_PAINT_ID,
+    paintHex: typeof data.paintHex === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.paintHex) ? data.paintHex : null,
     ownedHorns: migrateHorns(data.ownedHorns),
     horn: typeof data.horn === 'string' && HORN_IDS.includes(data.horn)
       ? data.horn

@@ -124,6 +124,9 @@ export interface CarModel3D {
   pitchX?: number;
   /** متریال‌های بدنه مدل خارجی — تیره‌شدن با آسیب */
   damageMats?: THREE.MeshStandardMaterial[];
+  /** 🔑 v0.2.41: متریال‌های رنگ‌پذیر بدنه + رنگ اصلی GLB — برای رنگ گاراژ روی مدل واقعی
+   *  (رنگ نهایی = orig × رنگ انتخابی؛ بدون دست زدن به تکسچر/شیشه/چرخ/چراغ) */
+  paintMats?: Array<{ mat: THREE.MeshStandardMaterial; orig: THREE.Color }>;
 }
 
 // ---------- متریال مشترک ----------

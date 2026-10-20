@@ -179,6 +179,14 @@ export class GlbLibrary {
         .then((buf) => {
           this.loader.parse(buf, '', (gltf) => {
             const scene = gltf.scene as THREE.Group;
+            // 🔑 v0.2.41 فیکس «ماشین چپ‌شده»: vintage.glb وارونه مودل‌سازی شده (چرخ‌ها سقف!)
+            // چرخش ۱۸۰° حول محور طول (Z) → لاستیک‌ها پایین؛ سپس پایه روی زمین (minY=0)
+            if (relPath.includes('vintage')) {
+              scene.rotation.z = Math.PI;
+              scene.updateMatrixWorld(true);
+              const vb = new THREE.Box3().setFromObject(scene);
+              scene.position.y = -vb.min.y;
+            }
             // فیلتر ناهمسانگرد (ادغام از شاخهٔ کاربر): بافت‌های اریب (آسفالت/شیشه/نما)
             // از زاویهٔ دوربین واضح‌تر می‌مانند — بدون افزایش حجم مدل
             const textureSlots = [
@@ -291,6 +299,14 @@ export function assembleCarFromGLB(
     // مه‌شکن‌های پلیس که نام wheel دارند (z=−93!) از خوشه چرخ حذف می‌شوند (فیکس پلیس)
     const wheelMeshes: THREE.Mesh[] = [];
     const lights: { red: THREE.Mesh | null; blue: THREE.Mesh | null } = { red: null, blue: null };
+    // 🔑 v0.2.41: متریال‌های «بدنه» برای رنگ گاراژ روی مدل واقعی — درخواست کاربر:
+    // «ماشین‌هایی که مدل دارن با بدنه رنگی متفاوت» — هر مش غیر شیشه/چرخ/چراغ/کروم/تریم
+    const paintMats: Array<{ mat: THREE.MeshStandardMaterial; orig: THREE.Color }> = [];
+    const paintSeen = new Set<string>();
+    const isPaintTarget = (meshName: string, tri: number): boolean => {
+      if (/glass|window|windshield|windscreen|wheel|tire|tyre|light|lamp|indicator|chrome|plate|grille|mirror|interior|seat|wstatic|siren|fog/i.test(meshName)) return false;
+      return tri > 0;
+    };
     g.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -346,6 +362,22 @@ export function assembleCarFromGLB(
       });
       mesh.material = Array.isArray(mesh.material) ? tunedMaterials : tunedMaterials[0];
       const name = (mesh.name || '').toLowerCase();
+      // 🔑 v0.2.41: ثبت متریال‌های بدنه برای رنگ‌پذیری — مش‌های بزرگ (بدنه واقعی،
+      // نه لوازم کوچک) تا رنگ گاراژ کل ظاهر را خراب نکند
+      {
+        const gForPaint = mesh.geometry;
+        const idxForPaint = gForPaint.getIndex();
+        const triForPaint = (idxForPaint ? idxForPaint.count : gForPaint.getAttribute('position')?.count ?? 0) / 3;
+        if (isPaintTarget(name, triForPaint)) {
+          for (const mm of tunedMaterials) {
+            const std = mm as THREE.MeshStandardMaterial;
+            if (!std.isMeshStandardMaterial || std.transparent || paintSeen.has(std.uuid)) continue;
+            if (std.emissive && std.emissive.r + std.emissive.g + std.emissive.b > 1e-4) continue;
+            paintSeen.add(std.uuid);
+            paintMats.push({ mat: std, orig: std.color.clone() });
+          }
+        }
+      }
 
       // Improve named automotive light lenses while preserving their GLB maps.
       // Keep emission restrained: the renderer has no guaranteed bloom pass.
@@ -563,6 +595,18 @@ export function assembleCarFromGLB(
 
     if (!bodyMat) bodyMat = new THREE.MeshToonMaterial({ color: bodyColor, gradientMap: getGradient() });
 
+    // 🔑 v0.2.41: رنگ بدنه مدل واقعی — درخواست کاربر «ماشین‌هایی که مدل دارن با بدنه رنگی متفاوت»
+    // متریال‌های بدنه رنگ می‌شوند: بی‌تکسچر = رنگ کامل، تکسچردار = تینت orig×رنگ
+    // سفیدِ پیش‌فرض (±۸٪) = بدون تینت تا ظاهر اصلی مدل حفظ شود
+    const paintColor = new THREE.Color(bodyColor);
+    const nearWhite =
+      Math.abs(paintColor.r - 1) < 0.08 &&
+      Math.abs(paintColor.g - 1) < 0.08 &&
+      Math.abs(paintColor.b - 1) < 0.08;
+    if (!nearWhite) {
+      for (const pm of paintMats) pm.mat.color.copy(pm.orig).multiply(paintColor);
+    }
+
     // متریال آسیب: متریال بدنه اصلی برای تیره‌شدن با ضربه
     const damageMats: THREE.MeshStandardMaterial[] = [];
     const best = { mesh: null as THREE.Mesh | null, tri: 0 };
@@ -597,6 +641,7 @@ export function assembleCarFromGLB(
       lightBar,
       len: spec.len,
       wid: spec.wid,
+      paintMats,
       ...{ steerable, tailMat: null, damageTiltZ: 0, rollZ: 0, pitchX: 0, damageMats },
     } as CarModel3D;
   }

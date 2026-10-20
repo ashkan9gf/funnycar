@@ -30,7 +30,7 @@ import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintBy
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
 import { nextEndlessId } from '../data/missionGen';
-import { PLAYER_VEHICLES, vehicleById } from '../data/vehicles';
+import { PLAYER_VEHICLES, vehicleById, VEHICLE_FACTORY_COLORS } from '../data/vehicles';
 import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
@@ -102,6 +102,8 @@ export interface GarageView {
     flavor: string;
     owned: boolean;
     selected: boolean;
+    /** 🔑 v0.2.41 — رنگ‌های کارخانه‌ای قابل‌انتخاب هنگام خرید */
+    colors: string[];
   }>;
   upgrades: Array<{
     id: UpgradeId;
@@ -242,7 +244,7 @@ export class GameManager {
     this.traffic = new TrafficManager(
       [
         'veh_pride_01', 'veh_sedan_01', 'veh_samand_01', 'veh_renault4_01',
-        'veh_samand_01', 'veh_pride_01', 'veh_taxi_01', 'veh_vintage_01',
+        'veh_samand_01', 'veh_pride_01', 'veh_taxi_01',
         'veh_renault4_01', 'veh_pride_01', 'veh_taxi_01', 'veh_samand_01',
         'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_renault4_01',
       ],
@@ -327,8 +329,13 @@ export class GameManager {
     this.camera.snapTo(spawn.x, spawn.y);
     // فاز ۶ گاراژ: اعمال آپگریدهای سیو + رنگ انتخابی روی مدل سه‌بعدی
     this.applyGarageToVehicle();
-    const savedPaint = paintById(this.save.get().paint);
-    if (savedPaint && this.renderer3d) this.renderer3d.setPlayerPaint(savedPaint.hex);
+    // 🔑 v0.2.41: رنگ دقیق ذخیره‌شده (کارخانه‌ای/فروشگاه) اولویت دارد
+    const savedHex = this.save.get().paintHex;
+    if (savedHex && this.renderer3d) this.renderer3d.setPlayerPaint(savedHex);
+    else {
+      const savedPaint = paintById(this.save.get().paint);
+      if (savedPaint && this.renderer3d) this.renderer3d.setPlayerPaint(savedPaint.hex);
+    }
     const savedVehicle = vehicleById(this.save.get().selectedVehicle);
     if (savedVehicle && this.renderer3d) this.renderer3d.setPlayerVehicle(savedVehicle.variant as CarVariant);
     this.setState('menu');
@@ -398,6 +405,7 @@ export class GameManager {
           flavor: v.flavor,
           owned: d.unlockedVehicles.includes(v.id),
           selected: d.selectedVehicle === v.id,
+          colors: VEHICLE_FACTORY_COLORS[v.variant] ?? ['#f4f4f0'],
         };
       }),
       upgrades: UPGRADES.map((u) => {
@@ -431,22 +439,26 @@ export class GameManager {
     };
   }
 
-  /** خرید خودروی جدید با سکه و انتخاب آن */
-  buyVehicle(id: string): { ok: boolean; coins: number; msg: string } {
+  /** خرید خودروی جدید با سکه و انتخاب آن — 🔑 v0.2.41: با رنگ کارخانه‌ای دلخواه
+   *  درخواست کاربر: «ماشین‌هایی که مدل دارن با بدنه رنگی متفاوت قابل خرید باشن» */
+  buyVehicle(id: string, colorHex?: string): { ok: boolean; coins: number; msg: string } {
     const vehicle = vehicleById(id);
     const d = this.save.get();
     if (!vehicle) return { ok: false, coins: d.coins, msg: 'این ماشین تو نمایشگاه عمو نقی نیست!' };
     if (d.unlockedVehicles.includes(id)) return this.selectVehicle(id);
     if (d.coins < vehicle.price) return { ok: false, coins: d.coins, msg: 'سکه‌ات کمه؛ چند مسافر دیگه ببر!' };
+    // رنگ معتبر؟ فقط از پالت کارخانه‌ای همان خودرو
+    const palette = VEHICLE_FACTORY_COLORS[vehicle.variant] ?? ['#f4f4f0'];
+    const chosen = colorHex && palette.includes(colorHex) ? colorHex : palette[0];
     this.save.mutate((s) => {
       s.coins -= vehicle.price;
       s.unlockedVehicles.push(id);
       s.selectedVehicle = id;
+      s.paintHex = chosen; // رنگ کارخانه‌ای همراه خرید اعمال و ذخیره می‌شود
     });
     this.applyGarageToVehicle();
     this.renderer3d?.setPlayerVehicle(vehicle.variant as CarVariant);
-    const paint = paintById(this.save.get().paint);
-    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    this.renderer3d?.setPlayerPaint(chosen);
     this.audio.coin();
     return { ok: true, coins: this.save.get().coins, msg: `ماشین «${vehicle.name}» خریدی؛ عمو نقی هم یه دور افتخار زد!` };
   }
@@ -461,8 +473,13 @@ export class GameManager {
     this.save.mutate((s) => { s.selectedVehicle = id; });
     this.applyGarageToVehicle();
     this.renderer3d?.setPlayerVehicle(vehicle.variant as CarVariant);
-    const paint = paintById(this.save.get().paint);
-    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    // 🔑 v0.2.41: رنگ دقیق ذخیره‌شده اولویت دارد (رنگ کارخانه‌ای خرید یا رنگ فروشگاه)
+    const savedHex2 = this.save.get().paintHex;
+    if (savedHex2) this.renderer3d?.setPlayerPaint(savedHex2);
+    else {
+      const paint = paintById(this.save.get().paint);
+      if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    }
     return { ok: true, coins: this.save.get().coins, msg: `ماشین «${vehicle.name}» آمادهٔ حرکته!` };
   }
 
@@ -496,6 +513,7 @@ export class GameManager {
       s.coins -= p.price;
       s.ownedPaints.push(id);
       s.paint = id;
+      s.paintHex = p.hex; // 🔑 v0.2.41: رنگ دقیق هم ذخیره شود
     });
     this.renderer3d?.setPlayerPaint(p.hex);
     this.audio.coin();
@@ -507,7 +525,7 @@ export class GameManager {
     const p = paintById(id);
     const d = this.save.get();
     if (!p || !d.ownedPaints.includes(id)) return { ok: false, coins: d.coins, msg: 'اول باید بخریش!' };
-    this.save.mutate((s) => { s.paint = id; });
+    this.save.mutate((s) => { s.paint = id; s.paintHex = p.hex; });
     this.renderer3d?.setPlayerPaint(p.hex);
     return { ok: true, coins: this.save.get().coins, msg: `رنگ «${p.name}» انتخاب شد` };
   }

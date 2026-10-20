@@ -405,8 +405,10 @@ export class World {
     };
 
     // ---------- سلول ویژه: پمپ بنزین (هر ~۸ قطعه — ترمیم همه‌جا در دسترس) ----------
+    // 🔑 v0.2.41: عقب‌نشینی ۶۰px از کناره‌ها — قبلاً از لبهٔ بلوک شروع می‌شد و دوبله‌پارک‌ها
+    // نصفشان داخل ساختمان می‌رفت (گزارش کاربر)
     if (h % 8 === 3) {
-      addB(bx, by, 'env_building_shop_01', 660, 660, true);
+      addB(bx + 60, by + 60, 'env_building_shop_01', 600, 600, true);
       ch.repairZones.push({ x: bx + 330, y: by + 330, r: 150, label: 'پمپ بنزین' });
     } else if (h % 13 === 5) {
       // ---------- پارک محله ----------
@@ -442,7 +444,8 @@ export class World {
       } else if (lay === 'rowHouses') {
         addB(bx + A, by + 80, home, 260, 280);
         addB(bx + 330, by + 80, home, 260, 280);
-        addB(bx + 590, by + 80, home, 260, 280);
+        // 🔑 v0.2.41: خانهٔ شرقی ۲۰۰px (قبلاً ۲۶۰ بود و تا ۸۵۰ می‌رفت — از لبهٔ بلوک رد می‌شد!)
+        addB(bx + 590, by + 80, home, 200, 280);
         addB(bx + A, by + 500, shop, 300, 290);
         addB(bx + 460, by + 500, bCell(seed), 330, 290);
         addPr('gtreeSmall', bx + 130, by + 420, 140, 134, false, { rot: 2 });
@@ -461,11 +464,12 @@ export class World {
         addPr('flowers', bx + 590, by + 380, 90, 90, false);
         addPr('bench', bx + 560, by + 300, 96, 34, true, { rot: Math.PI / 2 });
       }
-      // پراپ کنار خیابان (قطعی)
+      // 🔑 v0.2.41: درخت‌های حاشیه بلوک حذف شدند — دقیقاً همان‌جای نوار پارک بودند
+      // (ماشین‌ها داخل درخت می‌رفتند — گزارش کاربر). درخت‌های حیاط هر چیدمان سر جایشان هستند.
+      // پراپ کنار خیابان (قطعی) — دور از نوار پارک
       if (h % 3 === 0) addPr('trash', bx + 60, by + 770, 58, 58, false, { breakable: true });
       if (h % 4 === 1) addPr('pole', bx + 780, by + 80, 46, 46, true);
       if (h % 5 === 2) addPr('bags', bx + 730, by + 640, 46, 40, false, { breakable: true });
-      if (h % 7 === 5) addPr('gtree', bx + 780 - (h % 3) * 30, by + 180, 130, 122, false, { rot: (h + 2) % 4 });
     }
 
     // ---------- تابلوی اسم خیابان در تقاطع (بی‌پایان — بدون گیره) ----------
@@ -473,14 +477,24 @@ export class World {
     ch.props.push({ id: `sign_h_${i}_${j}`, x: roadCenter(i) - 350, y: roadCenter(j) - 350, w: 40, h: 30, solid: false, kind: 'streetSign', label: hStreetName(j) });
 
     // ---------- دوبله‌پارکی (فرمول‌های همان خیابان زندگی مبدأ) ----------
-    const edge = WORLD.roadW / 2 + 30; // 310
-    const kinds: ParkedCar['kind'][] = ['peugeot405', 'samand', 'renault4', 'vintage', 'peugeot405', 'samand'];
+    // 🔑 v0.2.41 فیکس جای پارک: edge 284 = ماشین لبه‌ی جدول (نیمه‌روی آسفالت مثل دوبله واقعی) —
+    // دیگر نه داخل دیوار بلوک (قدیم ۳۱۰ بود و ۲۶px داخل ساختمان می‌رفت) نه داخل درخت
+    // 🔑 حذف «کلاسیک زنگاری» (vintage) از خیابان — درخواست کاربر: «ماشینی که چپ کرده را حذف کن»
+    // (GLB آن وارونه مودل‌سازی شده بود؛ فقط در نمایشگاه خریدنی می‌ماند)
+    const edge = WORLD.roadW / 2 + 4; // 284
+    const kinds: ParkedCar['kind'][] = ['peugeot405', 'samand', 'renault4', 'peugeot405', 'samand', 'renault4'];
     const pk = (x: number, y: number, angle: number, slot: number): void => {
+      // 🔑 v0.2.41: پارک‌های مرزی (pk1 غرب / pk3 شمال) ممکن است داخل محدودهٔ قطعهٔ مبدأ بیفتند
+      // که خودش StreetLife دارد → دو ماشین روی هم! هر پارکی که ردپایش در سلول‌های مبدأ است حذف.
+      const li = Math.floor(x / WORLD.pitch);
+      const lj = Math.floor(y / WORLD.pitch);
+      if (li >= 0 && li <= 5 && lj >= 0 && lj <= 5) return;
       ch.parkedCars.push({ x, y, angle, kind: kinds[hash2(i, j, slot) % kinds.length] });
     };
+    // 🔑 v0.2.41: pk2/pk3 از ±۱۱۵۰/۱۱۱۰ به ۷۰۰ (وسط سگمنت) — دیگر سر چهارراه پارک نمی‌کند
     if ((i + j) % 2 === 0) pk(roadCenter(i) - edge, roadCenter(j) + 830, Math.PI, 1);
-    pk(roadCenter(i) + edge, roadCenter(j) + 1150, 0, 2);
-    if ((i + j) % 2 === 0) pk(roadCenter(i) + 1110, roadCenter(j) - edge, Math.PI / 2, 3);
+    pk(roadCenter(i) + edge, roadCenter(j) + 700, 0, 2);
+    if ((i + j) % 2 === 0) pk(roadCenter(i) + 700, roadCenter(j) - edge, Math.PI / 2, 3);
     else pk(roadCenter(i) + 820, roadCenter(j) + edge, -Math.PI / 2, 3);
 
     // ---------- سرعت‌گیر (هر ۴ قطعه) ----------
@@ -720,7 +734,8 @@ export class World {
         // سه خانه حیاط‌دار ردیفی + باغچه — سبک جنوب تهران
         this.addBuilding(bx + A, by + 80, home, false, 260, 280);
         this.addBuilding(bx + 330, by + 80, home, false, 260, 280);
-        this.addBuilding(bx + 590, by + 80, home, false, 260, 280);
+        // 🔑 v0.2.41: خانهٔ شرقی ۲۰۰px — قبلاً ۲۶۰ بود و تا ۸۵۰ می‌رفت (از لبهٔ بلوک رد می‌شد!)
+        this.addBuilding(bx + 590, by + 80, home, false, 200, 280);
         this.addBuilding(bx + A, by + 500, shop, false, 300, 290);
         this.addBuilding(bx + 460, by + 500, bCell(seed), false, 330, 290);
         this.addProp('flowers', bx + 340, by + 420, 90, 90, false);
@@ -754,9 +769,8 @@ export class World {
       if (seed % 4 === 2) this.addProp('cone', bx + 760, by + 760, 54, 54, false, { breakable: true });
       if (seed % 5 === 0) this.addProp('crate', bx + 110, by + 90, 62, 62, false, { breakable: true });
       if (seed % 5 === 2) this.addProp('bags', bx + 730, by + 640, 46, 40, false, { breakable: true });
-      // کیت شهری: درخت کوچک GLB روی پیاده‌رو غربی/شرقی + درخت بزرگ در پارک جنوبی بلوک
-      if (seed % 3 === 1) this.addProp('gtreeSmall', bx + 34, by + 300 + (seed % 4) * 110, 152, 146, false, { rot: seed % 4 });
-      if (seed % 7 === 5) this.addProp('gtree', bx + 780 - (seed % 3) * 30, by + 180, 130, 122, false, { rot: (seed + 2) % 4 });
+      // 🔑 v0.2.41: دو درخت حاشیه بلوک (gtreeSmall شرقی / gtree غربی) حذف شدند —
+      // روی نوار دوبله‌پارک بودند و ماشین‌ها داخل تاج‌شان پارک می‌شد (گزارش کاربر)
     });
 
     // ---------- فاز ENDLESS-1: مرز حذف شد — شهر در هر چهار جهت ادامه دارد ----------
@@ -774,14 +788,14 @@ export class World {
     // مراکز سگمنت‌ها بین تقاطع‌ها
     const segMids: number[] = [];
     for (let k = 0; k < centers.length - 1; k++) segMids.push((centers[k] + centers[k + 1]) / 2);
-    const edge = WORLD.roadW / 2 + 30; // کنار جدول، بدون تداخل با لاین بیرونی (310)
+    const edge = WORLD.roadW / 2 + 4; // لبه‌ی جدول — نه داخل دیوار بلوک نه وسط لاین (v0.2.41)
 
     // ---------- دوبله‌پارکی‌ها ----------
     // 🔑 فیکس «خودروی سفید تک‌رنگ»: pride/tiba/nissan GLB بدون تکسچر با متریال سفید خالص دارند
     // (bc=[1,1,1,1] بدون baseColorTexture) — در merge پارکی متریال GLB حفظ می‌شود → سفیدِ کدر!
     // درخواست کاربر: «مدل‌های جدید را جای ماشین سفید بگذار» → رنو۴ و قدیمیِ تکسچردار جایگزین شدند
-    // 🔑 سهم قدیمیِ زنگ‌زده کم شد (۱ از ۶) — درخواست کاربر: «زیاد نزار ازش توی خیابون‌ها»
-    const kinds: ParkedCar['kind'][] = ['peugeot405', 'samand', 'renault4', 'vintage', 'peugeot405', 'samand'];
+    // 🔑 v0.2.41: vintage حذف شد (وارونه رندر می‌شد — درخواست کاربر) + edge=284 (بدون تداخل با دیوار/درخت)
+    const kinds: ParkedCar['kind'][] = ['peugeot405', 'samand', 'renault4', 'peugeot405', 'samand', 'renault4'];
     let k = 0;
     const addParked = (x: number, y: number, angle: number) => {
       if (x < 60 || x > WORLD_SIZE - 60 || y < 60 || y > WORLD_SIZE - 60) return;

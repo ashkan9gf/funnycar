@@ -280,6 +280,8 @@ interface ChunkVisual {
   coinMesh: THREE.InstancedMesh | null;
   /** حلقهٔ تعمیر دارد؟ */
   rings?: boolean;
+  /** 🔑 v0.2.41: InstancedMeshهای پارکی — هنگام تخلیه فقط خود instance dispose می‌شود (هندسهٔ قالب مشترک!) */
+  parkedInstances?: THREE.InstancedMesh[];
   /** تخلیه‌شده در حین async؟ (GLB دیررس دیگر add نمی‌شود) */
   dead?: boolean;
 }
@@ -490,6 +492,8 @@ export class WorldRenderer3D {
   /** Cached integer coordinates avoid repeated split/Number allocations while prioritizing chunks. */
   private readonly buildQueueCoordinates = new Map<string, { i: number; j: number }>();
   private queued = new Set<string>();
+  /** 🔑 v0.2.41: جنراتورهای نیمه‌ساختهٔ هر قطعه — کار بین فریم‌ها پخش می‌شود (ضدلگ پیچیدن) */
+  private buildGens = new Map<string, Generator<void, void, void>>();
   /** جمع‌کننده فعلی — buildBuilding/buildProp اشیاء را ثبت می‌کنند */
   private visCollector: ChunkVisual | null = null;
   // منابع مشترک قطعه‌ها (یک‌بار ساخته — هرگز dispose نمی‌شوند)
@@ -974,6 +978,23 @@ export class WorldRenderer3D {
       });
     }
     // ۳) ⏱ بودجه فریمی سخت‌گیرانه: حداکثر N قطعه و حداکثر X ms در این فریم
+    // 🔑 v0.2.41: ساخت قطعه جنراتور قابل‌ادامه است — کار سنگین بین فریم‌ها پخش می‌شود
+    // (قبلاً یک قطعه تا ۹۶ms طول می‌کشید → لگ هنگام پیچیدن به خیابان بعدی)
+    // الف) اول ادامهٔ ساخت‌های نیمه‌کاره — نزدیک‌ترین به اتمام
+    {
+      const t0 = performance.now();
+      for (const [key, gen] of [...this.buildGens]) {
+        if (performance.now() - t0 >= ENDLESS.buildBudgetMs) break;
+        for (;;) {
+          const step = gen.next();
+          if (step.done) { this.buildGens.delete(key); break; }
+          const vis = this.chunkVis.get(key);
+          if (!vis || vis.dead) { this.buildGens.delete(key); break; }
+          if (performance.now() - t0 >= ENDLESS.buildBudgetMs) break;
+        }
+      }
+    }
+    // ب) بعد شروع قطعه‌های جدید از صف (فاصله‌مرتب — نزدیک‌تر اول)
     const t0 = performance.now();
     let builds = 0;
     while (this.buildQueue.length > 0) {
@@ -987,15 +1008,27 @@ export class WorldRenderer3D {
       const di = Math.abs(coords.i - ci);
       const dj = Math.abs(coords.j - cj);
       if (di > R || dj > R) continue; // از صف خارج شده
-      if (this.chunkVis.has(key)) continue;
-      this.buildChunkVisual(coords.i, coords.j, key);
-      if (!this.allJobsDone) this.builtWithFallback = true; // 🔕 برای فلاش دیرهنگام
+      if (this.chunkVis.has(key) || this.buildGens.has(key)) continue;
+      const gen = this.buildChunkVisualGen(coords.i, coords.j, key);
+      this.buildGens.set(key, gen);
       builds++;
+      if (!this.allJobsDone) this.builtWithFallback = true; // 🔕 برای فلاش دیرهنگام
+      // اولین گام همین فریم — next() اول، بعد چک (vis داخل جنراتور ساخته می‌شود!)
+      for (;;) {
+        const step = gen.next();
+        if (step.done) { this.buildGens.delete(key); break; }
+        const vis = this.chunkVis.get(key);
+        if (!vis || vis.dead) { this.buildGens.delete(key); break; }
+        if (performance.now() - t0 >= ENDLESS.buildBudgetMs) break;
+      }
     }
   }
 
-  /** ساخت کامل ویزوال یک قطعه (هدف < ~۳ms) */
-  private buildChunkVisual(i: number, j: number, key: string): void {
+  /** ساخت کامل ویزوال یک قطعه — 🔑 v0.2.41: جنراتور قابل‌ادامه (زمان‌بخشی درونی)
+   *  قبلاً کل قطعه در یک فریم ساخته می‌شد (تا ۹۶ms → لگ محسوس هنگام پیچیدن به خیابان بعدی).
+   *  حالا هر مرحله yield می‌دهد و streamVisuals با بودجهٔ فریمی ادامه‌اش می‌دهد؛
+   *  قطعه طی ۲-۶ فریم کامل می‌شود — بدون هیچ فریم سنگین. */
+  private *buildChunkVisualGen(i: number, j: number, key: string): Generator<void, void, void> {
     const ch: WorldChunk | undefined = this.world.chunks.get(key) ?? this.world.chunkFor(i, j);
     if (!ch) return;
     const vis: ChunkVisual = { key, ci: i, cj: j, objects: [], geos: [], mats: [], breakableProps: [], coinMesh: null, dead: false };
@@ -1052,18 +1085,24 @@ export class WorldRenderer3D {
     vis.objects.push(inner);
     vis.geos.push(gi);
 
+    yield; // ===== مرحله ۲: ساختمان‌ها (سنگین‌ترین بخش — هر ساختمان یک گام) =====
     // ---------- ساختمان‌ها + پراپ‌ها (صف merge فعال است) ----------
     const stage: NonNullable<typeof this.propStage> = [];
     this.propStage = stage;
     for (const p of ch.props) {
       if (p.kind === 'building') this.buildBuilding(p);
+      yield; // هر ساختمان (کلون GLB + متریال) بین دو فریم
     }
     // ---------- پراپ‌ها ----------
     this.buildChunkProps(ch, vis);
     this.propStage = null;
     this.flushPropStage(stage, vis);
+
+    yield; // ===== مرحله ۳: دوبله‌پارکی‌ها =====
     // ---------- دوبله‌پارکی‌ها ----------
     this.buildChunkParked(ch, vis);
+
+    yield; // ===== مرحله ۴: سرعت‌گیر + زون‌ها =====
     // ---------- سرعت‌گیرها ----------
     for (const sb of ch.speedBumps) {
       const bump = buildSpeedBump(500);
@@ -1105,6 +1144,8 @@ export class WorldRenderer3D {
       this.freezeStatic(mesh);
       vis.objects.push(mesh);
     }
+
+    yield; // ===== مرحله ۵: چراغ تقاطع =====
     // ---------- چراغ راهنمای تقاطع (اسلات از استخر) ----------
     this.allocLightSlot(key, vis, i, j);
 
@@ -1114,12 +1155,15 @@ export class WorldRenderer3D {
   /** تخلیه ویزوال قطعه — dispose هندسه‌های اختصاصی؛ منابع مشترک دست نمی‌خورند */
   private unloadChunkVisual(key: string, vis: ChunkVisual): void {
     vis.dead = true;
+    this.buildGens.delete(key); // 🔑 v0.2.41: جنراتور نیمه‌ساخته هم کنار برود
     for (const obj of vis.objects) {
       this.scene.remove(obj);
       // رها کردن از لیست‌های سراسری
       const idx = this.repairRings.indexOf(obj as THREE.Group);
       if (idx >= 0) this.repairRings.splice(idx, 1);
     }
+    // 🔑 v0.2.41: بافر instance پارکی‌ها مال همین قطعه است — dispose (هندسهٔ قالب مشترک است!)
+    for (const inst of vis.parkedInstances ?? []) inst.dispose();
     // یک هندسه یا متریال ممکن است توسط چند Mesh همین قطعه ثبت شده باشد.
     // منابع هر قطعه را یکتا آزاد کن تا dispose تکراری رخ ندهد.
     for (const g of new Set(vis.geos)) g.dispose();
@@ -1474,81 +1518,66 @@ export class WorldRenderer3D {
       this.waitingParked.add(vis.key);
       return;
     }
-    // 🔑 PERF-3: خوشه‌بندی فضایی — ماشین‌های نزدیک هم (سلول ۴۰۰) یک merge می‌گیرند
-    const cells = new Map<string, typeof ch.parkedCars>();
+    // 🔑 v0.2.41 ضدلگ پیچیدن: به‌جای clone+merge هندسهٔ ۲۶۱K مثلثی per ماشین (۷۰ms!)،
+    // هر قالب یک‌بار merge شده و اینجا فقط InstancedMesh با ماتریس per ماشین ساخته می‌شود
+    // (صفر کپی هندسه — O(تعداد ماشین) به‌جای O(مثلث × ماشین))
+    const byKind = new Map<string, WorldChunk['parkedCars']>();
     for (const pc of ch.parkedCars) {
-      const ck = `${Math.floor(pc.x / 400)}_${Math.floor(pc.y / 400)}`;
-      const arr = cells.get(ck);
+      const arr = byKind.get(pc.kind);
       if (arr) arr.push(pc);
-      else cells.set(ck, [pc]);
+      else byKind.set(pc.kind, [pc]);
     }
-    for (const cars of cells.values()) {
-      this.mergeParkedCluster(cars, vis);
-    }
-  }
-
-  /** merge یک خوشهٔ پارکی (۱-۵ ماشین همسایه) — per متریال × امضای اتریبیوت */
-  private mergeParkedCluster(cars: WorldChunk['parkedCars'], vis: ChunkVisual): void {
-    const byKey = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>();
-    for (const pc of cars) {
-      const entry = this.parkedTmpl.get(pc.kind);
-      if (entry) {
-        const clone = entry.tmpl.clone(true);
-        clone.scale.setScalar(entry.s);
-        clone.position.set(pc.x, -entry.minY * entry.s, pc.y);
-        clone.rotation.y = -pc.angle;
-        clone.updateMatrixWorld(true);
-        clone.traverse((o) => {
-          const m = o as THREE.Mesh;
-          if (!m.isMesh) return;
-          const me = m.matrixWorld.elements;
-          let matOk = true;
-          for (let k = 0; k < 16; k++) if (!Number.isFinite(me[k])) { matOk = false; break; }
-          if (!matOk) return;
-          const g = m.geometry.clone();
-          g.applyMatrix4(m.matrixWorld);
-          g.computeBoundingBox();
-          const bb = g.boundingBox!;
-          if (!Number.isFinite(bb.min.x) || !Number.isFinite(bb.max.z)) return;
-          const span = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
-          if (!Number.isFinite(span) || span > 700 || span < 4) return;
-          const mats = Array.isArray(m.material) ? m.material : [m.material];
-          const mat = (mats[0] ?? this.vcToonMat()) as THREE.Material;
-          const sig = Object.keys(g.attributes).sort().join(',') + (g.index ? '|i' : '|n');
-          const key = `${mat.uuid}##${sig}`;
-          const e = byKey.get(key);
-          if (e) e.geos.push(g);
-          else byKey.set(key, { mat, geos: [g] });
-        });
-      } else {
-        // fallback procedural — InstancedMesh تک‌نمونه (هندسه مشترک — dispose نمی‌شود)
-        const geo = this.parkedFallback.get(pc.kind);
+    const tmpM = new THREE.Matrix4();
+    const tmpQ = new THREE.Quaternion();
+    const tmpE = new THREE.Euler();
+    const tmpP = new THREE.Vector3();
+    const tmpS = new THREE.Vector3();
+    for (const [kind, cars] of byKind) {
+      const entry = this.parkedTmpl.get(kind);
+      if (!entry) {
+        // fallback procedural — مسیر قبلی (InstancedMesh تک‌نمونه per ماشین)
+        const geo = this.parkedFallback.get(kind);
         if (!geo) continue;
-        const mesh = new THREE.InstancedMesh(geo, this.vcToonMat(), 1);
-        mesh.castShadow = true;
-        const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -pc.angle, 0));
-        const scaleMap: Record<string, number> = { player: 172, pride: 172, peugeot405: 196, samand: 206, nissan: 200, tiba: 168, taxi: 196, police: 206, renault4: 176, vintage: 197 };
-        const s = 188 / (scaleMap[pc.kind as string] ?? 188);
-        this.tmpM.compose(this.tmpV.set(pc.x, 0, pc.y), q, this.tmpS.set(s, s, s));
-        mesh.setMatrixAt(0, this.tmpM);
-        mesh.instanceMatrix.needsUpdate = true;
-        this.scene.add(mesh);
-        vis.objects.push(mesh);
+        for (const pc of cars) {
+          const mesh = new THREE.InstancedMesh(geo, this.vcToonMat(), 1);
+          mesh.castShadow = true;
+          tmpQ.setFromEuler(tmpE.set(0, -pc.angle, 0));
+          const scaleMap: Record<string, number> = { player: 172, pride: 172, peugeot405: 196, samand: 206, nissan: 200, tiba: 168, taxi: 196, police: 206, renault4: 176, vintage: 197 };
+          const s = 188 / (scaleMap[kind] ?? 188);
+          tmpM.compose(tmpP.set(pc.x, 0, pc.y), tmpQ, tmpS.setScalar(s));
+          mesh.setMatrixAt(0, tmpM);
+          mesh.instanceMatrix.needsUpdate = true;
+          this.scene.add(mesh);
+          vis.objects.push(mesh);
+        }
+        continue;
       }
-    }
-    for (const { mat, geos } of byKey.values()) {
-      const merged = mergeGeometries(geos, false);
-      for (const g of geos) g.dispose(); // هندسه‌های cloneشده — بعد از merge آزاد
-      if (!merged) continue;
-      merged.computeBoundingBox();
-      merged.computeBoundingSphere();
-      const mesh = new THREE.Mesh(merged, mat);
-      mesh.castShadow = false;
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      this.freezeStatic(mesh);
-      vis.objects.push(mesh);
-      vis.geos.push(merged);
+      // قالب GLB bake‌شده — ممکن است چند مش (گروه متریال) داشته باشد
+      const tmplMeshes: THREE.Mesh[] = [];
+      entry.tmpl.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh && m.geometry) tmplMeshes.push(m);
+      });
+      if (tmplMeshes.length === 0) continue;
+      const instList: THREE.InstancedMesh[] = [];
+      for (const tm of tmplMeshes) {
+        const inst = new THREE.InstancedMesh(tm.geometry, tm.material as THREE.Material, cars.length);
+        inst.castShadow = false;
+        inst.receiveShadow = true;
+        cars.forEach((pc, idx) => {
+          tmpQ.setFromEuler(tmpE.set(0, -pc.angle, 0));
+          tmpM.compose(tmpP.set(pc.x, -entry.minY * entry.s, pc.y), tmpQ, tmpS.setScalar(entry.s));
+          inst.setMatrixAt(idx, tmpM);
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        inst.computeBoundingSphere();
+        this.scene.add(inst);
+        this.freezeStatic(inst);
+        vis.objects.push(inst);
+        instList.push(inst);
+      }
+      // فقط instance buffer مال این قطعه است — هندسه/متریال قالب مشترک‌اند و در unload دست نمی‌خورند
+      vis.parkedInstances = (vis.parkedInstances ?? []).concat(instList);
     }
   }
 
@@ -2763,7 +2792,9 @@ export class WorldRenderer3D {
 
   /**
    * فاز ۶ گاراژ — تغییر رنگ بدنه بازیکن (در منو یا حین بازی)
-   * روی هر دو مسیر procedural و GLB کار می‌کند (GLB رنگ را از مدل قدیم می‌گیرد)
+   * روی هر دو مسیر procedural و GLB کار می‌کند:
+   * 🔑 v0.2.41: مدل‌های GLB واقعی (پژو/سمند/رنو۴/...) هم رنگ می‌گیرند —
+   * متریال‌های بدنه ثبت‌شده (paintMats) = رنگ اصلی GLB × رنگ انتخابی
    */
   setPlayerPaint(hex: string): void {
     if (typeof hex !== 'string' || !hex.startsWith('#')) return;
@@ -2771,6 +2802,11 @@ export class WorldRenderer3D {
     const m = this.playerModel;
     if (!m) return;
     m.bodyColor = hex;
+    if (m.paintMats && m.paintMats.length > 0) {
+      const c = new THREE.Color(hex);
+      for (const pm of m.paintMats) pm.mat.color.copy(pm.orig).multiply(c);
+      return;
+    }
     m.bodyMat.color.set(hex);
   }
 
