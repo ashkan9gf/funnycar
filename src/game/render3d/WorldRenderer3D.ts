@@ -3989,27 +3989,42 @@ export class WorldRenderer3D {
 
   // ============ اندازه و پاک‌سازی ============
 
-  /** Device-aware render-buffer budget. This changes raster resolution only,
-   * not camera FOV, geometry, texture detail, shadow quality, or overlay size. */
-  private getAdaptiveRenderScale(pixelW: number, pixelH: number): number {
-    const pixels = Math.max(1, pixelW) * Math.max(1, pixelH);
+  /** Cached device capability tier; computed once, shared by budget and DPR governor. */
+  private deviceTier: 'low' | 'standard' | 'high' | null = null;
+
+  /** Device capability tier from cores+memory. Unknown memory degrades to standard
+   * so a strong GPU never gets flagged as weak just because RAM is unreported. */
+  getDeviceTier(): 'low' | 'standard' | 'high' {
+    if (this.deviceTier) return this.deviceTier;
     const nav = typeof navigator !== 'undefined' ? navigator : null;
     const cores = nav?.hardwareConcurrency || 4;
     const reportedMemory = nav && 'deviceMemory' in nav
       ? Number((nav as Navigator & { deviceMemory?: number }).deviceMemory)
       : Number.NaN;
     const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
+    // Low-end: few cores or little RAM. High-end: 8+ cores AND 8+ GB (Chrome caps
+    // deviceMemory at 8, so this matches most flagships without over-crediting).
+    this.deviceTier = (cores <= 4 || (memory !== null && memory <= 4)) ? 'low'
+      : (cores >= 8 && memory !== null && memory >= 8) ? 'high' : 'standard';
+    return this.deviceTier;
+  }
 
-    // Original quality budgets: low-end 1.45 MP, standard 2.3 MP, high-end 3.6 MP.
-    // Unknown memory never qualifies as high-end; never upscale small screens.
-    const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
-    const highEnd = cores >= 8 && memory !== null && memory >= 8;
-    const deviceBudget = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+  /** Device-aware render-buffer budget. This changes raster resolution only,
+   * not camera FOV, geometry, texture detail, shadow quality, or overlay size. */
+  private getAdaptiveRenderScale(pixelW: number, pixelH: number): number {
+    const pixels = Math.max(1, pixelW) * Math.max(1, pixelH);
+    const tier = this.getDeviceTier();
+
+    // Raised budgets keep modern phones sharp: low-end 1.45 MP (unchanged),
+    // standard 2.75 MP, high-end 5.2 MP — a DPR-2 flagship screen (~10.4 MP)
+    // now renders at ~0.84 scale on Quality instead of the old 0.59 mush.
+    const deviceBudget = tier === 'low' ? 1_450_000 : tier === 'high' ? 5_200_000 : 2_750_000;
     const qualityFactor = this.graphicsQuality === 'performance' ? 0.72
-      : this.graphicsQuality === 'quality' ? 1.25 : 1;
+      : this.graphicsQuality === 'quality' ? 1.4 : 1;
     const maxPixels = Math.max(850_000, Math.round(deviceBudget * qualityFactor));
     if (pixels <= maxPixels) return 1;
-    const floor = this.graphicsQuality === 'performance' ? 0.62 : 0.72;
+    const floor = this.graphicsQuality === 'performance' ? 0.62
+      : this.graphicsQuality === 'quality' ? 0.8 : 0.72;
     return Math.max(floor, Math.min(1, Math.sqrt(maxPixels / pixels)));
   }
 

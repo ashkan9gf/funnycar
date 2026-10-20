@@ -1511,6 +1511,8 @@ export class GameManager {
   private dpr3dBase = Math.min(RENDER.maxDevicePixelRatio, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
   private dpr3d = this.dpr3dBase;
   private dprCheck = 0;
+  /** تعداد نمونه‌های پیاپی FPS پایین — جلوگیری از افت ناگهانی روی نوسان لحظه‌ای */
+  private lowStreak = 0;
 
   private adaptDpr3d(): void {
     if (this.state !== 'playing') return;
@@ -1521,10 +1523,28 @@ export class GameManager {
     // Shadow updates are cheaper on sustained low-FPS devices; the renderer restores
     // its device-specific default once frame-rate headroom is stable again.
     this.renderer3d?.setPerformanceHint(fps);
+    // Tier-aware governor: strong GPUs keep sharpness (higher drop threshold,
+    // higher DPR floor, gentler steps); weak GPUs keep the survival ladder.
+    // Sustained-drop guard: a single 2s low sample never triggers a drop.
+    const tier = this.renderer3d?.getDeviceTier() ?? 'standard';
+    const quality = this.save.get().settings.graphicsQuality;
+    if (fps < (tier === 'high' ? (quality === 'quality' ? 30 : 34) : 38)) {
+      this.lowStreak++;
+    } else {
+      this.lowStreak = 0;
+    }
     let nd = this.dpr3d;
-    // React sooner to sustained frame drops, and allow sub-1 DPR on very weak GPUs.
-    if (fps < 38) nd = Math.max(0.75, this.dpr3d - 0.3);
-    else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.2);
+    if (tier === 'high') {
+      // Strong device: only after 4s of sustained low FPS, and never below 80-88% of base.
+      const dropNow = this.lowStreak >= 2;
+      const floorDpr = Math.max(1.5, this.dpr3dBase * (quality === 'quality' ? 0.88 : 0.8));
+      if (dropNow) nd = Math.max(floorDpr, this.dpr3d - 0.2);
+      else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.25);
+    } else {
+      // Weak/standard: original survival ladder — react sooner, allow sub-1 DPR.
+      if (this.lowStreak >= 1) nd = Math.max(0.75, this.dpr3d - 0.3);
+      else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.2);
+    }
     if (Math.abs(nd - this.dpr3d) > 0.01) {
       this.dpr3d = Math.round(nd * 100) / 100;
       this.handleResize();

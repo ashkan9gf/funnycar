@@ -75,7 +75,7 @@ interface Settings {
 /** پنل تنظیمات صدا (در منو و Pause استفاده می‌شود) */
 function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => void }) {
   const [s, setS] = useState<Settings>(game.getSettings());
-  const rows: Array<{ key: keyof Settings; label: string; icon: React.ReactNode }> = [
+  const rows: Array<{ key: 'music' | 'sfx' | 'voice'; label: string; icon: React.ReactNode }> = [
     { key: "music", label: "موسیقی", icon: <Music className="h-5 w-5" /> },
     { key: "sfx", label: "افکت‌ها", icon: <Volume2 className="h-5 w-5" /> },
     { key: "voice", label: "جملات طنز", icon: <Mic className="h-5 w-5" /> },
