@@ -1541,8 +1541,12 @@ export class GameManager {
       const floorDpr = Math.min(this.dpr3dBase, Math.max(1.5, this.dpr3dBase * (quality === 'quality' ? 0.88 : 0.8)));
       if (dropNow) nd = Math.max(floorDpr, this.dpr3d - 0.2);
       else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.25);
+    } else if (tier === 'standard') {
+      // Mid device: proportional middle ground — softer steps, higher floor than survival mode.
+      if (this.lowStreak >= 1) nd = Math.max(0.85, this.dpr3d - 0.25);
+      else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.25);
     } else {
-      // Weak/standard: original survival ladder — react sooner, allow sub-1 DPR.
+      // Weak/low: original survival ladder — react sooner, allow sub-1 DPR.
       if (this.lowStreak >= 1) nd = Math.max(0.75, this.dpr3d - 0.3);
       else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.2);
     }
