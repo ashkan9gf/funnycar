@@ -1097,3 +1097,28 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.41-test.apk
 - لینک: https://uploadkon.ir/uploads/c40520_26fc0241.zip
 - درس: MultiEdit ممکن است نیمه‌اعمال شود (isPaintable تکراری ماند) — بعد از هر MultiEdit حتماً Read
+
+---
+Task ID: 56
+Agent: main (Z.ai)
+Task: تعقیب پلیس + تاکسی عصبانی + بازیافت طبیعی ترافیک + دکمه‌های بزرگ + فروشگاه کامل + پیام‌های خنده‌دارتر + بهینه‌سازی (v0.2.42)
+
+Work Log:
+- CHASE در balance.ts: triggerImpact/policeSpeed(335)/arrestRadius(170)/arrestHoldSec(1.6)/escapeDist(2700)/fine(60c,-8rep)/escape reward(+25c,+4rep)/taxiRageSec(10)/taxiSpeed(300)/taxiEscapeDist(2000)
+- TrafficCar: مد normal|pursuit|angry + بازیافت نرم (angleReturnRate 7→3.1، بازگشت لاین مگنتی 5/s→1.9/s با سقف 90px/s) + turnBlend (پیچ قوسی بجای اسنپ) + گارد NaN حفظ شد
+- TrafficManager: ناوبری حریص منهتن در decideAtNode (۱۵٪ شانسی)، نشانه‌گیری عرضی لاین به بازیکن زیر ۹۵۰px، chaseSpeed (رام پشت بازیکن، ترمز پشت ترافیک)، lightConstraint skip برای تعقیب‌چی، curbGuard (پرتاب تا جدول)، بازیافت فقط بیرون مه (recycle 2900→3350=fogFar، اسپاون minDist=fogFar، برد جستجو بازتر) — «غیب/ظاهر» صفر شد
+- AudioManager: آژیر پیوسته دو‌تُنه (LFO مربعی 0.85Hz) + setSirenProximity با فاصله
+- GameManager: onTrafficSmashed (تریگر پلیس>95/تاکسی>135)، updateChase (باست/فرار/آرام‌شدن)، endChase (جریمه/جایزه/حباب)، پلیسِ مقصر آبرو کم نمی‌کند، ترافیک: ۲ پلیس + ۳ تاکسی از ۱۶، تیون taxi/police، HUD.chase {kind,dist,bust}
+- GameShell: بج تعقیب پالس‌دار (fcPulse) با متر و نوار دستگیری + دکمه‌ها: فرمان 58..88→84..124، گاز→94..134، ترمز→76..108، بوق→58..84 (آیکن‌ها هم clamp بزرگ)
+- فروشگاه: تاکسی ۱۸۵۰ (۴ رنگ) + پلیس ۲۴۰۰ (۳ رنگ) → ۱۰ خودرو؛ setPlayerPaint برای taxi/police کپی مستقیم (ضربِ روی زرد ثابت حذف)
+- فیکس باگ‌ها: (۱) preview دوبله — همه کارت‌ها پلیسی نشان می‌دادند: currentCar مسیر sync روی صحنه می‌ماند → captureCar با finally پاک‌سازی می‌کند؛ (۲) وایت‌لیست setPlayerVehicle تاکسی/پلیس را نمی‌پذیرفت؛ (۳) فلاش چراغ‌گردان پلیسِ بازیکن
+- طنز: dialogues.ts بازنویسی کامل + ۵ رویداد جدید (police_chase/bust/escape، taxi_rage/calm)؛ missionGen pools ارتقا (۲۶ مسافر، ۱۶ هوک تاکسی، ۱۸ هوک رسیدن، چالش‌ها) — test_mission_gen: ALL PASS
+- E2E (dev + prod export :8899): تعقیب فعال شد (impact>95)، پلیس رام کرد و رسید، دستگیری: 60- سکه/8- آبرو ✓، فرار 3400px: +25 ✓، تاکسی angry+timer+بج ✓، بازیافت نرم (off 55→39 بدون تله‌پورت) ✓، خرید پلیس سبز ✓، playerVariant=taxi ✓، دکمه‌ها 124/134/108/84 ✓، بج‌ها DOM ✓، prod garage: GLB پیش‌نمایش درست، کنسول پاک
+- FPS هدلس ۱۰ بود (SwiftShader) — شبیه‌سازی اسلوموشن؛ منطق سیم‌کشی درست است
+- بیلد v0.2.42/VCODE=42 (SIGN OK، 20,601,424 bytes)؛ push e181c05..7bb0930؛ uploadkon HEAD 200
+
+Stage Summary:
+- main = 7bb0930
+- APK: download/FunnyCarIR-v0.2.42-test.apk
+- لینک: https://uploadkon.ir/uploads/8b4d20_26fc0242.zip
+- درس: تصاویر dev (SwiftShader) با prod فرق رنگی دارند — پیش‌نمایش GLB را همیشه روی خروجی export سنجیدیم
