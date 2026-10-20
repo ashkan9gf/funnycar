@@ -1029,7 +1029,7 @@ export default function GameShell() {
       {/* ============ Toast ============ */}
       {toast && (
         <div className="pointer-events-none absolute inset-x-0 bottom-28 z-50 flex justify-center px-6">
-          <div className="fc-pop fc-panel bg-[#3a2e2a] px-5 py-2.5 text-center text-sm font-extrabold text-white">
+          <div className="fc-pop fc-panel rounded-2xl border border-amber-100/25 bg-gradient-to-r from-[#182536] via-[#293a4b] to-[#51342b] px-5 py-3 text-center text-sm font-extrabold leading-6 text-white shadow-[0_14px_36px_rgba(0,0,0,0.35)] backdrop-blur-md">
             {toast}
           </div>
         </div>
