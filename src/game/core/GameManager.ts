@@ -435,6 +435,20 @@ export class GameManager {
     return { ok: true, coins: this.save.get().coins, msg: `بوق «${h.name}» وصل شد!` };
   }
 
+  /** پیش‌نمایش بوق فروشگاه؛ هیچ سکه‌ای خرج نمی‌شود. */
+  previewHorn(id: string): void {
+    if (!hornById(id)) return;
+    this.audio.ensure();
+    this.audio.hornById(id);
+  }
+
+  /** پیش‌نمایش رنگ بدنه؛ null رنگ انتخاب‌شدهٔ ذخیره را بازیابی می‌کند. */
+  previewPaint(id: string | null): void {
+    const paint = id === null ? paintById(this.save.get().paint) : paintById(id);
+    if (!paint) return;
+    this.renderer3d?.setPlayerPaint(paint.hex);
+  }
+
   // ============ وضعیت‌ها ============
   getState(): GameState {
     return this.state;
