@@ -18,6 +18,7 @@
 
 import { MISSIONS as M, PARK, TAXI, CHALLENGE, RENDER } from '../data/balance';
 import { MISSION_LIST, type MissionDef, type MissionFailReason, type MissionCategory } from '../data/missions';
+import { endlessLevel, generateMission, listEndlessMissions } from '../data/missionGen';
 import { WORLD, WORLD_SIZE, type World } from '../world/World';
 import type { Collider } from '../entities/Vehicle';
 
@@ -185,9 +186,18 @@ export class MissionManager {
   }
 
   /** لیست مأموریت‌ها برای منو (با وضعیت انجام‌شدگی + فیلتر دسته فاز ۵)
-   *  فاز ۷: قفل زنجیره — مأموریت‌های requires تا تمام‌شدن مأموریت مرجع قفل‌اند */
+   *  فاز ۷: قفل زنجیره — مأموریت‌های requires تا تمام‌شدن مأموریت مرجع قفل‌اند
+   *  v0.2.40: دستهٔ «endless» مأموریت‌های مولد بی‌پایان را برمی‌گرداند */
   list(completed: string[], category?: MissionCategory): Array<MissionDef & { done: boolean; locked: boolean; requiresTitle: string | null }> {
     this.completedIds = new Set(completed);
+    if (category === 'endless') {
+      return listEndlessMissions(completed).map((m) => ({
+        ...m,
+        done: this.completedIds.has(m.id),
+        locked: false,
+        requiresTitle: null,
+      }));
+    }
     return MISSION_LIST
       .filter((m) => !category || (m.category ?? 'story') === category)
       .map((m) => {
@@ -201,7 +211,9 @@ export class MissionManager {
    *  فاز ENDLESS: اگر بازیکن بیرون تهرانِ مبدأ باشد، هدف با مضرب pitch جابه‌جا می‌شود
    *  (چیدمان خیابان در مضرب‌های ۱۴۰۰ تکرار می‌شود → هدف روی جادهٔ معتبر همان حوالی بازیکن) */
   start(id: string, near?: { x: number; y: number }): boolean {
-    const def = MISSION_LIST.find((m) => m.id === id);
+    // v0.2.40: مأموریت‌های بی‌پایان (gen_N) در لحظه تولید می‌شوند — قطعی و بی‌پایان
+    const lv = endlessLevel(id);
+    const def = lv !== null ? generateMission(lv) : MISSION_LIST.find((m) => m.id === id);
     if (!def) return false;
     // فاز ۷: مأموریت قفل شروع نمی‌شود (نگهبان امنیتی — UI هم قفل نشان می‌دهد)
     if (def.requires !== undefined && !this.completedIds.has(def.requires)) return false;

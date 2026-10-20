@@ -29,6 +29,7 @@ import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLIS
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId, type VehicleTuning } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
+import { nextEndlessId } from '../data/missionGen';
 import { PLAYER_VEHICLES, vehicleById } from '../data/vehicles';
 import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
@@ -664,6 +665,18 @@ export class GameManager {
       locked: m.locked,
       requiresTitle: m.requiresTitle,
     }));
+  }
+
+  /** id مأموریت پیشنهادی بعدی — دکمهٔ تک‌ضرب «مأموریت بعدی» (v0.2.40)
+   *  اولویت: اولین مأموریت آزادِ زنجیره داستانی → هر مأموریت ثابت انجام‌نشده → بی‌پایان */
+  nextMissionId(): string {
+    const completed = this.save.get().completedMissions;
+    const done = new Set(completed);
+    const free = MISSION_LIST.find((m) => !done.has(m.id) && (m.requires === undefined || done.has(m.requires)));
+    if (free) return free.id;
+    const anyStatic = MISSION_LIST.find((m) => !done.has(m.id));
+    if (anyStatic) return anyStatic.id;
+    return nextEndlessId(completed);
   }
 
   /** شروع مأموریت: ورود به گیم‌پلی + ریست موقعیت و ماشین برای شروع منصفانه */

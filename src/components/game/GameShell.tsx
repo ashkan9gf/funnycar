@@ -25,6 +25,7 @@ import {
   FlaskConical,
   Gauge,
   Home,
+  Infinity as InfinityIcon,
   Loader2,
   Lock,
   Map,
@@ -167,12 +168,13 @@ const FAIL_REASON_FA: Record<string, string> = {
   park_missed: "پارک نشد! یه بار دیگه امتحان کن",
 };
 
-/** عنوان و توضیح هر دسته مأموریت (فاز ۵) */
+/** عنوان و توضیح هر دسته مأموریت (فاز ۵ + بی‌پایان v0.2.40) */
 const CATEGORY_FA: Record<MissionCategory, { title: string; hint: string }> = {
   story: { title: "مأموریت‌ها", hint: "زنجیره «شاگردی عمو نقی» هم اینجاست — هر مرحله، مرحله بعد را باز می‌کند!" },
   park: { title: "پارک دوبل", hint: "دنده‌عقب برو تو جای پارک، تراز وایسا، ترمز! هر دو جهت قبوله" },
   taxi: { title: "مسافرکشی", hint: "وایسا سر جای سوارشدن، بعد برسون مقصد — سریع برسی انعام هم داره!" },
   challenge: { title: "چالش‌ها", hint: "چالش سخت‌تر، جایزه بزرگ‌تر — آبروی راننده توی اینه!" },
+  endless: { title: "مأموریت‌های بی‌پایان", hint: "هر بار مأموریت تازه ساخته می‌شه؛ هیچ‌وقت تموم نمی‌شه و تکراری هم نیست!" },
 };
 
 /** آیکون هر آپگرید گاراژ (فاز ۶) */
@@ -388,6 +390,19 @@ export default function GameShell() {
             </button>
 
             {/* حالت‌های بازی — فاز ۵: همه فعال! */}
+            {/* v0.2.40 — دسترسی سریع: یک ضربه، مأموریت بعدی */}
+            <button
+              type="button"
+              className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#DDF5B4] py-3 text-lg font-extrabold text-[#3a2e2a] shadow-[0_0_0_2px_rgba(58,46,42,0.15)]"
+              onClick={() => {
+                const nid = gameRef.current?.nextMissionId();
+                if (nid) gameRef.current?.startMission(nid);
+              }}
+            >
+              <Play className="h-5 w-5" />
+              مأموریت بعدی
+              <ChevronRight className="h-5 w-5" />
+            </button>
             <div className="grid w-full max-w-xs grid-cols-2 gap-3">
               {([
                 { cat: "story" as MissionCategory, icon: <Map className="h-6 w-6" />, label: "مأموریت‌ها" },
@@ -410,6 +425,21 @@ export default function GameShell() {
                 </button>
               ))}
             </div>
+
+            {/* v0.2.40 — مأموریت‌های بی‌پایان: همیشه تازه، هیچ‌وقت تموم نمی‌شن */}
+            <button
+              type="button"
+              className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#2A9D8F] py-3 text-lg font-extrabold text-white"
+              onClick={() => {
+                setMissionFilter("endless");
+                setMissions(gameRef.current?.listMissions("endless") ?? []);
+                setShowMissions(true);
+              }}
+            >
+              <InfinityIcon className="h-5 w-5" />
+              مأموریت‌های بی‌پایان
+              <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-extrabold">جدید</span>
+            </button>
 
             {/* گاراژ عمو نقی (فاز ۶) */}
             <button
@@ -495,7 +525,7 @@ export default function GameShell() {
           <div className="fc-pop mx-auto flex w-full max-w-md flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-2xl font-extrabold text-white drop-shadow-[0_2px_0_rgba(58,46,42,0.9)]">
-                {missionFilter === "park" ? <Target className="h-7 w-7 text-[#F2B705]" /> : missionFilter === "taxi" ? <Users className="h-7 w-7 text-[#F2B705]" /> : missionFilter === "challenge" ? <PartyPopper className="h-7 w-7 text-[#F2B705]" /> : <Map className="h-7 w-7 text-[#F2B705]" />}
+                {missionFilter === "park" ? <Target className="h-7 w-7 text-[#F2B705]" /> : missionFilter === "taxi" ? <Users className="h-7 w-7 text-[#F2B705]" /> : missionFilter === "challenge" ? <PartyPopper className="h-7 w-7 text-[#F2B705]" /> : missionFilter === "endless" ? <InfinityIcon className="h-7 w-7 text-[#F2B705]" /> : <Map className="h-7 w-7 text-[#F2B705]" />}
                 {CATEGORY_FA[missionFilter ?? "story"].title}
               </h2>
               <TapButton
@@ -946,7 +976,7 @@ export default function GameShell() {
 
           {/* کنترل‌ها: فرمان پایین-چپ، گاز/ترمز پایین-راست — dir ltr تا RTL دکمه‌ها را برعکس نچیند */}
           <div className="pointer-events-none absolute inset-0 z-20">
-            <div className="pointer-events-auto absolute" style={{ left: "clamp(10px, 2.5vw, 20px)", bottom: "clamp(10px, 4vh, 28px)", display: "flex", gap: "clamp(8px, 1.8vw, 14px)", direction: "ltr" }}>
+            <div className="pointer-events-auto absolute items-end" style={{ left: "clamp(10px, 2.5vw, 20px)", bottom: "clamp(10px, 4vh, 28px)", display: "flex", gap: "clamp(8px, 1.8vw, 14px)", direction: "ltr" }}>
               <HoldButton
                 ariaLabel="فرمان چپ"
                 onHold={steerLeft}
@@ -957,7 +987,7 @@ export default function GameShell() {
               <HoldButton
                 ariaLabel="فرمان راست"
                 onHold={steerRight}
-                className="h-[88px] w-[88px] bg-[#FFF3D6] text-[#3a2e2a]"
+                className="h-[clamp(58px,14vh,88px)] w-[clamp(58px,14vh,88px)] bg-[#FFF3D6] text-[#3a2e2a]"
               >
                 <ChevronRight className="h-12 w-12" strokeWidth={2.6} />
               </HoldButton>
@@ -1101,6 +1131,21 @@ export default function GameShell() {
               </p>
             )}
             <div className="mt-4 space-y-2">
+              {missionResult.success && (
+                <button
+                  type="button"
+                  className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2A9D8F] py-3 text-lg font-extrabold text-white"
+                  onClick={() => {
+                    setMissionResult(null);
+                    const nid = gameRef.current?.nextMissionId();
+                    if (nid) gameRef.current?.startMission(nid);
+                  }}
+                >
+                  <Play className="h-5 w-5" />
+                  مأموریت بعدی
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              )}
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#8AC926] py-3 text-lg font-extrabold text-[#3a2e2a]"

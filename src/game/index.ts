@@ -42,6 +42,8 @@ export interface GameInstance {
   /** فاز 4: مأموریت‌ها (فاز ۵: با فیلتر دسته — park/taxi/challenge) */
   listMissions: (category?: MissionCategory) => MissionListItem[];
   startMission: (id: string) => void;
+  /** v0.2.40 — دکمهٔ «مأموریت بعدی» */
+  nextMissionId: () => string;
   abandonMission: () => void;
   /** فاز BIG-IR: اسکران به تعمیرگاه بعد از خاموشی */
   towToRepair: () => void;
@@ -83,6 +85,7 @@ export async function createGame(
     toggleDebugFps: () => gm.toggleDebugFps(),
     listMissions: (category?: MissionCategory) => gm.listMissions(category),
     startMission: (id) => gm.startMission(id),
+    nextMissionId: () => gm.nextMissionId(),
     abandonMission: () => gm.abandonMission(),
     towToRepair: () => gm.towToRepair(),
     listGarage: () => gm.listGarage(),

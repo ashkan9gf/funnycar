@@ -30,8 +30,8 @@ export type MissionFailReason =
   // ---------- فاز ۵ ----------
   | 'park_missed'; // وقت پارک تمام شد / خیلی بد پارک کردی
 
-/** دسته مأموریت — برای منوهای جدا (فاز ۵) */
-export type MissionCategory = 'story' | 'park' | 'taxi' | 'challenge';
+/** دسته مأموریت — برای منوهای جدا (فاز ۵) + بی‌پایان (v0.2.40) */
+export type MissionCategory = 'story' | 'park' | 'taxi' | 'challenge' | 'endless';
 
 export interface MissionDef {
   /** شناسه پایدار برای ذخیره (completedMissions) */
