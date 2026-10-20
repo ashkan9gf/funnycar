@@ -3525,6 +3525,27 @@ export class WorldRenderer3D {
     const vg = this.ensureVignette();
     ctx.drawImage(vg, 0, 0, this.overlayW, this.overlayH);
 
+    // خطوط باد در سرعت بالا: فقط لبه‌های تصویر را لمس می‌کنند تا جاده و HUD خوانا بمانند.
+    const speedRatio = Math.min(1, Math.abs(opts.car.speed) / Math.max(1, opts.car.maxSpeed));
+    if (speedRatio > 0.62) {
+      const strength = Math.min(0.34, (speedRatio - 0.62) * 0.9);
+      ctx.save();
+      ctx.lineWidth = 1.1 + speedRatio * 0.5;
+      ctx.strokeStyle = `rgba(220,240,255,${strength})`;
+      for (let i = 0; i < 14; i++) {
+        const seed = (i * 37 + Math.floor(_t / 38) * 17) % 101 / 101;
+        const y = (seed * this.overlayH + _t * (0.16 + speedRatio * 0.36)) % this.overlayH;
+        const left = i % 2 === 0;
+        const x = left ? 8 + seed * this.overlayW * 0.17 : this.overlayW * (0.83 + seed * 0.15);
+        const len = 10 + speedRatio * (18 + seed * 24);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + (left ? len : -len), y + len * 0.12);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // فلش هدف بیرون کادر
     if (opts.target) {
       this.drawOffscreenArrow(ctx, opts.target, opts.car);
