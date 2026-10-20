@@ -543,6 +543,14 @@ export class GameManager {
     return { ok: true, coins: this.save.get().coins, msg: `بوق «${h.name}» وصل شد!` };
   }
 
+  /** بازار (v0.2.39) — شنیدن بوق قبل از خرید؛ بدون هزینه، بدون تغییر انتخاب */
+  previewHorn(id: string): void {
+    const h = hornById(id);
+    if (!h) return;
+    this.audio.ensure();
+    this.audio.hornById(id);
+  }
+
   // ============ وضعیت‌ها ============
   getState(): GameState {
     return this.state;

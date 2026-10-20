@@ -8,7 +8,7 @@
  * - دکمه‌های لمسی: HoldButton/TapButton (touch-controls.tsx)
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Anchor,
   ArrowUp,
@@ -46,6 +46,8 @@ import {
   X,
 } from "lucide-react";
 import type { MissionCategory, UpgradeId } from "@/game";
+import type { CarVariant } from "@/game/render3d/CarFactory3D";
+import { renderCarPreview } from "@/game/render3d/CarPreview";
 import {
   createGame,
   GARAGE_FOOTER,
@@ -127,14 +129,31 @@ function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => 
         <button
           type="button"
           className="fc-btn mt-2 w-full rounded-2xl bg-[#3a2e2a] py-2.5 text-white"
-          onPointerDown={(e) => {
-            e.preventDefault();
+          onClick={() => {
             onClose();
           }}
         >
           بستن
         </button>
       )}
+    </div>
+  );
+}
+
+/** پیش‌نمایش سه‌بعدی خودرو (بازار v0.2.39) — رندر تک‌فریمی کش‌شده؛ بدون WebGL → کارت رنگی */
+function CarPreviewImg({ variant, paint, className }: { variant: string; paint: string | null; className?: string }) {
+  // رندر همگام + کش داخلی؛ روی SSR سرور (بدون document) → null و کارت رنگی می‌نشیند
+  const src = useMemo(() => renderCarPreview(variant as CarVariant, paint), [variant, paint]);
+  const fallbackPaint = paint ?? '#d9d9d4';
+  if (src) {
+    return <img src={src} alt="پیش‌نمایش خودرو" className={className} draggable={false} />;
+  }
+  return (
+    <div
+      className={`flex items-center justify-center ${className ?? ""}`}
+      style={{ background: `linear-gradient(135deg, ${fallbackPaint} 0%, ${fallbackPaint}bb 55%, #3a2e2a 135%)` }}
+    >
+      <Car className="h-10 w-10 text-white/85" />
     </div>
   );
 }
@@ -200,6 +219,9 @@ export default function GameShell() {
   /** فاز ۶: گاراژ عمو نقی */
   const [showGarage, setShowGarage] = useState(false);
   const [garage, setGarage] = useState<GarageView | null>(null);
+  /** بازار (v0.2.39): پیش‌نمایش رنگ/بوق قبل از خرید — بدون پرداخت */
+  const [previewPaintId, setPreviewPaintId] = useState<string | null>(null);
+  const [previewHornId, setPreviewHornId] = useState<string | null>(null);
 
   /** باز کردن گاراژ + تازه‌سازی داده */
   const openGarage = useCallback(() => {
@@ -576,7 +598,12 @@ export default function GameShell() {
                 const affordable = garage.coins >= v.price;
                 return (
                   <div key={v.id} className={`fc-panel p-3 ${v.selected ? "bg-[#DDF5B4]" : "bg-[#FFF9EC]"}`}>
-                    <div className="flex items-start gap-2">
+                    <CarPreviewImg
+                      variant={v.variant}
+                      paint={v.selected ? (garage.paints.find((p) => p.selected)?.hex ?? null) : null}
+                      className="h-24 w-full rounded-xl border border-[#3a2e2a]/10 object-cover"
+                    />
+                    <div className="mt-2 flex items-start gap-2">
                       <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${v.selected ? "bg-[#8AC926]" : "bg-[#FFF3D6]"} text-[#3a2e2a]`}>
                         <Car className="h-6 w-6" />
                       </span>
@@ -682,10 +709,58 @@ export default function GameShell() {
               })}
             </div>
 
-            {/* رنگ‌ها */}
+            {/* رنگ‌ها — اول ببین، بعد بخر! (v0.2.39) */}
             <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-white/80">
-              <Car className="h-4 w-4" /> رنگ ماشین — همین لحظه تو صحنه عوض می‌شود:
+              <Car className="h-4 w-4" /> رنگ ماشین — بزن روی رنگ، همین‌جا ببینش؛ بعد خرید کن:
             </p>
+            {(() => {
+              const selVehicle = garage.vehicles.find((v) => v.selected) ?? garage.vehicles[0];
+              const selPaint = garage.paints.find((p) => p.selected);
+              const previewPaint = previewPaintId ? (garage.paints.find((p) => p.id === previewPaintId) ?? selPaint) : selPaint;
+              const previewHex = previewPaint?.hex ?? "#f4f4f0";
+              const buyLabel = previewPaint?.selected
+                ? "وصل شد ✓"
+                : previewPaint?.owned
+                  ? "انتخاب این رنگ"
+                  : `خرید رنگ — ${fa(previewPaint?.price ?? 0)} سکه`;
+              return (
+                <div className="fc-panel rounded-2xl bg-[#FFF9EC] p-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <CarPreviewImg
+                      variant={selVehicle.variant}
+                      paint={previewHex}
+                      className="h-20 w-32 shrink-0 rounded-xl border border-[#3a2e2a]/15 object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-extrabold text-[#3a2e2a]">{previewPaint?.name ?? "سفید شوخی"}</p>
+                      <p className="text-[10px] font-bold leading-4 text-[#3a2e2a]/65">روی «{selVehicle.name}» — ببین، بعد بخر!</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!!previewPaint?.selected}
+                      className={`fc-btn shrink-0 rounded-xl px-3 py-2 text-[11px] font-extrabold ${
+                        previewPaint?.selected
+                          ? "bg-[#3a2e2a]/10 text-[#3a2e2a]/50"
+                          : previewPaint?.owned
+                            ? "bg-[#8AC926] text-[#3a2e2a]"
+                            : "bg-[#F2B705] text-[#3a2e2a]"
+                      }`}
+                      onClick={() => {
+                        if (!previewPaint || previewPaint.selected) return;
+                        purchase(() =>
+                          previewPaint.owned
+                            ? gameRef.current!.selectPaint(previewPaint.id)
+                            : gameRef.current!.buyPaint(previewPaint.id),
+                        );
+                        setPreviewPaintId(null);
+                      }}
+                    >
+                      {buyLabel}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-4 gap-2">
               {garage.paints.map((p) => (
                 <button
@@ -693,15 +768,13 @@ export default function GameShell() {
                   type="button"
                   title={`${p.name}${p.owned ? "" : ` — ${fa(p.price)} سکه`}`}
                   className={`fc-btn flex flex-col items-center gap-1 rounded-2xl p-2 ${
-                    p.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
+                    previewPaintId === p.id
+                      ? "bg-[#F2B705]"
+                      : p.selected
+                        ? "bg-[#8AC926]"
+                        : "bg-[#FFF9EC]"
                   }`}
-                  onClick={() => {
-                    if (p.owned) {
-                      if (!p.selected) purchase(() => gameRef.current!.selectPaint(p.id));
-                    } else {
-                      purchase(() => gameRef.current!.buyPaint(p.id));
-                    }
-                  }}
+                  onClick={() => setPreviewPaintId(p.id)}
                 >
                   <span
                     className="relative flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-[#3a2e2a]"
@@ -725,25 +798,23 @@ export default function GameShell() {
               ) : null;
             })()}
 
-            {/* بوق‌ها (فاز ۷) — امضای صوتی راننده */}
+            {/* بوق‌ها — بزن بشنوی، بعد بخر! (v0.2.39: کلیک = صدا، خرید = دکمه) */}
             <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-white/80">
-              <Megaphone className="h-4 w-4" /> بوق‌ها — بزن بشنوی، بعد بخر! (صدای واقعی پخش می‌شود):
+              <Megaphone className="h-4 w-4" /> بوق‌ها — روی هر بوق بزن تا صداش رو بشنوی، بعد خرید کن:
             </p>
             <div className="grid grid-cols-2 gap-2">
               {garage.horns.map((h) => (
-                <button
+                <div
                   key={h.id}
-                  type="button"
-                  title={h.desc}
-                  className={`fc-btn flex items-center gap-2 rounded-2xl p-2.5 text-right ${
-                    h.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
+                  role="button"
+                  tabIndex={0}
+                  title={`${h.desc} — بزن بشنوی`}
+                  className={`fc-btn flex cursor-pointer items-center gap-2 rounded-2xl p-2.5 text-right ${
+                    h.selected ? "bg-[#8AC926]" : previewHornId === h.id ? "bg-[#F2B705]" : "bg-[#FFF9EC]"
                   }`}
                   onClick={() => {
-                    if (h.owned) {
-                      if (!h.selected) purchase(() => gameRef.current!.selectHorn(h.id));
-                    } else {
-                      purchase(() => gameRef.current!.buyHorn(h.id));
-                    }
+                    setPreviewHornId(h.id);
+                    gameRef.current?.previewHorn(h.id);
                   }}
                 >
                   <span
@@ -754,15 +825,29 @@ export default function GameShell() {
                     {HORN_ICON[h.id] ?? <Megaphone className="h-6 w-6" />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className={`block truncate text-sm font-extrabold ${h.selected ? "text-[#3a2e2a]" : "text-[#3a2e2a]"}`}>
+                    <span className="block truncate text-sm font-extrabold text-[#3a2e2a]">
                       {h.name}
                     </span>
-                    <span className={`block text-[10px] font-bold leading-3.5 ${h.selected ? "text-[#3a2e2a]/75" : "text-[#3a2e2a]/60"}`}>
-                      {h.owned ? (h.selected ? "وصل شد ✓" : "خریده‌شده — بزن وصل شه") : `${fa(h.price)} سکه`}
+                    <span className="block text-[10px] font-bold leading-3.5 text-[#3a2e2a]/60">
+                      {h.owned ? (h.selected ? "وصل شد ✓" : "خریده‌شده") : `${fa(h.price)} سکه`}
                     </span>
+                    {!h.selected && (
+                      <button
+                        type="button"
+                        className={`fc-btn mt-1 w-full rounded-lg py-1 text-[10px] font-extrabold ${
+                          h.owned ? "bg-[#8AC926] text-[#3a2e2a]" : "bg-[#FFF3D6] text-[#3a2e2a]"
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          purchase(() => h.owned ? gameRef.current!.selectHorn(h.id) : gameRef.current!.buyHorn(h.id));
+                        }}
+                      >
+                        {h.owned ? "وصل کن ✓" : "خرید"}
+                      </button>
+                    )}
                   </span>
                   {!h.owned && <Lock className="h-4 w-4 shrink-0 text-[#3a2e2a]/40" />}
-                </button>
+                </div>
               ))}
             </div>
             {/* جمله طنز بوق انتخاب‌شده */}
@@ -916,8 +1001,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#8AC926] py-3 text-lg font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   gameRef.current?.resume();
                 }}
               >
@@ -927,8 +1011,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   setShowSettings((v) => !v);
                 }}
               >
@@ -938,8 +1021,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D64545] py-3 font-extrabold text-white"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   gameRef.current?.backToMenu();
                 }}
               >
@@ -1022,8 +1104,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#8AC926] py-3 text-lg font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   setMissionResult(null);
                   gameRef.current?.startMission(missionResult.missionId);
                 }}
@@ -1034,8 +1115,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   setMissionResult(null);
                   gameRef.current?.abandonMission();
                 }}
@@ -1046,8 +1126,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#D64545] py-3 font-extrabold text-white"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   setMissionResult(null);
                   gameRef.current?.backToMenu();
                 }}
@@ -1075,8 +1154,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2A9D8F] py-3 text-lg font-extrabold text-white"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   gameRef.current?.towToRepair();
                 }}
               >
@@ -1086,8 +1164,7 @@ export default function GameShell() {
               <button
                 type="button"
                 className="fc-btn flex w-full items-center justify-center gap-2 rounded-2xl bg-[#FFF3D6] py-3 font-extrabold text-[#3a2e2a]"
-                onPointerDown={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   gameRef.current?.backToMenu();
                 }}
               >

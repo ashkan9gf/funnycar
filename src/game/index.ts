@@ -55,6 +55,8 @@ export interface GameInstance {
   /** فاز ۷: فروشگاه بوق‌های طنز */
   buyHorn: (id: string) => PurchaseResult;
   selectHorn: (id: string) => PurchaseResult;
+  /** بازار (v0.2.39): شنیدن بوق قبل از خرید */
+  previewHorn: (id: string) => void;
   dispose: () => void;
 }
 
@@ -91,6 +93,7 @@ export async function createGame(
     selectPaint: (id) => gm.selectPaint(id),
     buyHorn: (id) => gm.buyHorn(id),
     selectHorn: (id) => gm.selectHorn(id),
+    previewHorn: (id) => gm.previewHorn(id),
     dispose: () => gm.dispose(),
   };
 }
