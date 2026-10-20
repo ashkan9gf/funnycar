@@ -183,6 +183,7 @@ export default function GameShell() {
   /** فاز ۶: گاراژ عمو نقی */
   const [showGarage, setShowGarage] = useState(false);
   const [garage, setGarage] = useState<GarageView | null>(null);
+  const [previewPaintId, setPreviewPaintId] = useState<string | null>(null);
 
   /** باز کردن گاراژ + تازه‌سازی داده */
   const openGarage = useCallback(() => {
@@ -312,15 +313,15 @@ export default function GameShell() {
 
       {/* ============ منوی اصلی ============ */}
       {phase === "menu" && (
-        <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
-          <div className="fc-pop mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 px-6 py-8">
+        <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto bg-[radial-gradient(ellipse_at_50%_8%,rgba(247,181,55,0.30),transparent_45%),linear-gradient(145deg,rgba(8,19,32,0.92),rgba(22,42,55,0.82)_48%,rgba(66,35,30,0.88))]">
+          <div className="fc-pop mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 px-5 py-8">
             {/* لوگو */}
             <div className="flex flex-col items-center gap-2">
               <div className="fc-btn flex h-20 w-20 items-center justify-center rounded-3xl bg-[#F2B705]">
                 <Car className="h-11 w-11 text-[#3a2e2a]" strokeWidth={2.4} />
               </div>
-              <h1 className="mt-2 text-5xl font-extrabold text-white drop-shadow-[0_4px_0_rgba(58,46,42,0.9)]">فانی‌کار</h1>
-              <p className="text-sm font-bold text-white/90 drop-shadow-[0_2px_0_rgba(58,46,42,0.7)]">
+              <h1 className="relative mt-2 bg-gradient-to-b from-white via-[#ffe9a6] to-[#e6a52c] bg-clip-text text-5xl font-black tracking-tight text-transparent drop-shadow-[0_4px_14px_rgba(0,0,0,0.55)]">فانی‌کار</h1>
+              <p className="relative rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-sm font-bold text-white/90 shadow-inner">
                 آبرو می‌بری یا می‌ریزی؟
               </p>
             </div>
@@ -340,7 +341,7 @@ export default function GameShell() {
             {/* دکمه اصلی */}
             <button
               type="button"
-              className="fc-btn w-full max-w-xs rounded-3xl bg-[#8AC926] py-4 text-2xl font-extrabold text-[#3a2e2a]"
+              className="fc-btn w-full max-w-xs rounded-3xl border border-emerald-100/70 bg-gradient-to-r from-[#c5f36b] via-[#8ac926] to-[#62a91d] py-4 text-2xl font-black text-[#18251b] shadow-[0_12px_28px_rgba(110,190,38,0.28)] transition-transform active:scale-[0.98]"
               onPointerDown={(e) => {
                 e.preventDefault();
                 gameRef.current?.startGameplay();
@@ -360,7 +361,7 @@ export default function GameShell() {
                 <button
                   key={m.cat}
                   type="button"
-                  className="fc-btn flex flex-col items-center gap-1 rounded-2xl bg-[#8AC926] py-3 text-[#3a2e2a]"
+                  className="fc-btn flex flex-col items-center gap-1 rounded-2xl border border-white/20 bg-gradient-to-br from-white/95 to-[#dce9d1] py-3 text-[#25362c] shadow-[0_8px_18px_rgba(0,0,0,0.18)] transition-transform active:scale-[0.97]"
                   onPointerDown={(e) => {
                     e.preventDefault();
                     setMissionFilter(m.cat);
@@ -378,7 +379,7 @@ export default function GameShell() {
             {/* گاراژ عمو نقی (فاز ۶) */}
             <button
               type="button"
-              className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#F2B705] py-3 text-lg font-extrabold text-[#3a2e2a]"
+              className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl border border-amber-100 bg-gradient-to-r from-[#ffe8a1] via-[#f2b705] to-[#d88a18] py-3 text-lg font-black text-[#34271c] shadow-[0_10px_24px_rgba(242,183,5,0.24)]"
               onPointerDown={(e) => {
                 e.preventDefault();
                 openGarage();
@@ -620,37 +621,39 @@ export default function GameShell() {
             <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-white/80">
               <Car className="h-4 w-4" /> رنگ ماشین — همین لحظه تو صحنه عوض می‌شود:
             </p>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {garage.paints.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  title={`${p.name}${p.owned ? "" : ` — ${fa(p.price)} سکه`}`}
-                  className={`fc-btn flex flex-col items-center gap-1 rounded-2xl p-2 ${
-                    p.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
-                  }`}
-                  onPointerDown={(e) => {
+                <div key={p.id} className={`rounded-2xl border p-2 shadow-lg transition ${previewPaintId === p.id ? "border-amber-300 bg-amber-100 ring-2 ring-amber-300/70" : "border-white/15 bg-[#fff9ec]"}`}>
+                  <button
+                    type="button"
+                    title={`پیش‌نمایش رنگ ${p.name}`}
+                    className="flex w-full flex-col items-center gap-1.5 rounded-xl p-1"
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      gameRef.current?.previewPaint(p.id);
+                      setPreviewPaintId(p.id);
+                    }}
+                  >
+                    <span className="relative flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-[#3a2e2a] shadow-inner" style={{ backgroundColor: p.hex }}>
+                      {previewPaintId === p.id && <Check className="h-5 w-5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.9)]" />}
+                    </span>
+                    <span className="text-center text-[10px] font-extrabold text-[#3a2e2a]">{p.name}</span>
+                    <span className="text-[9px] font-bold text-[#3a2e2a]/60">پیش‌نمایش زنده</span>
+                  </button>
+                  <button type="button" className={`fc-btn mt-2 w-full rounded-xl py-2 text-[10px] font-extrabold ${p.selected ? "bg-emerald-200 text-[#20352b]" : "bg-[#f2b705] text-[#3a2e2a]"}`} onPointerDown={(e) => {
                     e.preventDefault();
                     if (p.owned) {
                       if (!p.selected) purchase(() => gameRef.current!.selectPaint(p.id));
                     } else {
                       purchase(() => gameRef.current!.buyPaint(p.id));
                     }
-                  }}
-                >
-                  <span
-                    className="relative flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-[#3a2e2a]"
-                    style={{ backgroundColor: p.hex }}
-                  >
-                    {p.selected && <Check className="h-5 w-5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]" />}
-                    {!p.owned && !p.selected && <Lock className="h-4 w-4 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.9)]" />}
-                  </span>
-                  <span className={`text-[9px] font-extrabold leading-3 ${p.selected ? "text-[#3a2e2a]" : "text-[#3a2e2a]/80"}`}>
-                    {p.owned ? p.name : `${fa(p.price)} سکه`}
-                  </span>
-                </button>
+                  }}>
+                    {p.selected ? "انتخاب‌شده ✓" : p.owned ? "انتخاب رنگ" : `خرید · ${fa(p.price)} سکه`}
+                  </button>
+                </div>
               ))}
             </div>
+            <p className="text-center text-[10px] font-bold text-white/75">اول رنگ را روی بدنه ببین، بعد تصمیم بگیر؛ پیش‌نمایش هزینه‌ای ندارد.</p>
             {/* جمله طنز رنگ انتخاب‌شده/آخرین */}
             {(() => {
               const sel = garage.paints.find((p) => p.selected);
@@ -664,41 +667,38 @@ export default function GameShell() {
             <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-white/80">
               <Megaphone className="h-4 w-4" /> بوق‌ها — بزن بشنوی، بعد بخر! (صدای واقعی پخش می‌شود):
             </p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {garage.horns.map((h) => (
-                <button
-                  key={h.id}
-                  type="button"
-                  title={h.desc}
-                  className={`fc-btn flex items-center gap-2 rounded-2xl p-2.5 text-right ${
-                    h.selected ? "bg-[#8AC926]" : "bg-[#FFF9EC]"
-                  }`}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    if (h.owned) {
-                      if (!h.selected) purchase(() => gameRef.current!.selectHorn(h.id));
-                    } else {
-                      purchase(() => gameRef.current!.buyHorn(h.id));
-                    }
-                  }}
-                >
-                  <span
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                      h.selected ? "bg-[#3a2e2a] text-[#8AC926]" : "bg-[#FFF3D6] text-[#3a2e2a]"
-                    }`}
-                  >
-                    {HORN_ICON[h.id] ?? <Megaphone className="h-6 w-6" />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className={`block truncate text-sm font-extrabold ${h.selected ? "text-[#3a2e2a]" : "text-[#3a2e2a]"}`}>
-                      {h.name}
+                <div key={h.id} className={`rounded-2xl border p-3 shadow-lg transition ${h.selected ? "border-emerald-300 bg-emerald-50" : "border-white/15 bg-[#fff9ec]"}`}>
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-200 to-orange-300 text-[#3a2e2a] shadow-inner">
+                      {HORN_ICON[h.id] ?? <Megaphone className="h-6 w-6" />}
                     </span>
-                    <span className={`block text-[10px] font-bold leading-3.5 ${h.selected ? "text-[#3a2e2a]/75" : "text-[#3a2e2a]/60"}`}>
-                      {h.owned ? (h.selected ? "وصل شد ✓" : "خریده‌شده — بزن وصل شه") : `${fa(h.price)} سکه`}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-extrabold text-[#3a2e2a]">{h.name}</span>
+                      <span className="mt-0.5 block text-[10px] leading-4 text-[#3a2e2a]/65">{h.desc}</span>
+                      <span className="mt-1 block text-[10px] font-bold text-[#3a2e2a]/70">{h.selected ? "روی ماشین نصب است" : h.owned ? "خریده‌شده" : `${fa(h.price)} سکه`}</span>
                     </span>
-                  </span>
-                  {!h.owned && <Lock className="h-4 w-4 shrink-0 text-[#3a2e2a]/40" />}
-                </button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button type="button" className="fc-btn flex items-center justify-center gap-1.5 rounded-xl bg-[#263548] py-2.5 text-xs font-extrabold text-white" onPointerDown={(e) => {
+                      e.preventDefault();
+                      gameRef.current?.previewHorn(h.id);
+                    }}>
+                      <Play className="h-4 w-4" /> شنیدن نمونه
+                    </button>
+                    <button type="button" className={`fc-btn rounded-xl py-2.5 text-xs font-extrabold ${h.selected ? "bg-emerald-200 text-[#20352b]" : "bg-[#f2b705] text-[#3a2e2a]"}`} onPointerDown={(e) => {
+                      e.preventDefault();
+                      if (h.owned) {
+                        if (!h.selected) purchase(() => gameRef.current!.selectHorn(h.id));
+                      } else {
+                        purchase(() => gameRef.current!.buyHorn(h.id));
+                      }
+                    }}>
+                      {h.selected ? "نصب‌شده ✓" : h.owned ? "نصب بوق" : "خرید بوق"}
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
             {/* جمله طنز بوق انتخاب‌شده */}
