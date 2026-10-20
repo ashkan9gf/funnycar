@@ -24,15 +24,15 @@ export const VEHICLE_PHYSICS = {
 /** درفت ملایم (فاز 2) — سرخوردن جانبی در فرمان تندِ سرعت بالا */
 export const DRIFT = {
   /** ضریب تبدیل فرمان+سرعت به سرعت جانبی */
-  slipGain: 2.2,
+  slipGain: 2.65,
   /** نسبت سرعت شروع درفت محسوس */
-  minSpeedRatio: 0.45,
+  minSpeedRatio: 0.39,
   /** چسبندگی لاستیک: میرایی سرعت جانبی (بزرگ‌تر = سریع‌تر برمی‌گردد) */
-  gripDecay: 3.2,
+  gripDecay: 2.65,
   /** سقف سرعت جانبی (px/s) */
-  maxLateral: 130,
+  maxLateral: 155,
   /** آستانه سرعت جانبی برای «در حال درفت» (صدای سایش + رد لاستیک) */
-  skidThreshold: 55,
+  skidThreshold: 46,
   /** فاصله صدای سایش (ثانیه) */
   skidSoundInterval: 0.28,
 } as const;
