@@ -152,6 +152,7 @@ export class GameManager {
   /** آخرین ورودی — برای رندر (ترمز/فرمان) */
   private lastInput = { gas: false, brake: false, steer: 0 };
   private redRunnerCooldown = 0;
+  private lastTtsAt = 0;
 
   private state: GameState = 'boot';
   private raf = 0;
@@ -712,10 +713,12 @@ export class GameManager {
       if (c.assetId.toLowerCase().includes('police')) {
         c.pursuitSec = Math.max(c.pursuitSec, 22);
         this.fx.pushBubble('پلیس: کنار بزن! تعقیبت می‌کنم!', c.x, c.y, 'npc_police_01', 2.5);
+        this.speakPersianLine('پلیس! کنار بزن، تعقیبت می‌کنم!');
         this.voice.trigger('police_chase', performance.now());
       } else if (c.assetId.toLowerCase().includes('taxi')) {
         c.pursuitSec = Math.max(c.pursuitSec, 12);
         this.fx.pushBubble('تاکسی: وایسا ببینم! هنوز حساب داریم!', c.x, c.y, 'char_driver_01_idle', 2.5);
+        this.speakPersianLine('وایسا ببینم! هنوز حساب داریم!');
       }
 
       // 🔕 شلاق جانبی بازیکن — تصادف واقعی‌تر: ضربهٔ بغلی ماشین را می‌کشد (مطابق rightX/rightY در Vehicle)
@@ -838,6 +841,27 @@ export class GameManager {
     }
   }
 
+  /** صدای فارسی اختیاری از TTS خود دستگاه؛ اگر صدای فارسی نصب نیست، بازی بدون خطا ادامه می‌دهد. */
+  private speakPersianLine(text: string): void {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) return;
+    const now = performance.now();
+    if (now - this.lastTtsAt < 1800) return;
+    const voices = window.speechSynthesis.getVoices();
+    const faVoice = voices.find((voice) => /^fa([_-]|$)/i.test(voice.lang));
+    if (!faVoice) return;
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'fa-IR';
+      utterance.voice = faVoice;
+      utterance.rate = 1.04;
+      utterance.pitch = 1.04;
+      utterance.volume = 0.82;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+      this.lastTtsAt = now;
+    } catch { /* TTS is optional and must never affect gameplay */ }
+  }
+
   // ============ عابرها و تعمیر (فاز BIG-IR) ============
 
   /** عابر ترسید — حباب طنز (با احتمال) */
@@ -880,6 +904,7 @@ export class GameManager {
       this.save.mutate((d) => {
         d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.pedHitPenalty);
       });
+      this.speakPersianLine('ای وای! آبروت کم شد! مواظب عابرا باش!');
       this.voice.trigger('pedestrian_scare', performance.now());
       break;
     }
