@@ -3089,6 +3089,16 @@ export class WorldRenderer3D {
       }
       model.group.position.set(c.x, 0, c.y);
       model.group.rotation.y = -c.angle;
+      // Turn the front wheels into corners too. Derive steering from the wrapped
+      // heading delta and smooth it, so traffic doesn't snap its wheels at angle wrap.
+      const trafficVisual = model as unknown as { __prevAngle?: number; __steerVisual?: number };
+      const prevAngle = trafficVisual.__prevAngle ?? c.angle;
+      const angleDelta = Math.atan2(Math.sin(c.angle - prevAngle), Math.cos(c.angle - prevAngle));
+      const steerTarget = Math.max(-0.36, Math.min(0.36, angleDelta / Math.max(frameDt, 1 / 120) * 0.12));
+      const steerCurrent = trafficVisual.__steerVisual ?? 0;
+      trafficVisual.__steerVisual = steerCurrent + (steerTarget - steerCurrent) * Math.min(1, 8 * frameDt);
+      trafficVisual.__prevAngle = c.angle;
+      steerWheels(model, trafficVisual.__steerVisual);
       // Batch a soft oval under each traffic vehicle; scale follows its actual dimensions.
       if (this.trafficContactShadows && trafficShadowIndex < this.trafficShadowCapacity) {
         const shadow = this.trafficShadowDummy;
