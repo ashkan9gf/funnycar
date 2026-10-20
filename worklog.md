@@ -1028,3 +1028,28 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.36-test.apk (20,585,040 bytes)
 - لینک: https://uploadkon.ir/uploads/896919_26FunnyCarIR-v0-2-36-test.zip
 - نکته برای بعد: probe سرعت صحیح E2E = __funnycar.vehicle.speed/3 (فرمول HUD)، نه __funnycar.speed که undefined است
+
+---
+Task ID: 53
+Agent: main (Z.ai)
+Task: اسکرول منو + پیش‌نمایش رنگ/بوق/خودرو + بازار حرفه‌ای + چالش‌ها و مسافرهای بیشتر
+
+Work Log:
+- کشف مهم: کاربر خودش بخش بزرگی را روی main برده بود (PLAYER_VEHICLES با آمار درصدی، buyVehicle/selectVehicle، setPlayerVehicle+GLB، ۱۸ مأموریت جدید p03-p06/t03-t08/c04-c11) — rebase تداخل داشت → abort → بازسازی روی origin/main (8569227)
+- reapply فقط مکمل‌های منحصن‌فرد روی بیس کاربر:
+  1) اسکرول‌فیکس: ۹ onPointerDown باقی‌مانده → onClick (کل منوها لمس‌امان شد)
+  2) CarPreview.ts: رندر تک‌فریمی WebGL با رندرر مشترک + کش dataURL به کلید variant|paint
+  3) CarPreviewImg در کارت‌های نمایشگاه (h-24) + پنل پیش‌نمایش رنگ زنده (رنگ روی خودروی انتخابی، دکمه خرید جدا)
+  4) previewHorn در GameManager + index.ts + کارت بوق = پخش صدا، چیپ خرید/وصل جدا (stopPropagation)
+  5) فیکس سینتکس خراب HORN_ICON.id] → HORN_ICON[h.id] در کد کاربر
+  6) +۱۴ مأموریت من با id های جدید (t09-t14 مسافرها: ترمینال/پزشک/مهندس/دانشجو/عروس/مادربزرگ + c12-c19 چالش‌ها) → کل ۴۸ مأموریت
+- tsc صفر + lint سبز؛ بیلد v0.2.39/VCODE=39 (SIGN OK، 20,593,232 bytes)
+- E2E: نمایشگاه با عکس سه‌بعدی هر خودرو (نیسان آبی/پراید کرم/تیبا...) + پیش‌نمایش قرمز روی پراید + بوق بدون خرید — اسکرین‌شات‌ها در scripts/v0239_*.png
+- push: 8569227..c4fc59b
+- zip 20,051,025 → uploadkon → HEAD 200
+
+Stage Summary:
+- main = c4fc59b
+- APK: download/FunnyCarIR-v0.2.39-test.apk
+- لینک: https://uploadkon.ir/uploads/404620_26FunnyCarIR-v0-2-39-test.zip
+- درس: قبل از implement باید git fetch و بازبینی HEAD باشد — کاربر موازی کار می‌کند
