@@ -17,6 +17,7 @@ export interface GameSettings {
   sfx: number;
   voice: number;
   vibration: boolean;
+  graphicsQuality: 'performance' | 'balanced' | 'quality';
 }
 
 export interface SaveData {
@@ -48,7 +49,7 @@ function defaultSave(): SaveData {
     unlockedVehicles: ['veh_player_01'],
     selectedVehicle: 'veh_player_01',
     completedMissions: [],
-    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true },
+    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true, graphicsQuality: 'balanced' },
     progress: { tutorialDone: false, firstRunDone: false },
     upgrades: defaultUpgrades(),
     ownedPaints: [DEFAULT_PAINT_ID],
@@ -145,6 +146,9 @@ function migrateSettings(raw: unknown, base: GameSettings): GameSettings {
     sfx: volume(value.sfx, base.sfx),
     voice: volume(value.voice, base.voice),
     vibration: typeof value.vibration === 'boolean' ? value.vibration : base.vibration,
+    graphicsQuality: value.graphicsQuality === 'performance' || value.graphicsQuality === 'quality'
+      ? value.graphicsQuality
+      : 'balanced',
   };
 }
 
