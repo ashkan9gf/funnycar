@@ -69,6 +69,7 @@ interface Settings {
   music: number;
   sfx: number;
   voice: number;
+  graphicsQuality: 'performance' | 'balanced' | 'quality';
 }
 
 /** پنل تنظیمات صدا (در منو و Pause استفاده می‌شود) */
@@ -102,10 +103,26 @@ function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => 
           <span className="w-10 text-center text-sm font-bold text-[#3a2e2a]">{fa(Math.round(s[r.key] * 100))}٪</span>
         </div>
       ))}
-      <div className="flex items-center gap-3 opacity-50">
-        <span className="text-sm font-bold text-[#3a2e2a]">لرزش گوشی</span>
-        <span className="text-xs text-[#3a2e2a]">(فازهای بعدی)</span>
+      <div className="flex flex-wrap items-center gap-3 pt-2">
+        <span className="w-24 text-sm font-bold text-[#3a2e2a]">کیفیت گرافیک</span>
+        <select
+          aria-label="کیفیت گرافیک"
+          className="min-w-0 flex-1 rounded-xl border border-[#c8b89b] bg-[#fffaf0] px-3 py-2 text-sm font-bold text-[#3a2e2a]"
+          value={s.graphicsQuality}
+          onChange={(e) => {
+            const quality = e.target.value as Settings['graphicsQuality'];
+            setS((p) => ({ ...p, graphicsQuality: quality }));
+            game.setGraphicsQuality(quality);
+          }}
+        >
+          <option value="performance">روان‌تر — مناسب گوشی ضعیف</option>
+          <option value="balanced">متعادل — پیشنهاد ما</option>
+          <option value="quality">کیفیت بالاتر — مناسب گوشی قوی</option>
+        </select>
       </div>
+      <p className="text-xs leading-5 text-[#6b5b49]">
+        تغییر کیفیت فوراً اعمال و ذخیره می‌شود؛ جزئیات جهان ثابت می‌ماند و فقط بودجهٔ وضوح رندر سه‌بعدی تغییر می‌کند.
+      </p>
       {onClose && (
         <button
           type="button"
