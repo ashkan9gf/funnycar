@@ -706,6 +706,15 @@ export class GameManager {
       const kdx = impact > 40 ? relVx : dx;
       const kdy = impact > 40 ? relVy : dy;
       c.knock(kdx, kdy, impact);
+      // پلیس بعد از برخورد تعقیب را شروع می‌کند؛ تاکسی هم تا چند ثانیه جواب می‌دهد.
+      if (c.assetId.toLowerCase().includes('police')) {
+        c.pursuitSec = Math.max(c.pursuitSec, 22);
+        this.fx.pushBubble('پلیس: کنار بزن! تعقیبت می‌کنم!', c.x, c.y, 'npc_police_01', 2.5);
+        this.voice.trigger('police_chase', performance.now());
+      } else if (c.assetId.toLowerCase().includes('taxi')) {
+        c.pursuitSec = Math.max(c.pursuitSec, 12);
+        this.fx.pushBubble('تاکسی: وایسا ببینم! هنوز حساب داریم!', c.x, c.y, 'char_driver_01_idle', 2.5);
+      }
 
       // 🔕 شلاق جانبی بازیکن — تصادف واقعی‌تر: ضربهٔ بغلی ماشین را می‌کشد (مطابق rightX/rightY در Vehicle)
       const sideN = mtv.x * Math.cos(v.angle) + mtv.y * Math.sin(v.angle);
