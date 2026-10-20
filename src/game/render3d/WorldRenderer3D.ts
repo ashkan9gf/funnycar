@@ -354,6 +354,7 @@ export class WorldRenderer3D {
   private dayNightFactor = 0;
   /** Adaptive shadow refresh cadence selected once at renderer startup. */
   private shadowRefreshEvery = 3;
+  private graphicsQuality: 'performance' | 'balanced' | 'quality' = 'balanced';
   /** Device-specific quality ceiling captured from the startup GPU profile. */
   private shadowRefreshDefault = 3;
   /** دو هالهٔ نرم چراغ جلو؛ اسپرایت‌های ارزان بدون افزودن point light */
@@ -3936,6 +3937,11 @@ export class WorldRenderer3D {
    * Adapt shadow refresh work to sustained frame rate without rebuilding the shadow map.
    * Low FPS skips more shadow refreshes; stable headroom restores the device's startup profile.
    */
+  /** User-selected raster budget. This never changes physics or world detail. */
+  setGraphicsQuality(quality: 'performance' | 'balanced' | 'quality'): void {
+    this.graphicsQuality = quality;
+  }
+
   setPerformanceHint(fps: number): void {
     if (!Number.isFinite(fps) || fps <= 0) return;
     if (fps < 32) this.shadowRefreshEvery = 6;
@@ -3962,9 +3968,13 @@ export class WorldRenderer3D {
     // Unknown memory never qualifies as high-end; never upscale small screens.
     const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
     const highEnd = cores >= 8 && memory !== null && memory >= 8;
-    const maxPixels = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    const deviceBudget = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    const qualityFactor = this.graphicsQuality === 'performance' ? 0.72
+      : this.graphicsQuality === 'quality' ? 1.25 : 1;
+    const maxPixels = Math.max(850_000, Math.round(deviceBudget * qualityFactor));
     if (pixels <= maxPixels) return 1;
-    return Math.max(0.72, Math.min(1, Math.sqrt(maxPixels / pixels)));
+    const floor = this.graphicsQuality === 'performance' ? 0.62 : 0.72;
+    return Math.max(floor, Math.min(1, Math.sqrt(maxPixels / pixels)));
   }
 
   /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی.
