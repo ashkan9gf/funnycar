@@ -3432,8 +3432,19 @@ export class WorldRenderer3D {
     const fz = -Math.cos(this.camAngle);
     const back = RENDER3D.camBack + Math.abs(car.speed) * RENDER3D.camBackPerSpeed + speedFrac * 24;
     const targetHeight = RENDER3D.camHeight + speedFrac * 18;
-    const desired = this.tmpP.set(car.x - fx * back, targetHeight, car.y - fz * back);
     const safeDt = Math.min(dt, 1 / 30);
+    // During a fast drift, slide the chase camera slightly toward the outside
+    // of the car's lateral motion. The bounded offset adds speed/weight cues
+    // without changing vehicle physics or creating extra scene objects.
+    const slip = Math.max(-1, Math.min(1, car.latVel / 105));
+    const driftLead = slip * speedFrac * 20;
+    const rightX = Math.cos(this.camAngle);
+    const rightZ = Math.sin(this.camAngle);
+    const desired = this.tmpP.set(
+      car.x - fx * back + rightX * driftLead,
+      targetHeight,
+      car.y - fz * back + rightZ * driftLead,
+    );
     const k = 1 - Math.exp(-(RENDER3D.camPosLerp + speedFrac * 0.8) * safeDt);
     this.cam3.position.lerp(desired, k);
 
@@ -3443,9 +3454,13 @@ export class WorldRenderer3D {
     this.cam3.position.y += Math.abs(sh.y) * 0.5;
     this.cam3.position.z += sh.y * 0.9;
 
-    // نگاه به مسیر، با فاصلهٔ پیش‌بینی متناسب با سرعت.
+    // نگاه به مسیر، با فاصلهٔ پیش‌بینی متناسب با سرعت و کمی lead هنگام دریفت.
     const lookAhead = 230 + speedFrac * 170;
-    const look = this.tmpV.set(car.x + fx * lookAhead, 54 + speedFrac * 12, car.y + fz * lookAhead);
+    const look = this.tmpV.set(
+      car.x + fx * lookAhead + rightX * driftLead * 0.65,
+      54 + speedFrac * 12,
+      car.y + fz * lookAhead + rightZ * driftLead * 0.65,
+    );
     this.cam3.lookAt(look);
 
     // رول بسیار ظریف در پیچ‌ها؛ محدود برای جلوگیری از افق کج.
@@ -3454,7 +3469,8 @@ export class WorldRenderer3D {
     this.cam3.rotateZ(this.cameraRoll + Math.sin(t * 7) * speedFrac * 0.0015);
 
     const targetFov = this.fovBase + speedFrac * 10;
-    this.cam3.fov += (targetFov - this.cam3.fov) * Math.min(1, 4 * dt);
+    // Exponential easing stays stable when a frame stalls on mobile.
+    this.cam3.fov += (targetFov - this.cam3.fov) * (1 - Math.exp(-4 * safeDt));
     this.cam3.updateProjectionMatrix();
   }
 
