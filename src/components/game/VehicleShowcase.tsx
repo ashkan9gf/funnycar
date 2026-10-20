@@ -4,17 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { buildCar3D, type CarVariant } from "@/game/render3d/CarFactory3D";
 
-const CARS: Array<{ id: CarVariant; name: string; note: string }> = [
-  { id: "pride", name: "پراید", note: "جمع‌وجور و شهری" },
-  { id: "peugeot405", name: "پژو ۴۰۵", note: "سدان کلاسیک" },
-  { id: "samand", name: "سمند", note: "سدان ایرانی" },
-  { id: "tiba", name: "تیبا", note: "هاچ‌بک اسپرت" },
-  { id: "nissan", name: "نیسان وانت", note: "وانت آبی" },
-  { id: "renault4", name: "رنو ۴", note: "کلاسیک جعبه‌ای" },
-  { id: "vintage", name: "کلاسیک", note: "قدیمی و خاص" },
-  { id: "taxi", name: "تاکسی", note: "زرد شهری" },
-  { id: "police", name: "پلیس", note: "خودروی گشت" },
-];
 
 function CarRender({ variant, paint }: { variant: CarVariant; paint: string }) {
   const host = useRef<HTMLDivElement>(null);
@@ -77,9 +66,22 @@ function CarRender({ variant, paint }: { variant: CarVariant; paint: string }) {
   return <div ref={host} className="w-full overflow-hidden rounded-xl bg-[radial-gradient(ellipse_at_50%_40%,rgba(255,255,255,0.9),rgba(210,220,230,0.65)_65%,rgba(95,113,130,0.15))]" />;
 }
 
-export default function VehicleShowcase({ paint = "#f4f4f0" }: { paint?: string }) {
-  const [selected, setSelected] = useState<CarVariant>("pride");
-  const active = CARS.find((c) => c.id === selected) ?? CARS[0];
+type ShopVehicle = { id: string; name: string; variant: string; price: number; description: string; owned: boolean; selected: boolean };
+
+export default function VehicleShowcase({
+  paint = "#f4f4f0",
+  vehicles,
+  onBuy,
+  onSelect,
+}: {
+  paint?: string;
+  vehicles: ShopVehicle[];
+  onBuy: (id: string) => void;
+  onSelect: (id: string) => void;
+}) {
+  const [selectedId, setSelectedId] = useState(() => vehicles.find((v) => v.selected)?.id ?? vehicles[0]?.id ?? "veh_player_01");
+  const active = vehicles.find((v) => v.id === selectedId) ?? vehicles[0];
+  const variant = (active?.variant ?? "player") as CarVariant;
   return (
     <section className="rounded-3xl border border-white/20 bg-gradient-to-br from-[#172536] via-[#24364a] to-[#342a31] p-3 shadow-xl">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -90,23 +92,27 @@ export default function VehicleShowcase({ paint = "#f4f4f0" }: { paint?: string 
         <span className="rounded-full border border-amber-200/40 bg-amber-300/15 px-2 py-1 text-[10px] font-bold text-amber-100">۳D</span>
       </div>
       <div className="rounded-2xl border border-white/10 bg-white/5 p-2">
-        <CarRender variant={selected} paint={paint} />
+        <CarRender variant={variant} paint={paint} />
         <div className="flex items-center justify-between px-1 pb-1">
           <div>
-            <p className="text-sm font-black text-white">{active.name}</p>
-            <p className="text-[10px] font-bold text-white/60">{active.note}</p>
+            <p className="text-sm font-black text-white">{active?.name ?? "خودرو"}</p>
+            <p className="text-[10px] font-bold text-white/60">{active?.description ?? "مدل سه‌بعدی"}</p>
           </div>
           <span className="rounded-xl bg-white/10 px-2 py-1 text-[10px] font-bold text-white/80">پیش‌نمایش زنده</span>
         </div>
       </div>
-      <div className="mt-2 grid grid-cols-3 gap-2">
-        {CARS.map((car) => (
-          <button key={car.id} type="button" onClick={() => setSelected(car.id)} className={`rounded-xl border px-2 py-2 text-xs font-extrabold transition ${selected === car.id ? "border-amber-200 bg-amber-300 text-[#30261b] shadow-md" : "border-white/15 bg-white/10 text-white hover:bg-white/15"}`}>
-            {car.name}
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {vehicles.map((car) => (
+          <button key={car.id} type="button" onClick={() => setSelectedId(car.id)} className={`rounded-xl border px-2 py-2 text-xs font-extrabold transition ${selectedId === car.id ? "border-amber-200 bg-amber-300 text-[#30261b] shadow-md" : "border-white/15 bg-white/10 text-white hover:bg-white/15"}`}>
+            <span className="block">{car.name}</span>
+            <span className="mt-1 block text-[9px] opacity-70">{car.selected ? "خودروی فعلی" : car.owned ? "خریداری‌شده" : `${car.price.toLocaleString("fa-IR")} سکه`}</span>
           </button>
         ))}
       </div>
-      <p className="mt-2 text-center text-[10px] font-bold leading-4 text-white/55">این نمایشگاه برای بازبینی مدل‌هاست؛ خرید خودرو تا زمانی که سیستم مالکیت خودرو اضافه نشده فعال نیست.</p>
+      <button type="button" disabled={!active || (active.owned && active.selected)} onClick={() => active && (active.owned ? onSelect(active.id) : onBuy(active.id))} className="fc-btn mt-3 w-full rounded-2xl border border-amber-100 bg-gradient-to-r from-[#ffe8a1] via-[#f2b705] to-[#d88a18] py-3 text-sm font-black text-[#34271c] disabled:cursor-default disabled:opacity-60">
+        {!active ? "خودرویی موجود نیست" : active.selected ? "این خودرو انتخاب شده ✓" : active.owned ? "انتخاب و رانندگی با این خودرو" : `خرید ${active.name} · ${active.price.toLocaleString("fa-IR")} سکه`}
+      </button>
+      <p className="mt-2 text-center text-[10px] font-bold leading-4 text-white/55">پیش‌نمایش رایگان است؛ فقط با زدن دکمهٔ خرید سکه کم می‌شود.</p>
     </section>
   );
 }
