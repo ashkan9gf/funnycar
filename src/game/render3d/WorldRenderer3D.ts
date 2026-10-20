@@ -2939,12 +2939,12 @@ export class WorldRenderer3D {
           p.vx = -Math.sin(car.angle) * backwards + Math.cos(car.angle) * slip * 18 + (Math.random() - 0.5) * 15;
           p.vz = Math.cos(car.angle) * backwards + Math.sin(car.angle) * slip * 18 + (Math.random() - 0.5) * 15;
           p.vy = 9 + Math.random() * 10;
-          p.life = p.maxLife = driftLoad ? 0.72 : 0.58;
-          p.size = 13 + Math.random() * 5;
+          p.life = p.maxLife = driftLoad ? 0.82 : 0.62;
+          p.size = (driftLoad ? 15 : 13) + Math.random() * (driftLoad ? 7 : 5);
           p.rot = Math.random() * Math.PI;
           p.active = true;
         }
-        this.tireSmokeEmitTimer = driftLoad ? 0.13 : 0.17;
+        this.tireSmokeEmitTimer = driftLoad ? 0.105 : 0.16;
       }
     } else {
       this.tireSmokeEmitTimer = Math.min(this.tireSmokeEmitTimer, 0.05);
@@ -3005,7 +3005,7 @@ export class WorldRenderer3D {
         const slipCorrection = driftLoad ? Math.max(-0.32, Math.min(0.32, slipAngle)) : 0;
         const driftIntensity = driftLoad ? Math.min(1, Math.abs(car.latVel) / 130) : 0;
         this.addSkidMark(rearX, rearY, car.angle + slipCorrection, driftIntensity);
-        this.skidEmitTimer = driftLoad ? 0.075 : 0.105;
+        this.skidEmitTimer = driftLoad ? 0.06 : 0.10;
       }
     } else {
       this.skidEmitTimer = Math.min(this.skidEmitTimer, 0.04);
@@ -3449,11 +3449,11 @@ export class WorldRenderer3D {
     this.cam3.lookAt(look);
 
     // رول بسیار ظریف در پیچ‌ها؛ محدود برای جلوگیری از افق کج.
-    const rollTarget = Math.max(-0.035, Math.min(0.035, -car.latVel * 0.00018));
+    const rollTarget = Math.max(-0.05, Math.min(0.05, -car.latVel * 0.00024));
     this.cameraRoll += (rollTarget - this.cameraRoll) * (1 - Math.exp(-5 * safeDt));
     this.cam3.rotateZ(this.cameraRoll + Math.sin(t * 7) * speedFrac * 0.0015);
 
-    const targetFov = this.fovBase + speedFrac * 9;
+    const targetFov = this.fovBase + speedFrac * 10;
     this.cam3.fov += (targetFov - this.cam3.fov) * Math.min(1, 4 * dt);
     this.cam3.updateProjectionMatrix();
   }
