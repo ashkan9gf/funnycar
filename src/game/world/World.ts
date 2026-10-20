@@ -473,7 +473,7 @@ export class World {
     ch.props.push({ id: `sign_h_${i}_${j}`, x: roadCenter(i) - 350, y: roadCenter(j) - 350, w: 40, h: 30, solid: false, kind: 'streetSign', label: hStreetName(j) });
 
     // ---------- دوبله‌پارکی (فرمول‌های همان خیابان زندگی مبدأ) ----------
-    const edge = WORLD.roadW / 2 + 30; // 310
+    const edge = WORLD.roadW / 2 + 75; // محل پارک بیرون از لبهٔ آسفالت، با فاصله از لاین عبور
     const kinds: ParkedCar['kind'][] = ['peugeot405', 'samand', 'renault4', 'vintage', 'peugeot405', 'samand'];
     const pk = (x: number, y: number, angle: number, slot: number): void => {
       ch.parkedCars.push({ x, y, angle, kind: kinds[hash2(i, j, slot) % kinds.length] });
@@ -774,7 +774,7 @@ export class World {
     // مراکز سگمنت‌ها بین تقاطع‌ها
     const segMids: number[] = [];
     for (let k = 0; k < centers.length - 1; k++) segMids.push((centers[k] + centers[k + 1]) / 2);
-    const edge = WORLD.roadW / 2 + 30; // کنار جدول، بدون تداخل با لاین بیرونی (310)
+    const edge = WORLD.roadW / 2 + 75; // جای پارک بیرون از آسفالت؛ بدنه وارد لاین ترافیک نمی‌شود
 
     // ---------- دوبله‌پارکی‌ها ----------
     // 🔑 فیکس «خودروی سفید تک‌رنگ»: pride/tiba/nissan GLB بدون تکسچر با متریال سفید خالص دارند
