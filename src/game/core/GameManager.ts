@@ -224,6 +224,7 @@ export class GameManager {
       overlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;';
       canvas.parentElement?.appendChild(overlay);
       this.renderer3d = new WorldRenderer3D(canvas, gl, overlay, this.assets, this.world, this.camera, this.lights);
+      this.renderer3d.setGraphicsQuality(this.save.get().settings.graphicsQuality);
       this.fx = this.renderer3d;
     } else {
       this.is3D = false;
@@ -624,6 +625,11 @@ export class GameManager {
   setSetting<K extends 'music' | 'sfx' | 'voice'>(k: K, v: number): void {
     this.save.mutate((d) => { d.settings[k] = v; });
     this.audio.setVolumes(this.save.get().settings);
+  }
+  setGraphicsQuality(quality: 'performance' | 'balanced' | 'quality'): void {
+    this.save.mutate((d) => { d.settings.graphicsQuality = quality; });
+    this.renderer3d?.setGraphicsQuality(quality);
+    this.handleResize();
   }
   getSettings() { return this.save.get().settings; }
   getSave() { return this.save.get(); }
