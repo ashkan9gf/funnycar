@@ -2704,6 +2704,28 @@ export class WorldRenderer3D {
   /** رنگ انتخابی گاراژ (فاز ۶) — قبل از ساخت مدل ست می‌شود */
   private playerPaint = '#f4f4f0';
 
+  /** Replace the player body model while preserving camera-facing effects and transform. */
+  setPlayerVariant(variant: CarVariant): void {
+    if (!this.playerModel) return;
+    const old = this.playerModel;
+    const model = buildCar3D(variant, 112, 196, { paint: this.playerPaint });
+    model.group.position.copy(old.group.position);
+    model.group.rotation.copy(old.group.rotation);
+    model.group.scale.copy(old.group.scale);
+
+    const attached: THREE.Object3D[] = [
+      ...this.playerHeadlightGlows,
+      ...this.playerBrakeGlows,
+      ...(this.playerContactShadow ? [this.playerContactShadow] : []),
+      ...(this.playerHeadlightSpill ? [this.playerHeadlightSpill] : []),
+    ];
+    for (const object of attached) old.group.remove(object);
+    this.scene.remove(old.group);
+    this.playerModel = model;
+    this.scene.add(model.group);
+    for (const object of attached) model.group.add(object);
+  }
+
   /**
    * فاز ۶ گاراژ — تغییر رنگ بدنه بازیکن (در منو یا حین بازی)
    * روی هر دو مسیر procedural و GLB کار می‌کند (GLB رنگ را از مدل قدیم می‌گیرد)
