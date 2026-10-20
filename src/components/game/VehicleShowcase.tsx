@@ -57,8 +57,12 @@ function CarRender({ variant, paint }: { variant: CarVariant; paint: string }) {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
       scene.remove(model.group);
-      // CarFactory3D intentionally shares geometry/material caches with the game renderer.
-      // Do not dispose those shared resources when the showroom preview closes.
+      // CarFactory3D intentionally shares geometry caches with the game renderer.
+      // Release per-preview materials while leaving globally shared materials untouched.
+      model.bodyMat.dispose();
+      model.indicatorMat?.dispose();
+      model.tailMat?.dispose();
+      model.damageMats?.forEach((material) => material.dispose());
       renderer.dispose();
       renderer.domElement.remove();
     };
