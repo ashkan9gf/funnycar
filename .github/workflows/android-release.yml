@@ -86,11 +86,11 @@ jobs:
           if not code.isdigit() or int(code) < 1:
               raise SystemExit("version_code must be a positive integer")
           if p.suffix == ".kts":
-              s, n1 = re.subn(r'versionCode\\s*=\\s*\\d+', f'versionCode = {int(code)}', s, count=1)
-              s, n2 = re.subn(r'versionName\\s*=\\s*"[^"]*"', f'versionName = "{name}"', s, count=1)
+              s, n1 = re.subn(r'versionCode\s*=\s*\d+', f'versionCode = {int(code)}', s, count=1)
+              s, n2 = re.subn(r'versionName\s*=\s*"[^"]*"', f'versionName = "{name}"', s, count=1)
           else:
-              s, n1 = re.subn(r'versionCode\\s+\\d+', f'versionCode {int(code)}', s, count=1)
-              s, n2 = re.subn(r'versionName\\s+"[^"]*"', f'versionName "{name}"', s, count=1)
+              s, n1 = re.subn(r'versionCode\s+\d+', f'versionCode {int(code)}', s, count=1)
+              s, n2 = re.subn(r'versionName\s+"[^"]*"', f'versionName "{name}"', s, count=1)
           if n1 != 1 or n2 != 1:
               raise SystemExit("Could not safely update versionCode/versionName")
           p.write_text(s)
@@ -103,8 +103,8 @@ jobs:
           import re
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
-          pattern = r'(<activity\\b(?=[^>]*android:name=".MainActivity")[^>]*)(>)'
-          s, count = re.subn(pattern, lambda m: re.sub(r'\\s+android:screenOrientation="[^"]*"', '', m.group(1)) + ' android:screenOrientation="landscape"' + m.group(2), s, count=1)
+          pattern = r'(<activity\b(?=[^>]*android:name=".MainActivity")[^>]*)(>)'
+          s, count = re.subn(pattern, lambda m: re.sub(r'\s+android:screenOrientation="[^"]*"', '', m.group(1)) + ' android:screenOrientation="landscape"' + m.group(2), s, count=1)
           if count != 1: raise SystemExit("Could not set MainActivity landscape orientation")
           p.write_text(s)
           PY
