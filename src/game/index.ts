@@ -35,7 +35,8 @@ export interface GameInstance {
   setVirtualBrake: (v: boolean) => void;
   pressHorn: () => void;
   setSetting: <K extends 'music' | 'sfx' | 'voice'>(k: K, v: number) => void;
-  getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean };
+  setGraphicsQuality: (quality: 'performance' | 'balanced' | 'quality') => void;
+  getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean; graphicsQuality: 'performance' | 'balanced' | 'quality' };
   getSave: () => { coins: number; reputation: number };
   toggleDebugFps: () => void;
   /** فاز 4: مأموریت‌ها (فاز ۵: با فیلتر دسته — park/taxi/challenge) */
@@ -74,6 +75,7 @@ export async function createGame(
     setVirtualBrake: (v) => gm.setVirtualBrake(v),
     pressHorn: () => gm.pressHorn(),
     setSetting: (k, v) => gm.setSetting(k, v),
+    setGraphicsQuality: (quality) => gm.setGraphicsQuality(quality),
     getSettings: () => gm.getSettings(),
     getSave: () => gm.getSave(),
     toggleDebugFps: () => gm.toggleDebugFps(),
