@@ -292,6 +292,8 @@ export class GameManager {
     // تا آماده‌شدن همهٔ مدل‌ها صفحهٔ لودینگ فعال می‌ماند؛ زمان لودینگ عمداً محدود نشده است.
     try {
       await this.renderer3d?.whenReady();
+      onProgress?.(96, 100);
+      await this.renderer3d?.warmup();
       onProgress?.(100, 100);
     } catch (err) {
       console.warn('[Game] GLB preload failed:', err);
