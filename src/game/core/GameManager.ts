@@ -25,7 +25,8 @@ import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
-import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
+import { UPGRADES, PAINTS, VEHICLE_SHOP, vehicleById, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
+import type { CarVariant } from '../render3d/CarFactory3D';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
 import { roadCenter, WORLD as WR } from '../world/World';
@@ -84,6 +85,7 @@ export interface GameCallbacks {
 /** نمای کامل گاراژ برای پوسته React (فاز ۶) */
 export interface GarageView {
   coins: number;
+  vehicles: Array<{ id: string; name: string; variant: string; price: number; description: string; owned: boolean; selected: boolean }>;
   upgrades: Array<{
     id: UpgradeId;
     title: string;
@@ -310,6 +312,8 @@ export class GameManager {
     this.camera.snapTo(spawn.x, spawn.y);
     // فاز ۶ گاراژ: اعمال آپگریدهای سیو + رنگ انتخابی روی مدل سه‌بعدی
     this.applyGarageToVehicle();
+    const savedVehicle = vehicleById(this.save.get().selectedVehicle);
+    if (savedVehicle) this.renderer3d?.setPlayerVariant(savedVehicle.variant as CarVariant);
     const savedPaint = paintById(this.save.get().paint);
     if (savedPaint && this.renderer3d) this.renderer3d.setPlayerPaint(savedPaint.hex);
     this.setState('menu');
@@ -329,6 +333,11 @@ export class GameManager {
     const d = this.save.get();
     return {
       coins: d.coins,
+      vehicles: VEHICLE_SHOP.map((vehicle) => ({
+        ...vehicle,
+        owned: d.unlockedVehicles.includes(vehicle.id),
+        selected: d.selectedVehicle === vehicle.id,
+      })),
       upgrades: UPGRADES.map((u) => {
         const level = d.upgrades[u.id] ?? 0;
         return {
@@ -358,6 +367,38 @@ export class GameManager {
         selected: d.horn === h.id,
       })),
     };
+  }
+
+  /** خرید خودرو پس از پیش‌نمایش؛ مدل انتخابی در سیو ذخیره می‌شود. */
+  buyVehicle(id: string): PurchaseResult {
+    const vehicle = vehicleById(id);
+    const d = this.save.get();
+    if (!vehicle) return { ok: false, coins: d.coins, msg: 'این خودرو در نمایشگاه موجود نیست.' };
+    if (d.unlockedVehicles.includes(id)) return this.selectVehicle(id);
+    if (d.coins < vehicle.price) return { ok: false, coins: d.coins, msg: 'سکه کافی نیست؛ چند مأموریت دیگر انجام بده.' };
+    this.save.mutate((save) => {
+      save.coins -= vehicle.price;
+      save.unlockedVehicles.push(id);
+      save.selectedVehicle = id;
+    });
+    this.renderer3d?.setPlayerVariant(vehicle.variant as CarVariant);
+    const paint = paintById(this.save.get().paint);
+    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    this.audio.coin();
+    return { ok: true, coins: this.save.get().coins, msg: `خودروی «${vehicle.name}» به گاراژ اضافه شد!` };
+  }
+
+  /** انتخاب خودروی خریداری‌شده بدون هزینهٔ دوباره. */
+  selectVehicle(id: string): PurchaseResult {
+    const vehicle = vehicleById(id);
+    const d = this.save.get();
+    if (!vehicle) return { ok: false, coins: d.coins, msg: 'مدل خودرو پیدا نشد.' };
+    if (!d.unlockedVehicles.includes(id)) return { ok: false, coins: d.coins, msg: 'اول باید این خودرو را بخری.' };
+    this.save.mutate((save) => { save.selectedVehicle = id; });
+    this.renderer3d?.setPlayerVariant(vehicle.variant as CarVariant);
+    const paint = paintById(this.save.get().paint);
+    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    return { ok: true, coins: this.save.get().coins, msg: `خودروی «${vehicle.name}» آمادهٔ رانندگی است.` };
   }
 
   /** خرید یک سطح آپگرید — خروجی برای toast پوسته */
