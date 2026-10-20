@@ -294,10 +294,12 @@ export function buildCar3D(
   const profile = PROFILES[variant] ?? PROFILES.pride;
   const lite = opts.lite === true;
 
-  // رنگ بدنه (فاز ۶ گاراژ: رنگ انتخابی بازیکن فقط برای ماشین بازیکن)
+  // رنگ بدنه: رنگ ارسالی برای پیش‌نمایش روی هر مدل اعمال می‌شود؛ در بازی عادی رنگ‌های اختصاصی حفظ می‌شوند.
   let body = '#f4f4f0';
-  if (variant === 'player') {
-    body = typeof opts.paint === 'string' && opts.paint.startsWith('#') ? opts.paint : '#f4f4f0';
+  if (typeof opts.paint === 'string' && /^#[0-9a-fA-F]{6}$/.test(opts.paint)) {
+    body = opts.paint;
+  } else if (variant === 'player') {
+    body = '#f4f4f0';
   } else if (variant === 'pride' || variant === 'tiba' || variant === 'peugeot405' || variant === 'samand') {
     body = pickColor(COLORS[variant]);
   } else if (variant === 'taxi') body = '#f2c230';
