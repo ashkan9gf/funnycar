@@ -1304,7 +1304,8 @@ export class WorldRenderer3D {
 
   /** انتخاب خودروی بازیکن از گاراژ؛ مدل GLB یا procedural، بدون ریست موقعیت */
   setPlayerVehicle(variant: CarVariant): void {
-    const allowed: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'renault4', 'vintage'];
+    // v0.2.42 — تاکسی و پلیس هم قابل خرید شدند (مدل GLB هر دو موجود است)
+    const allowed: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'renault4', 'vintage', 'taxi', 'police'];
     if (!allowed.includes(variant) || variant === this.playerVariant || !this.playerModel) return;
     this.playerVariant = variant;
     const old = this.playerModel;
@@ -2804,6 +2805,12 @@ export class WorldRenderer3D {
     m.bodyColor = hex;
     if (m.paintMats && m.paintMats.length > 0) {
       const c = new THREE.Color(hex);
+      // v0.2.42 — تاکسی/پلیس: بدنه‌ی GLBشان رنگ ثابت دارد (زرد/سفید)؛ ضربِ رنگ
+      // هالِهٔ کثیف می‌دهد → جایگزینی مستقیم تا رنگ کارخانه‌ای واقعاً همان شود
+      if (this.playerVariant === 'taxi' || this.playerVariant === 'police') {
+        for (const pm of m.paintMats) pm.mat.color.copy(c);
+        return;
+      }
       for (const pm of m.paintMats) pm.mat.color.copy(pm.orig).multiply(c);
       return;
     }
@@ -3106,6 +3113,12 @@ export class WorldRenderer3D {
       const on = opts.braking === true;
       pmodel.tailMat.emissive.set(on ? '#ff1a08' : '#5a0f08');
       pmodel.tailMat.emissiveIntensity = on ? 2.4 : 0.7;
+    }
+    // v0.2.42 — اگر بازیکن پلیس سوار است، چراغ‌گردان خودش هم فلاش کند!
+    if (pmodel.lightBar) {
+      const on = Math.sin(t * 9) > 0;
+      pmodel.lightBar.red.visible = on;
+      pmodel.lightBar.blue.visible = !on;
     }
     // Smooth brake-glow response avoids a harsh binary pop on rapid inputs.
     const brakeTarget = opts.braking === true ? 1 : 0;

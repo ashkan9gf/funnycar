@@ -222,7 +222,7 @@ export default function GameShell() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState(0);
   const isAndroidBuild = process.env.NEXT_PUBLIC_ANDROID_BUILD === "1";
-  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false });
+  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false, chase: null });
   const [toast, setToast] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showMissions, setShowMissions] = useState(false);
@@ -940,6 +940,39 @@ export default function GameShell() {
               </TapButton>
             </div>
             <div className="flex flex-col items-start gap-1.5">
+              {/* v0.2.42 — بج تعقیب: پلیس/تاکسی عصبانی */}
+              {hud.chase && (
+                <div
+                  className="fc-panel pointer-events-auto flex w-[188px] flex-col gap-1 border-2 p-2"
+                  style={{
+                    borderColor: hud.chase.kind === "police" ? "#5b8dd9" : "#e8a33d",
+                    background: hud.chase.kind === "police" ? "rgba(91,141,217,0.14)" : "rgba(232,163,61,0.14)",
+                    animation: "fcPulse 0.9s ease-in-out infinite",
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Siren className="h-4 w-4 shrink-0" style={{ color: hud.chase.kind === "police" ? "#3b6fb5" : "#c07b1d" }} />
+                    <span className="text-[11px] font-extrabold text-[#3a2e2a]">
+                      {hud.chase.kind === "police"
+                        ? hud.chase.bust > 0.05
+                          ? "در حال دستگیری! گاز بزن!"
+                          : "پلیس تعقیبت می‌کنه!"
+                        : "تاکسیه عصبانیه! فرار کن!"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[9px] font-bold text-[#3a2e2a]/80">
+                    <span>{fa(hud.chase.dist)} متر تا گمش کنی</span>
+                    {hud.chase.kind === "police" && hud.chase.bust > 0.05 && (
+                      <span>دستگیری: {fa(Math.round(hud.chase.bust * 100))}٪</span>
+                    )}
+                  </div>
+                  {hud.chase.kind === "police" && hud.chase.bust > 0.05 && (
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
+                      <div className="h-full bg-[#D64545] transition-all" style={{ width: `${Math.round(hud.chase.bust * 100)}%` }} />
+                    </div>
+                  )}
+                </div>
+              )}
               {/* پنل مأموریت فعال (فاز 4) */}
               {hud.mission && (
                 <div className="fc-panel pointer-events-auto w-[188px] bg-[#FFF9EC]/95 p-2">
@@ -1014,16 +1047,16 @@ export default function GameShell() {
               <HoldButton
                 ariaLabel="فرمان چپ"
                 onHold={steerLeft}
-                className="h-[clamp(58px,14vh,88px)] w-[clamp(58px,14vh,88px)] bg-[#FFF3D6] text-[#3a2e2a]"
+                className="h-[clamp(84px,19vh,124px)] w-[clamp(84px,19vh,124px)] bg-[#FFF3D6] text-[#3a2e2a]"
               >
-                <ChevronLeft className="h-12 w-12" strokeWidth={2.6} />
+                <ChevronLeft className="h-[clamp(44px,10vh,64px)] w-[clamp(44px,10vh,64px)]" strokeWidth={3} />
               </HoldButton>
               <HoldButton
                 ariaLabel="فرمان راست"
                 onHold={steerRight}
-                className="h-[clamp(58px,14vh,88px)] w-[clamp(58px,14vh,88px)] bg-[#FFF3D6] text-[#3a2e2a]"
+                className="h-[clamp(84px,19vh,124px)] w-[clamp(84px,19vh,124px)] bg-[#FFF3D6] text-[#3a2e2a]"
               >
-                <ChevronRight className="h-12 w-12" strokeWidth={2.6} />
+                <ChevronRight className="h-[clamp(44px,10vh,64px)] w-[clamp(44px,10vh,64px)]" strokeWidth={3} />
               </HoldButton>
             </div>
             <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: "clamp(10px, 2.5vw, 20px)", bottom: "clamp(10px, 4vh, 28px)", direction: "ltr", gap: "clamp(8px, 1.8vw, 12px)" }}>
@@ -1031,24 +1064,24 @@ export default function GameShell() {
                 <TapButton
                   ariaLabel="بوق"
                   onTap={() => gameRef.current?.pressHorn()}
-                  className="h-[clamp(44px,10vh,60px)] w-[clamp(44px,10vh,60px)] bg-[#F2B705] text-[#3a2e2a]"
+                  className="h-[clamp(58px,13vh,84px)] w-[clamp(58px,13vh,84px)] bg-[#F2B705] text-[#3a2e2a]"
                 >
-                  <Megaphone className="h-7 w-7" />
+                  <Megaphone className="h-[clamp(28px,6.5vh,42px)] w-[clamp(28px,6.5vh,42px)]" />
                 </TapButton>
                 <HoldButton
                   ariaLabel="ترمز"
                   onHold={(d) => gameRef.current?.setVirtualBrake(d)}
-                  className="h-[clamp(54px,12vh,76px)] w-[clamp(54px,12vh,76px)] bg-[#D64545] text-white"
+                  className="h-[clamp(76px,17vh,108px)] w-[clamp(76px,17vh,108px)] bg-[#D64545] text-white"
                 >
-                  <Square className="h-8 w-8" strokeWidth={2.6} />
+                  <Square className="h-[clamp(36px,8vh,52px)] w-[clamp(36px,8vh,52px)]" strokeWidth={2.8} />
                 </HoldButton>
               </div>
               <HoldButton
                 ariaLabel="گاز"
                 onHold={(d) => gameRef.current?.setVirtualGas(d)}
-                className="h-[clamp(68px,17vh,100px)] w-[clamp(68px,17vh,100px)] bg-[#8AC926] text-[#3a2e2a]"
+                className="h-[clamp(94px,21vh,134px)] w-[clamp(94px,21vh,134px)] bg-[#8AC926] text-[#3a2e2a]"
               >
-                <ArrowUp className="h-12 w-12" strokeWidth={2.6} />
+                <ArrowUp className="h-[clamp(48px,11vh,70px)] w-[clamp(48px,11vh,70px)]" strokeWidth={3} />
               </HoldButton>
             </div>
           </div>

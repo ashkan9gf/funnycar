@@ -8,6 +8,9 @@
  *  - buildCar3D خودش ensureShared() دارد → بدون وابستگی به WorldRenderer صدا می‌خورد.
  *  - رندر یک‌باره است؛ هیچ حلقه/RAF ای نداریم (صفر بار اضافه روی منو).
  *  - dispose فقط در قطع کامل؛ به‌اشتراک‌گذاری هندسه‌ها دست نمی‌زنیم.
+ *  - 🔑 v0.2.42: خودرو بعد از هر ضبط «همیشه» از صحنه برداشته می‌شود (finally) —
+ *    اگر یک ضبط شکست بخورد و ماشینی روی صحنه بماند، همهٔ پیش‌نمایش‌های بعدی
+ *    با همان ماشین دوبله ضبط می‌شوند (باگ «همه کارت‌ها پلیسی شدند»!)
  */
 
 import * as THREE from 'three';
@@ -65,24 +68,41 @@ function ensurePreviewStage(): boolean {
   }
 }
 
+/** ضبط یک فریم از صحنه با تضمین پاک‌سازی خودرو — ضد «ماشین زامبی» روی صحنه */
+function captureCar(build: () => THREE.Group | null): string | null {
+  if (!sharedRenderer || !sharedScene || !sharedCamera) return null;
+  if (currentCar) {
+    sharedScene.remove(currentCar);
+    currentCar = null;
+  }
+  const group = build();
+  if (!group) return null;
+  sharedScene.add(group);
+  let url: string | null = null;
+  try {
+    sharedRenderer.render(sharedScene, sharedCamera);
+    url = sharedRenderer.domElement.toDataURL('image/png');
+  } finally {
+    sharedScene.remove(group);
+  }
+  return url;
+}
+
 /** تصویر PNG (dataURL) خودروی واریانت مشخص با رنگ مشخص — کش‌شده. null = بدون WebGL */
 export function renderCarPreview(variant: CarVariant, paintHex: string | null): string | null {
   const key = `${variant}|${paintHex ?? 'default'}`;
   const cached = previewCache.get(key);
   if (cached) return cached;
-  if (!ensurePreviewStage() || !sharedRenderer || !sharedScene || !sharedCamera) return null;
+  if (!ensurePreviewStage()) return null;
 
   try {
-    if (currentCar) {
-      sharedScene.remove(currentCar);
-      currentCar = null;
-    }
-    const model = buildCar3D(variant, 112, 196, paintHex ? { paint: paintHex } : {});
-    model.group.rotation.y = -0.62; // نمای سه‌رخ — جلو به سمت بیننده
-    sharedScene.add(model.group);
-    currentCar = model.group;
-    sharedRenderer.render(sharedScene, sharedCamera);
-    const url = sharedRenderer.domElement.toDataURL('image/png');
+    const url = captureCar(() => {
+      const model = buildCar3D(variant, 112, 196, paintHex ? { paint: paintHex } : {});
+      if (!model) return null;
+      model.group.rotation.y = -0.62; // نمای سه‌رخ — جلو به سمت بیننده
+      return model.group;
+    });
+    if (!url) return null;
     previewCache.set(key, url);
     return url;
   } catch {
@@ -108,16 +128,17 @@ export function renderCarPreviewAsync(variant: CarVariant, paintHex: string | nu
     try {
       if (!previewGlb) previewGlb = new GlbLibrary('/assets/models');
       const scene = await previewGlb.loadCar(variant, false);
-      if (!scene || !ensurePreviewStage() || !sharedRenderer || !sharedScene || !sharedCamera) return null;
-      const model = assembleCarFromGLB(variant, scene, {
-        external: true,
-        bodyColor: paintHex ?? pickBodyColor(variant),
+      if (!scene || !ensurePreviewStage()) return null;
+      const url = captureCar(() => {
+        const model = assembleCarFromGLB(variant, scene, {
+          external: true,
+          bodyColor: paintHex ?? pickBodyColor(variant),
+        });
+        if (!model) return null;
+        model.group.rotation.y = -0.62;
+        return model.group;
       });
-      model.group.rotation.y = -0.62;
-      sharedScene.add(model.group);
-      sharedRenderer.render(sharedScene, sharedCamera);
-      const url = sharedRenderer.domElement.toDataURL('image/png');
-      sharedScene.remove(model.group);
+      if (!url) return null;
       previewCache.set(key, url);
       return url;
     } catch {

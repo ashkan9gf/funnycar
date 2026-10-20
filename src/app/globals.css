@@ -205,6 +205,12 @@
   animation: fc-pop 0.25s ease-out both;
 }
 
+/* v0.2.42 — پالس بج تعقیب (پلیس/تاکسی عصبانی) */
+@keyframes fcPulse {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.035); filter: brightness(1.12); }
+}
+
 /* اسلایدرهای تنظیم صدا */
 input[type="range"].fc-range {
   -webkit-appearance: none;

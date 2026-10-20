@@ -18,14 +18,14 @@ import { PedestrianManager } from '../managers/PedestrianManager';
 import { MissionManager, faNum, type MissionHud, type GuardCar } from '../managers/MissionManager';
 import type { MissionCategory } from '../data/missions';
 import { Vehicle } from '../entities/Vehicle';
-import { DIR_INFO } from '../entities/TrafficCar';
+import { DIR_INFO, type TrafficCar } from '../entities/TrafficCar';
 import { obbFromAngle, satOverlapMTV } from '../entities/obb';
 import { World, type WorldProp } from '../world/World';
 import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
 import type { CarVariant } from '../render3d/CarFactory3D';
-import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
+import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS, CHASE } from '../data/balance';
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId, type VehicleTuning } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
@@ -59,6 +59,8 @@ export interface HudData {
   health: number;
   /** موتور خاموش است؟ (اورلی اسکران) */
   engineDead: boolean;
+  /** v0.2.42 — تعقیب فعال (پلیس/تاکسی عصبانی)؛ null = آرامش */
+  chase: { kind: 'police' | 'taxi'; dist: number; bust: number } | null;
 }
 
 /** نتیجه مأموریت برای پوسته React (فاز 4) */
@@ -202,6 +204,18 @@ export class GameManager {
   /** فاز ۵: لچ برخورد شدید همین گام — برای واکنش مسافر تاکسی */
   private hardCrashLatch = false;
 
+  // ---------- v0.2.42 — وضعیت تعقیب (پلیس/تاکسی عصبانی) ----------
+  private chaseCar: TrafficCar | null = null;
+  private chaseKind: 'police' | 'taxi' | null = null;
+  /** پیشرفت دستگیری (ثانیه انباشته داخل شعاع و آهسته) */
+  private chaseBust = 0;
+  /** باقی‌ماندهٔ فرصت پلیس (giveUpSec) */
+  private chaseTimer = 0;
+  /** سردشدن تریگر تعقیب بعد از پایان یک تعقیب */
+  private chaseCooldown = 0;
+  /** سردشدن حباب طنز حین تعقیب */
+  private chaseBubbleCd = 0;
+
   constructor(
     private canvas: HTMLCanvasElement,
     private callbacks: GameCallbacks = {},
@@ -246,7 +260,8 @@ export class GameManager {
         'veh_pride_01', 'veh_sedan_01', 'veh_samand_01', 'veh_renault4_01',
         'veh_samand_01', 'veh_pride_01', 'veh_taxi_01',
         'veh_renault4_01', 'veh_pride_01', 'veh_taxi_01', 'veh_samand_01',
-        'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_renault4_01',
+        'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_taxi_01',
+        'veh_police_01', // v0.2.42 — دو پلیس/سه تاکسی: تعقیب همیشه در دسترس است
       ],
       { onHonk: (car) => this.onTrafficHonk(car) },
       (() => {
@@ -355,6 +370,8 @@ export class GameManager {
       nissan:    { maxSpeedMul: 0.89, accelMul: 0.91, brakeMul: 1.08, gripMul: 0.90, steerMul: 0.86, armorMul: 1.25 },
       renault4:  { maxSpeedMul: 0.92, accelMul: 0.96, brakeMul: 1.00, gripMul: 1.10, steerMul: 1.07, armorMul: 0.93 },
       vintage:   { maxSpeedMul: 1.08, accelMul: 1.04, brakeMul: 0.93, gripMul: 0.92, steerMul: 1.02, armorMul: 0.86 },
+      taxi:      { maxSpeedMul: 1.00, accelMul: 0.98, brakeMul: 1.02, gripMul: 1.00, steerMul: 0.98, armorMul: 1.05 },
+      police:    { maxSpeedMul: 1.06, accelMul: 1.05, brakeMul: 1.06, gripMul: 1.02, steerMul: 1.00, armorMul: 1.10 },
     };
     return presets[variant] ?? NEUTRAL_TUNING;
   }
@@ -878,12 +895,15 @@ export class GameManager {
         c.stun(0.5);
       }
 
+      // ---------- v0.2.42 — تریگر تعقیب: ضربه به پلیس/تاکسی عواقب دارد! ----------
+      this.onTrafficSmashed(c, impact);
+
       if (this.crashCooldown <= 0 && impact > COLLISION.softCrashSpeed) {
         this.crashCooldown = 0.8;
-        // برخورد با ترافیک هم برای مأموریت شمرده می‌شود (فاز 4)
         const hard = impact > COLLISION.hardCrashSpeed;
-        this.mission.onCrash(hard ? 'hard' : 'soft');
-        if (hard) this.hardCrashLatch = true;
+        // تعقیب‌چی که خودش می‌کوبد، خطای بازیکن حساب نمی‌شود (پلیس مقصره، نه تو!)
+        if (!c.isChasing) this.mission.onCrash(hard ? 'hard' : 'soft');
+        if (hard && !c.isChasing) this.hardCrashLatch = true;
         this.audio.crash(false);
         this.camera.addShake(CAM.maxShake * 0.5);
         this.fx.spawnBurst(v.x, v.y, '#B9B9B9', 10);
@@ -893,15 +913,164 @@ export class GameManager {
         const front = fwd > 0;
         v.applyDamage(dmg, front);
         this.renderer3d?.onPlayerDamaged(dmg, front, (v.x + c.x) / 2, (v.y + c.y) / 2);
-        this.save.mutate((d) => {
-          d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.trafficCrashPenalty);
-        });
-        this.voice.trigger('car_crash', performance.now());
+        // آبرو فقط وقتی کم می‌شود که مقصر بازیکن باشد (نه حین تعقیب)
+        if (!c.isChasing) {
+          this.save.mutate((d) => {
+            d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.trafficCrashPenalty);
+          });
+          this.voice.trigger('car_crash', performance.now());
+        }
         if (Math.random() < 0.5) {
           this.fx.pushBubble(this.pickLine('traffic_honk'), c.x, c.y, 'char_driver_01_idle', 2.4);
         }
       }
       break; // یک برخورد در هر گام کافی است
+    }
+  }
+
+  // ============ v0.2.42 — تعقیب پلیس و تاکسی عصبانی ============
+
+  /** ضربه به ترافیک → شروع تعقیب پلیس / قهر تاکسی (اگر شدت کافی باشد) */
+  private onTrafficSmashed(c: TrafficCar, impact: number): void {
+    if (this.state !== 'playing') return;
+    if (this.chaseCooldown > 0) return;
+    const nowMs = performance.now();
+    const isPolice = c.assetId.includes('police');
+    const isTaxi = c.assetId.includes('taxi');
+    // اگر همین الان یکی تعقیب می‌کند، تریگر دوم بی‌اثر است
+    if (this.chaseCar && this.chaseCar !== c) return;
+
+    if (isPolice && c.mode === 'normal' && impact > CHASE.triggerImpact) {
+      c.mode = 'pursuit';
+      c.modeTimer = 0;
+      c.cruise = CHASE.policeSpeed;
+      c.decided = false; // ناوبری حریص از همین گره فعال شود
+      this.chaseCar = c;
+      this.chaseKind = 'police';
+      this.chaseBust = 0;
+      this.chaseTimer = CHASE.giveUpSec;
+      this.chaseCooldown = CHASE.retriggerCooldown;
+      this.chaseBubbleCd = 3.0;
+      this.audio.sirenStart();
+      this.audio.hornById('police');
+      this.voice.trigger('police_stop', nowMs);
+      this.fx.pushBubble(this.pickLine('police_stop'), c.x, c.y, SPEAKER_PORTRAIT.police, 3.0);
+      this.fx.spawnBurst(c.x, c.y, '#5b8dd9', 12, 160);
+      this.camera.addShake(CAM.maxShake * 0.35);
+    } else if (isTaxi && c.mode === 'normal' && impact > CHASE.taxiTriggerImpact) {
+      c.mode = 'angry';
+      c.modeTimer = CHASE.taxiRageSec;
+      c.cruise = CHASE.taxiSpeed;
+      c.decided = false;
+      this.chaseCar = c;
+      this.chaseKind = 'taxi';
+      this.chaseBust = 0;
+      this.chaseTimer = 0;
+      this.chaseCooldown = CHASE.retriggerCooldown;
+      this.chaseBubbleCd = 2.2;
+      this.voice.trigger('taxi_rage', nowMs);
+      this.fx.pushBubble(this.pickLine('taxi_rage'), c.x, c.y, 'char_driver_01_idle', 2.8);
+      this.audio.horn(Math.floor(Math.random() * 3));
+    }
+  }
+
+  /** یک گام از وضعیت تعقیب: صدا، حباب‌ها، دستگیری و فرار */
+  private updateChase(dt: number): void {
+    this.chaseCooldown = Math.max(0, this.chaseCooldown - dt);
+    const c = this.chaseCar;
+    if (!c || !this.chaseKind) return;
+    const nowMs = performance.now();
+    const d = Math.hypot(c.x - this.vehicle.x, c.y - this.vehicle.y);
+    const police = this.chaseKind === 'police';
+
+    // ---------- آژیر وابسته به فاصله ----------
+    if (police) this.audio.setSirenProximity(d);
+
+    // ---------- تاکسی: انتهای قهر ----------
+    if (!police) {
+      if (!c.isChasing || c.mode !== 'angry') {
+        this.endChase(false, 'calm');
+        return;
+      }
+      if (d > CHASE.taxiEscapeDist) {
+        this.endChase(false, 'escape');
+        return;
+      }
+    } else {
+      // ---------- پلیس: دستگیری یا فرار ----------
+      if (!c.isChasing) {
+        this.endChase(false, 'calm');
+        return;
+      }
+      this.chaseTimer -= dt;
+      if (d > CHASE.escapeDist || this.chaseTimer <= 0) {
+        this.endChase(false, 'escape');
+        return;
+      }
+      if (d < CHASE.arrestRadius && Math.abs(this.vehicle.speed) < CHASE.arrestSpeed) {
+        this.chaseBust += dt;
+        if (this.chaseBust >= CHASE.arrestHoldSec) {
+          this.endChase(true, 'busted');
+          return;
+        }
+      } else {
+        // کاهش نرم — رامِ پلیس بازیکن را هل می‌دهد؛ نباید پیشرفت دستگیری یک‌شبه صفر شود
+        this.chaseBust = Math.max(0, this.chaseBust - dt * 0.35);
+      }
+    }
+
+    // ---------- حباب طنز حین تعقیب ----------
+    this.chaseBubbleCd -= dt;
+    if (this.chaseBubbleCd <= 0 && d < 950) {
+      this.chaseBubbleCd = 3.2 + Math.random() * 2.0;
+      const ev = police ? 'police_chase' : 'taxi_rage';
+      this.fx.pushBubble(this.pickLine(ev as keyof typeof DIALOGUES), c.x, c.y, police ? SPEAKER_PORTRAIT.police : 'char_driver_01_idle', 2.4);
+      if (police) this.voice.trigger('police_chase', nowMs);
+    }
+  }
+
+  /** پایان تعقیب — دستگیری (جریمه) یا فرار (جایزه پلیس) یا آرام‌شدن تاکسی */
+  private endChase(busted: boolean, reason: 'busted' | 'escape' | 'calm'): void {
+    const c = this.chaseCar;
+    const kind = this.chaseKind;
+    this.chaseCar = null;
+    this.chaseKind = null;
+    this.chaseBust = 0;
+    this.chaseTimer = 0;
+    this.chaseBubbleCd = 0;
+    this.audio.sirenStop();
+    const nowMs = performance.now();
+    if (c) this.traffic.demote(c);
+    if (!kind) return;
+
+    if (busted && kind === 'police') {
+      // ---------- دستگیر شدی! ----------
+      this.save.mutate((d) => {
+        d.coins = Math.max(0, d.coins - CHASE.fineCoins);
+        d.reputation = Math.max(REPUTATION.min, d.reputation - CHASE.fineRep);
+      });
+      this.voice.trigger('police_bust', nowMs);
+      this.fx.pushBubble(this.pickLine('police_bust'), c?.x ?? this.vehicle.x, c?.y ?? this.vehicle.y, SPEAKER_PORTRAIT.police, 3.2);
+      this.camera.addShake(CAM.maxShake * 0.8);
+      this.fx.spawnBurst(this.vehicle.x, this.vehicle.y, '#5b8dd9', 16, 200);
+      return;
+    }
+
+    if (reason === 'escape' && kind === 'police') {
+      // ---------- فرار موفق از پلیس ----------
+      this.save.mutate((d) => {
+        d.coins += CHASE.escapeCoins;
+        d.reputation = Math.min(REPUTATION.max, d.reputation + CHASE.escapeRep);
+      });
+      this.voice.trigger('police_escape', nowMs);
+      this.fx.pushBubble(this.pickLine('police_escape'), c?.x ?? this.vehicle.x, c?.y ?? this.vehicle.y, 'char_driver_01_idle', 3.0);
+      this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 12, 140);
+      return;
+    }
+
+    // ---------- تاکسی آرام گرفت / فرار کردی ----------
+    if (kind === 'taxi' && reason !== 'busted') {
+      this.fx.pushBubble(this.pickLine('taxi_calm'), c?.x ?? this.vehicle.x, c?.y ?? this.vehicle.y, 'char_driver_01_idle', 2.6);
     }
   }
 
@@ -1311,6 +1480,8 @@ export class GameManager {
       // ---------- ترافیک (فاز 2) ----------
     this.traffic.update(dt, this.vehicle);
     this.resolveTrafficCollisions(dt);
+    // ---------- v0.2.42 — وضعیت تعقیب پلیس/تاکسی ----------
+    this.updateChase(dt);
 
     // ---------- برخورد با پارکی‌ها (فاز SMASH) ----------
     this.resolveParkedCollisions(dt);
@@ -1540,6 +1711,14 @@ export class GameManager {
       mission: this.mission.hud(this.vehicle),
       health: Math.round(this.vehicle.health),
       engineDead: this.vehicle.dead,
+      // v0.2.42 — بج تعقیب در HUD
+      chase: this.chaseCar && this.chaseKind
+        ? {
+            kind: this.chaseKind,
+            dist: Math.round(Math.hypot(this.chaseCar.x - this.vehicle.x, this.chaseCar.y - this.vehicle.y) / MISSIONS.pxPerMeter),
+            bust: this.chaseKind === 'police' ? Math.min(1, this.chaseBust / CHASE.arrestHoldSec) : 0,
+          }
+        : null,
     });
   }
 
@@ -1629,6 +1808,7 @@ export class GameManager {
     if (GameManager.live === this) GameManager.live = null;
     cancelAnimationFrame(this.raf);
     this.audio.stopEngine();
+    this.audio.sirenStop();
     this.input.detach();
     this.renderer3d?.dispose(); // حذف اورلی + آزادسازی کانتکست GPU
     window.removeEventListener('resize', this.handleResize);

@@ -147,6 +147,61 @@ export class AudioManager {
     this.engineRunning = false;
   }
 
+  // ---------- آژیر پلیس (v0.2.42 — تعقیب پیوسته) ----------
+  private sirenOsc: OscillatorNode | null = null;
+  private sirenLfo: OscillatorNode | null = null;
+  private sirenGain: GainNode | null = null;
+  private sirenOn = false;
+
+  /** آژیر دو‌تُنهٔ پیوسته — تا پایان تعقیب روشن می‌ماند؛ حجم با فاصله تنظیم می‌شود */
+  sirenStart(): void {
+    if (!this.ctx || !this.gains || this.sirenOn) return;
+    try {
+      const ctx = this.ctx;
+      this.sirenOsc = ctx.createOscillator();
+      this.sirenOsc.type = 'sawtooth';
+      this.sirenOsc.frequency.value = 720;
+      // موج‌گیر: LFO مربعی — تناوب کلاسیک دو‌تُنه ۵۴۰/۹۰۰
+      this.sirenLfo = ctx.createOscillator();
+      this.sirenLfo.type = 'square';
+      this.sirenLfo.frequency.value = 0.85;
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 180;
+      this.sirenLfo.connect(lfoGain);
+      lfoGain.connect(this.sirenOsc.frequency);
+      this.sirenGain = ctx.createGain();
+      this.sirenGain.gain.value = 0;
+      const tone = ctx.createBiquadFilter();
+      tone.type = 'lowpass';
+      tone.frequency.value = 1600;
+      this.sirenOsc.connect(tone);
+      tone.connect(this.sirenGain);
+      this.sirenGain.connect(this.gains.sfx);
+      this.sirenOsc.start();
+      this.sirenLfo.start();
+      this.sirenOn = true;
+    } catch { /* بی‌خطر */ }
+  }
+
+  /** فاصلهٔ پلیس/تاکسی تا بازیکن → بلندی آژیر (۰ = دور/خاموش) */
+  setSirenProximity(dist: number): void {
+    if (!this.sirenGain || !this.ctx) return;
+    const p = Math.max(0, Math.min(1, 1 - dist / 2900));
+    this.sirenGain.gain.setTargetAtTime(0.028 + p * 0.075, this.ctx.currentTime, 0.12);
+  }
+
+  sirenStop(): void {
+    if (!this.sirenOn) return;
+    try {
+      this.sirenOsc?.stop();
+      this.sirenLfo?.stop();
+    } catch { /* بی‌خطر */ }
+    this.sirenOsc = null;
+    this.sirenLfo = null;
+    this.sirenGain = null;
+    this.sirenOn = false;
+  }
+
   /** نسبت سرعت 0..1 → زیر و بمی و بلندی موتور (فایل یا سینتی) */
   setEngineSpeed(ratio: number): void {
     if (!this.ctx || !this.engineRunning) return;

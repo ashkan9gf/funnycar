@@ -1,7 +1,8 @@
 /** Vehicles purchasable with in-game coins. IDs remain stable for existing save files. */
 export type PlayerVehicleVariant =
   | 'player' | 'pride' | 'peugeot405' | 'samand'
-  | 'nissan' | 'tiba' | 'renault4' | 'vintage';
+  | 'nissan' | 'tiba' | 'renault4' | 'vintage'
+  | 'taxi' | 'police';
 
 export interface PlayerVehicleDef {
   id: string;
@@ -21,6 +22,8 @@ export const PLAYER_VEHICLES: PlayerVehicleDef[] = [
   { id: 'veh_nissan_01', name: 'نیسان آبی', variant: 'nissan', price: 1250, description: 'وانت جان‌سخت با ظاهر متفاوت', flavor: 'بار نداری؟ عمو نقی یه یخچال هم می‌ده!' },
   { id: 'veh_renault4_01', name: 'رنو ۴ کلاسیک', variant: 'renault4', price: 1450, description: 'کلاسیک سبک با قیافه نوستالژیک', flavor: 'از موزه اومده، ولی هنوز گاز می‌خوره!' },
   { id: 'veh_vintage_01', name: 'کلاسیک زنگاری', variant: 'vintage', price: 1650, description: 'ماشین خاص برای راننده‌های باتجربه', flavor: 'زنگش تزئینیه؛ خودت رو به اون راه بزن!' },
+  { id: 'veh_taxi_01', name: 'تاکسی فانی‌کار', variant: 'taxi', price: 1850, description: 'با تابلوی تاکسی؛ مسافرها خودشون سوار می‌شن!', flavor: 'کرایه‌چی رسمی محله؛ فقط سر چراغ گیر نده!' },
+  { id: 'veh_police_01', name: 'پلیس محلّه', variant: 'police', price: 2400, description: 'چراغ‌گردان فلاش‌دار و آژیر واقعی؛ با نظم برانش!', flavor: 'حالا تو پلیسی... ولی خداییش قانون‌شکنی نکن!' },
 ];
 
 export function vehicleById(id: string): PlayerVehicleDef | undefined {
@@ -31,6 +34,7 @@ export function vehicleById(id: string): PlayerVehicleDef | undefined {
  * 🔑 v0.2.41 — رنگ‌های کارخانه‌ای هر خودرو (رایگان همراه خرید)
  * درخواست کاربر: «ماشین‌هایی که مدل دارن با بدنه رنگی متفاوت قابل خرید باشن»
  * هنگام خرید، خریدار رنگ بدنه را از همین پالت انتخاب می‌کند.
+ * v0.2.42 — تاکسی و پلیس هم مدل GLB دارند و حالا قابل خریدند.
  */
 export const VEHICLE_FACTORY_COLORS: Record<PlayerVehicleVariant, string[]> = {
   player: ['#f4f4f0'],
@@ -41,4 +45,6 @@ export const VEHICLE_FACTORY_COLORS: Record<PlayerVehicleVariant, string[]> = {
   nissan: ['#2f6fae', '#f4f4f0'],
   renault4: ['#d9d9d4', '#a04000', '#616a6b', '#7b241c'],
   vintage: ['#8a6d3b', '#5d6d7e'],
+  taxi: ['#f2c230', '#f4f4f0', '#2a9d8f', '#b03a2e'],
+  police: ['#f7f7f2', '#274e36', '#1c2833'],
 };
