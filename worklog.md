@@ -1053,3 +1053,26 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.39-test.apk
 - لینک: https://uploadkon.ir/uploads/404620_26FunnyCarIR-v0-2-39-test.zip
 - درس: قبل از implement باید git fetch و بازبینی HEAD باشد — کاربر موازی کار می‌کند
+
+---
+Task ID: 54
+Agent: main (Z.ai)
+Task: مأموریت بی‌پایان + دسترسی آسان + فیکس هم‌اندازه/تراز بودن دکمه‌های فرمان (v0.2.40)
+
+Work Log:
+- fetch: هیچ برنچ جدید کاربر نبود؛ بیس = c4fc59b (market v0.2.39)
+- فیکس دکمه‌های فرمان: چپ clamp(58px,14vh,88px) ولی راست 88px ثابت بود → هر دو یک clamp + items-end (عین درخواست کاربر)
+- missionGen.ts جدید: مولد قطعی (hash + mulberry32) — id «gen_N» همیشه همان مأموریت؛ ۸ نوع مأموریت در هر اپک شافل (تکراری نمی‌شود)؛ ۲۴ مسافر × ۱۴ مقصد × ۴۰ هوک متن؛ سختی پله‌ای (وقتی کمتر/سکه بیشتر/چک‌پوینت بیشتر/جای پارک تنگ‌تر)
+- MissionCategory += 'endless'؛ MissionManager.list دسته endless از مولد؛ start با gen_N تولید لحظه‌ای
+- GameManager.nextMissionId() (زنجیره آزاد → ثابت → بی‌پایان) + index.ts + GameShell
+- UI: دکمه تک‌ضرب «مأموریت بعدی» در منو، دکمه تمام‌عرض «بی‌پایان» با بج جدید، دکمه «مأموریت بعدی» در صفحه موفقیت
+- تست: bun run scripts/test_mission_gen.ts → ۱۱۹ نقطه همه روی جاده، ۸/۸ نوع در ۱۶ سطح اول، قطعی ✓
+- E2E: منو (دکمه‌های جدید)، لیست بی‌پایان (۶ مأموریت مولد)، شروع gen_1 تاکسی (active/to_pickup ✓)، دکمه بعدی → m01_passenger ✓
+- بیلد v0.2.40/VCODE=40 (SIGN OK، 20,597,328 bytes)؛ tsc/lint سبز
+- push: c4fc59b..0f15c47؛ zip 20,055,133 → uploadkon HEAD 200
+
+Stage Summary:
+- main = 0f15c47
+- APK: download/FunnyCarIR-v0.2.40-test.apk
+- لینک: https://uploadkon.ir/uploads/43b820_26fc0240.zip
+- نکته: اسکرین‌شات‌ها scripts/v0240_*.png (منو/لیست بی‌پایان/گیم‌پلی تاکسی مولد)
