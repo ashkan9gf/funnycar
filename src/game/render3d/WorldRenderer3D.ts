@@ -2473,13 +2473,20 @@ export class WorldRenderer3D {
     crossing.envMapIntensity = 0.20 + wetSheen * 0.48;
     crossing.color.lerpColors(ROAD_DAY_TINT, ROAD_NIGHT_TINT, wetSheen * 0.24);
     const nightVisibility = Math.min(1, Math.max(0, (night - 0.12) / 0.72));
-    // Fade headlamp halos smoothly through dusk; no per-frame allocations.
+    // Fade headlamp halos smoothly through dusk, then give them a readable night-time
+    // presence. Reuse the existing sprites; do not add point lights or extra passes.
+    const headlampStrength = nightVisibility * (0.52 + nightVisibility * 0.12);
     for (const glow of this.playerHeadlightGlows) {
-      (glow.material as THREE.SpriteMaterial).opacity = nightVisibility * 0.46;
+      (glow.material as THREE.SpriteMaterial).opacity = headlampStrength;
+      const glowScale = 0.92 + nightVisibility * 0.18;
+      glow.scale.set(76 * glowScale, 48 * glowScale, 1);
     }
-    // Keep the beam subtle at dusk and stronger at night; material/geometry are reused.
+    // A broader, brighter ground spill makes night roads readable without dynamic lights.
+    // Keep the beam at zero during daylight and reuse its existing geometry/material.
     if (this.playerHeadlightSpill) {
-      (this.playerHeadlightSpill.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.16;
+      (this.playerHeadlightSpill.material as THREE.MeshBasicMaterial).opacity = nightVisibility * (0.18 + nightVisibility * 0.07);
+      const beamScale = 0.96 + nightVisibility * 0.10;
+      this.playerHeadlightSpill.scale.set(beamScale, 1, beamScale);
     }
     // Contact shadows read most clearly in daylight and soften naturally at night.
     if (this.playerContactShadow) {
