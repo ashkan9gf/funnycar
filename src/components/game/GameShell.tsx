@@ -60,6 +60,7 @@ import {
   type MissionResultData,
 } from "@/game";
 import { HoldButton, TapButton } from "./touch-controls";
+import VehicleShowcase from "./VehicleShowcase";
 
 /** تبدیل اعداد به فارسی */
 const FA = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
@@ -189,6 +190,7 @@ export default function GameShell() {
   const openGarage = useCallback(() => {
     const g = gameRef.current?.listGarage();
     if (g) setGarage(g);
+    setPreviewPaintId(null);
     setShowGarage(true);
   }, []);
 
@@ -550,12 +552,14 @@ export default function GameShell() {
                 <TapButton
                   ariaLabel="بستن گاراژ"
                   className="h-11 w-11 bg-[#FFF9EC] text-[#3a2e2a]"
-                  onTap={() => setShowGarage(false)}
+                  onTap={() => { gameRef.current?.previewPaint(null); setPreviewPaintId(null); setShowGarage(false); }}
                 >
                   <X className="h-6 w-6" />
                 </TapButton>
               </div>
             </div>
+
+            <VehicleShowcase paint={garage.paints.find((p) => p.selected)?.hex ?? "#f4f4f0"} />
 
             {/* آپگریدها */}
             <p className="text-xs font-bold text-white/80">با سکه‌های مأموریت‌ها ماشینت را توپ کن:</p>
