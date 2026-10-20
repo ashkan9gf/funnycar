@@ -3577,6 +3577,33 @@ export class WorldRenderer3D {
     const vg = this.ensureVignette();
     ctx.drawImage(vg, 0, 0, this.overlayW, this.overlayH);
 
+    // سرعت بالا حس حرکت را تقویت می‌کند، بدون post-processing یا draw call سه‌بعدی.
+    // خطوط فقط در حاشیه‌ها ظاهر می‌شوند و مینی‌مپ/HUD که بعداً رسم می‌شوند روی آن‌ها قرار می‌گیرند.
+    const speedFrac = Math.min(1, Math.abs(opts.car.speed) / 380);
+    if (speedFrac > 0.58) {
+      const intensity = Math.min(0.24, (speedFrac - 0.58) * 0.58);
+      const w = this.overlayW;
+      const h = this.overlayH;
+      const phase = ((_t * (0.22 + speedFrac * 0.62)) % 1 + 1) % 1;
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(218,232,255,0.72)';
+      for (let i = 0; i < 9; i++) {
+        const y = (((i / 9) + phase) % 1) * h;
+        const inset = w * (0.018 + (i % 3) * 0.009);
+        const length = Math.min(w * 0.075, 22 + speedFrac * 38 + (i % 4) * 5);
+        const tilt = 5 + speedFrac * 13;
+        ctx.globalAlpha = intensity * (0.55 + (i % 3) * 0.18);
+        ctx.beginPath();
+        ctx.moveTo(inset, y);
+        ctx.lineTo(inset + length, y - tilt);
+        ctx.moveTo(w - inset, y + h * 0.025);
+        ctx.lineTo(w - inset - length, y + h * 0.025 - tilt);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // فلش هدف بیرون کادر
     if (opts.target) {
       this.drawOffscreenArrow(ctx, opts.target, opts.car);
