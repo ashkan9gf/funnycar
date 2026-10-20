@@ -41,7 +41,7 @@ import {
 import {
   getRoadStraightTexture, getSidewalkTexture, getGrassTexture, getFacadeTextures,
   getCrossroadTexture, getSkyTexture, getSkyDomeTexture, getCloudTexture, getAwningTexture,
-  getBillboardTexture, getRoadMicroMaps,
+  getBillboardTexture, getRoadMicroMaps, getTerrainTexture,
 } from './textures3d';
 
 // ---------- فاز CITY-FULL — پالت اشباع ایرانی برای نماها (رنگی‌تر!) ----------
@@ -789,9 +789,18 @@ export class WorldRenderer3D {
 
   /** زمین دنبال‌کننده بازیکن — به‌جای زمین‌های ثابت نقشه/شهرک‌ها */
   private buildStaticWorld(): void {
+    const terrainTex = getTerrainTexture();
+    // Cap filtering cost on mobile while retaining texture detail at oblique angles.
+    terrainTex.anisotropy = Math.min(4, this.r3.capabilities.getMaxAnisotropy());
+    terrainTex.needsUpdate = true;
     this.groundMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(9200, 9200),
-      new THREE.MeshStandardMaterial({ color: '#C9B98A', roughness: 0.98, metalness: 0.0 }),
+      new THREE.MeshStandardMaterial({
+        map: terrainTex,
+        color: '#e3d5b4',
+        roughness: 0.98,
+        metalness: 0.0,
+      }),
     );
     this.groundMesh.rotation.x = -Math.PI / 2;
     this.groundMesh.receiveShadow = true;

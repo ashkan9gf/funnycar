@@ -63,6 +63,60 @@ const facadeTexCache = new Map<string, THREE.CanvasTexture[]>();
 const labelTexCache = new Map<string, THREE.CanvasTexture>();
 
 // Cached, tileable asphalt micro-detail maps. Generated once (never per frame).
+let terrainTex: THREE.CanvasTexture | null = null;
+
+/**
+ * Tileable Iranian roadside terrain: warm compacted soil, fine gravel and sparse
+ * dry grass. Generated once and repeated on the large ground plane to avoid a
+ * flat, featureless horizon without adding geometry or per-frame work.
+ */
+export function getTerrainTexture(): THREE.CanvasTexture {
+  if (terrainTex) return terrainTex;
+  const size = 512;
+  const { c, ctx } = makeCanvas(size, size);
+  ctx.fillStyle = '#b9a77c';
+  ctx.fillRect(0, 0, size, size);
+
+  // Fine mineral grain with low contrast so it reads as material, not visual noise.
+  for (let i = 0; i < 5200; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 0.35 + Math.random() * 1.25;
+    const light = Math.random() > 0.48;
+    ctx.fillStyle = light ? 'rgba(244,229,190,0.24)' : 'rgba(78,66,43,0.17)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * (1.1 + Math.random()), r, Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Sparse dry grass / scrub marks; duplicate near-edge strokes to keep the tile seamless.
+  for (let i = 0; i < 95; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const len = 3 + Math.random() * 8;
+    const angle = (Math.random() - 0.5) * 1.2;
+    ctx.strokeStyle = Math.random() > 0.5 ? 'rgba(83,100,48,0.30)' : 'rgba(141,126,75,0.28)';
+    ctx.lineWidth = 0.7 + Math.random() * 0.7;
+    const draw = (ox: number, oy: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + ox, y + oy);
+      ctx.lineTo(x + ox + Math.sin(angle) * len, y + oy - Math.cos(angle) * len);
+      ctx.stroke();
+    };
+    draw(0, 0);
+    if (x < 12) draw(size, 0);
+    if (x > size - 12) draw(-size, 0);
+    if (y < 12) draw(0, size);
+    if (y > size - 12) draw(0, -size);
+  }
+
+  terrainTex = toTex(c, 36, 36);
+  terrainTex.generateMipmaps = true;
+  terrainTex.minFilter = THREE.LinearMipmapLinearFilter;
+  terrainTex.magFilter = THREE.LinearFilter;
+  return terrainTex;
+}
+
 let roadNormalTex: THREE.CanvasTexture | null = null;
 let roadRoughnessTex: THREE.CanvasTexture | null = null;
 
