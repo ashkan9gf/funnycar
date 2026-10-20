@@ -1537,7 +1537,8 @@ export class GameManager {
     if (tier === 'high') {
       // Strong device: only after 4s of sustained low FPS, and never below 80-88% of base.
       const dropNow = this.lowStreak >= 2;
-      const floorDpr = Math.max(1.5, this.dpr3dBase * (quality === 'quality' ? 0.88 : 0.8));
+      // Floor never exceeds base DPR (matters when base is 1 on DPR-1 screens).
+      const floorDpr = Math.min(this.dpr3dBase, Math.max(1.5, this.dpr3dBase * (quality === 'quality' ? 0.88 : 0.8)));
       if (dropNow) nd = Math.max(floorDpr, this.dpr3d - 0.2);
       else if (fps > 52 && this.dpr3d < this.dpr3dBase) nd = Math.min(this.dpr3dBase, this.dpr3d + 0.25);
     } else {
