@@ -2932,7 +2932,7 @@ export class WorldRenderer3D {
           p.x = rearX + Math.cos(car.angle) * sideOffset * side;
           p.z = rearZ + Math.sin(car.angle) * sideOffset * side;
           p.y = 2.5;
-          const backwards = -Math.sign(car.speed || 1) * (driftLoad ? 22 : 12);
+          const backwards = -Math.sign(car.speed || 1) * (driftLoad ? 25 : 12);
           // Lateral velocity pushes smoke outward along the car's slip direction,
           // making long drifts read clearly without adding particles or draw calls.
           const slip = Math.max(-1, Math.min(1, car.latVel / 140));
