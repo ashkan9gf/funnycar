@@ -2,7 +2,7 @@
 # Collect reproducible Android device performance diagnostics for FunnyCar.
 # Usage: bash scripts/android-device-benchmark.sh [package-id] [seconds]
 set -Eeuo pipefail
-PACKAGE_ID="${1:-com.funnycar.app}"
+PACKAGE_ID="${1:-com.funnycar.ir}"
 DURATION="${2:-600}"
 OUT_DIR="${OUT_DIR:-artifacts/device-benchmark}"
 mkdir -p "$OUT_DIR"
