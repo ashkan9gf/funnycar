@@ -101,7 +101,7 @@ export interface CarModel3D {
   /** رنگ بدنه برای ذرات/جلوه‌ها */
   bodyColor: string;
   /** متریال بدنه — برای تیره‌شدن با آسیب */
-  bodyMat: THREE.MeshToonMaterial;
+  bodyMat: THREE.MeshPhysicalMaterial;
   /** سپرهای جداشدنی (سیستم آسیب داینامیک) */
   bumpers: { front: THREE.Mesh | null; rear: THREE.Mesh | null };
   /** چراغ‌گردان پلیس (فلاش قرمز/آبی) */
@@ -305,7 +305,16 @@ export function buildCar3D(
   else if (variant === 'nissan') body = '#2f6fae'; // نیسان آبی معروف!
   else if (variant === 'renault4' || variant === 'vintage') body = pickColor(COLORS[variant] ?? ['#d9d9d4']);
 
-  const bodyMat = toon(body);
+  // Automotive clearcoat paint: retain the comic silhouette/outline, but add
+  // broad, controlled reflections that make Iranian car bodies read as painted metal.
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    color: body,
+    roughness: 0.3,
+    metalness: 0.16,
+    clearcoat: 0.78,
+    clearcoatRoughness: 0.2,
+    envMapIntensity: 0.78,
+  });
   // Per-car material lets the indicator glow animate without changing every car at once.
   const carIndicatorMat = (indicatorMat as THREE.MeshStandardMaterial).clone();
   const g = new THREE.Group();
