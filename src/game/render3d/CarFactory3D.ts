@@ -101,7 +101,7 @@ export interface CarModel3D {
   /** رنگ بدنه برای ذرات/جلوه‌ها */
   bodyColor: string;
   /** متریال بدنه — برای تیره‌شدن با آسیب */
-  bodyMat: THREE.MeshPhysicalMaterial;
+  bodyMat: THREE.MeshToonMaterial | THREE.MeshPhysicalMaterial;
   /** سپرهای جداشدنی (سیستم آسیب داینامیک) */
   bumpers: { front: THREE.Mesh | null; rear: THREE.Mesh | null };
   /** چراغ‌گردان پلیس (فلاش قرمز/آبی) */
