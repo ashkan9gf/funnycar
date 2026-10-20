@@ -3872,13 +3872,13 @@ export class WorldRenderer3D {
       : Number.NaN;
     const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
 
-    // Original quality budgets: low-end 1.45 MP, standard 2.3 MP, high-end 3.6 MP.
-    // Unknown memory never qualifies as high-end; never upscale small screens.
+    // Slightly higher raster budgets reduce softness on modern high-DPI phones,
+    // while keeping a conservative ceiling for low-memory devices.
     const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
     const highEnd = cores >= 8 && memory !== null && memory >= 8;
-    const maxPixels = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    const maxPixels = lowEnd ? 1_700_000 : highEnd ? 4_000_000 : 2_600_000;
     if (pixels <= maxPixels) return 1;
-    return Math.max(0.72, Math.min(1, Math.sqrt(maxPixels / pixels)));
+    return Math.max(0.78, Math.min(1, Math.sqrt(maxPixels / pixels)));
   }
 
   /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی.
