@@ -228,6 +228,29 @@ export class TrafficManager {
   update(dt: number, player: PlayerLike): void {
     const recycle2 = ENDLESS.trafficRecycleDist * ENDLESS.trafficRecycleDist;
     for (const car of this.cars) {
+      // بعد از پرتاب، ماشین را در همان محل فرود به نزدیک‌ترین شبکهٔ جاده وصل کن.
+      // مختصات x/y دست‌نخورده می‌ماند؛ برگشت ناگهانی به محل قبلی ممنوع است.
+      if (
+        car.routeRecoveryPending &&
+        car.knockedSec <= 0 &&
+        Math.hypot(car.knockVx, car.knockVy) < 40 &&
+        Number.isFinite(car.x) && Number.isFinite(car.y)
+      ) {
+        const vertical = car.dir === 'N' || car.dir === 'S';
+        const perpendicular = vertical ? car.x : car.y;
+        const along = vertical ? car.y : car.x;
+        car.roadIndex = nearestRoadIndex(perpendicular);
+        car.nodeIndex = nearestRoadIndex(along);
+        car.laneOff = Math.abs(perpendicular - roadCenter(car.roadIndex)) < (WORLD.laneIn + WORLD.laneOut) / 2
+          ? WORLD.laneIn
+          : WORLD.laneOut;
+        car.lane = laneFor(car.dir, car.roadIndex, car.laneOff);
+        car.decided = false;
+        car.pendingTrigger = Number.NaN;
+        car.pendingDir = null;
+        car.routeRecoveryPending = false;
+      }
+
       // ---------- بازیافت ایمنی (شهر بی‌پایان: دور از بازیکن → نزدیکش دوباره) ----------
       const pdx = car.x - player.x;
       const pdy = car.y - player.y;
@@ -235,10 +258,18 @@ export class TrafficManager {
         pdx * pdx + pdy * pdy > recycle2 ||
         !Number.isFinite(car.lane) || !Number.isFinite(car.x) || !Number.isFinite(car.y)
       ) {
-        // 🔕 ضد «غیب میشه توی مسیرش ظاهر میشه»: ماشین تازه‌ضربه‌خورده (نزدیک) بازیافت نمیشود؛
-        //    و اسپاون بازیافت حتماً بیرون شعاع دید (۱۶۰۰px — جلوتر از مه) انجام می‌شود
-        if (car.recentlyKnocked() && Number.isFinite(car.x) && Number.isFinite(car.y)) continue;
+        // ماشینِ هنوز در چرخهٔ برخورد از محلش حذف یا دوباره اسپاون نمی‌شود.
+        if (
+          (car.recentlyKnocked() || car.routeRecoveryPending) &&
+          Number.isFinite(car.x) && Number.isFinite(car.y)
+        ) continue;
         if (this.spawnOne(car, 24, player, 1600)) continue;
+      }
+
+      // در زمان پرتاب، AI نباید فرمان تقاطع/مسیر را وسط ضربه عوض کند.
+      if (car.recentlyKnocked()) {
+        car.update(dt, 0);
+        continue;
       }
 
       // تصمیم‌های تقاطع
