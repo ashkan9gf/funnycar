@@ -812,25 +812,27 @@ export class WorldRenderer3D {
     const roadSurface = new THREE.MeshStandardMaterial({
       map: roadTex,
       normalMap: roadMicroMaps.normalMap,
-      normalScale: new THREE.Vector2(0.18, 0.18),
+      normalScale: new THREE.Vector2(0.23, 0.23),
       roughnessMap: roadMicroMaps.roughnessMap,
-      roughness: 0.94, metalness: 0.015, envMapIntensity: 0.22,
+      // Slightly broader grazing highlights reveal asphalt grain without making
+      // the road look wet or mirror-like.
+      roughness: 0.86, metalness: 0.01, envMapIntensity: 0.28,
     });
     const crossSurface = new THREE.MeshStandardMaterial({
       map: crossTex,
       normalMap: roadMicroMaps.normalMap,
-      normalScale: new THREE.Vector2(0.16, 0.16),
+      normalScale: new THREE.Vector2(0.19, 0.19),
       roughnessMap: roadMicroMaps.roughnessMap,
-      roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
+      roughness: 0.88, metalness: 0.01, envMapIntensity: 0.24,
     });
     const sidewalkSurface = new THREE.MeshStandardMaterial({
       map: sidewalkTex,
       // Fine surface relief helps concrete slabs read as material, not flat color.
       // Reuse the cached tileable micro maps to avoid extra textures or per-frame work.
       normalMap: roadMicroMaps.normalMap,
-      normalScale: new THREE.Vector2(0.075, 0.075),
+      normalScale: new THREE.Vector2(0.065, 0.065),
       roughnessMap: roadMicroMaps.roughnessMap,
-      roughness: 0.91, metalness: 0.0, envMapIntensity: 0.14,
+      roughness: 0.89, metalness: 0.0, envMapIntensity: 0.16,
     });
     const grassSurface = new THREE.MeshStandardMaterial({
       map: grassTex, roughness: 1.0, metalness: 0.0, envMapIntensity: 0.04,
@@ -2483,7 +2485,7 @@ export class WorldRenderer3D {
       glow.color.copy(SUN_NIGHT).lerp(SUN_DAY, easedDay).lerp(SUN_DUSK, dusk * 0.55);
     }
 
-    this.scene.environmentIntensity = 0.48 + easedDay * 0.34;
+    this.scene.environmentIntensity = 0.5 + easedDay * 0.4;
     this.r3.toneMappingExposure = 0.82 + easedDay * 0.38;
   }
 
@@ -2701,6 +2703,28 @@ export class WorldRenderer3D {
 
   /** رنگ انتخابی گاراژ (فاز ۶) — قبل از ساخت مدل ست می‌شود */
   private playerPaint = '#f4f4f0';
+
+  /** Replace the player body model while preserving camera-facing effects and transform. */
+  setPlayerVariant(variant: CarVariant): void {
+    if (!this.playerModel) return;
+    const old = this.playerModel;
+    const model = buildCar3D(variant, 112, 196, { paint: this.playerPaint });
+    model.group.position.copy(old.group.position);
+    model.group.rotation.copy(old.group.rotation);
+    model.group.scale.copy(old.group.scale);
+
+    const attached: THREE.Object3D[] = [
+      ...this.playerHeadlightGlows,
+      ...this.playerBrakeGlows,
+      ...(this.playerContactShadow ? [this.playerContactShadow] : []),
+      ...(this.playerHeadlightSpill ? [this.playerHeadlightSpill] : []),
+    ];
+    for (const object of attached) old.group.remove(object);
+    this.scene.remove(old.group);
+    this.playerModel = model;
+    this.scene.add(model.group);
+    for (const object of attached) model.group.add(object);
+  }
 
   /**
    * فاز ۶ گاراژ — تغییر رنگ بدنه بازیکن (در منو یا حین بازی)
@@ -3501,6 +3525,27 @@ export class WorldRenderer3D {
     const vg = this.ensureVignette();
     ctx.drawImage(vg, 0, 0, this.overlayW, this.overlayH);
 
+    // خطوط باد در سرعت بالا: فقط لبه‌های تصویر را لمس می‌کنند تا جاده و HUD خوانا بمانند.
+    const speedRatio = Math.min(1, Math.abs(opts.car.speed) / Math.max(1, opts.car.maxSpeed));
+    if (speedRatio > 0.62) {
+      const strength = Math.min(0.34, (speedRatio - 0.62) * 0.9);
+      ctx.save();
+      ctx.lineWidth = 1.1 + speedRatio * 0.5;
+      ctx.strokeStyle = `rgba(220,240,255,${strength})`;
+      for (let i = 0; i < 14; i++) {
+        const seed = (i * 37 + Math.floor(_t / 38) * 17) % 101 / 101;
+        const y = (seed * this.overlayH + _t * (0.16 + speedRatio * 0.36)) % this.overlayH;
+        const left = i % 2 === 0;
+        const x = left ? 8 + seed * this.overlayW * 0.17 : this.overlayW * (0.83 + seed * 0.15);
+        const len = 10 + speedRatio * (18 + seed * 24);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + (left ? len : -len), y + len * 0.12);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // فلش هدف بیرون کادر
     if (opts.target) {
       this.drawOffscreenArrow(ctx, opts.target, opts.car);
@@ -3857,6 +3902,17 @@ export class WorldRenderer3D {
     ctx.restore();
   }
 
+  /** Compile visible scene shaders during the loading screen to avoid the first-menu camera hitch. */
+  async warmup(): Promise<void> {
+    try {
+      await this.r3.compileAsync(this.scene, this.cam3);
+      this.r3.render(this.scene, this.cam3);
+    } catch (err) {
+      // Shader warm-up is an optimization only; a device without support still runs normally.
+      console.debug('[Renderer] shader warm-up skipped:', err);
+    }
+  }
+
   // ============ اندازه و پاک‌سازی ============
 
   /** Device-aware render-buffer budget. This changes raster resolution only,
@@ -3870,13 +3926,13 @@ export class WorldRenderer3D {
       : Number.NaN;
     const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
 
-    // Original quality budgets: low-end 1.45 MP, standard 2.3 MP, high-end 3.6 MP.
-    // Unknown memory never qualifies as high-end; never upscale small screens.
+    // Slightly higher raster budgets reduce softness on modern high-DPI phones,
+    // while keeping a conservative ceiling for low-memory devices.
     const lowEnd = cores <= 4 || (memory !== null && memory <= 4);
     const highEnd = cores >= 8 && memory !== null && memory >= 8;
-    const maxPixels = lowEnd ? 1_450_000 : highEnd ? 3_600_000 : 2_300_000;
+    const maxPixels = lowEnd ? 1_700_000 : highEnd ? 4_000_000 : 2_600_000;
     if (pixels <= maxPixels) return 1;
-    return Math.max(0.72, Math.min(1, Math.sqrt(maxPixels / pixels)));
+    return Math.max(0.78, Math.min(1, Math.sqrt(maxPixels / pixels)));
   }
 
   /** w/h پیکسل فیزیکی کانواس WebGL + dpr برای اورلی.

@@ -222,16 +222,41 @@ export class AudioManager {
     } catch { /* بی‌خطر */ }
   }
 
+  /** بوق دو تُنهٔ نرم با شروع/پایان تدریجی؛ بدون کلیک دیجیتال یا صدای تیز مربع. */
+  private cleanHorn(low = 350, high = 440, duration = 0.32, volume = 0.19): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      const t = this.ctx.currentTime;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1450, t);
+      filter.Q.value = 0.55;
+      const mix = this.ctx.createGain();
+      mix.gain.setValueAtTime(0.0001, t);
+      mix.gain.linearRampToValueAtTime(volume, t + 0.018);
+      mix.gain.setValueAtTime(volume, t + Math.max(0.04, duration - 0.07));
+      mix.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+      filter.connect(mix);
+      mix.connect(this.gains.sfx);
+      for (const [frequency, level] of [[low, 0.62], [high, 0.38]] as const) {
+        const osc = this.ctx.createOscillator();
+        const voiceGain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(frequency, t);
+        voiceGain.gain.value = level;
+        osc.connect(voiceGain);
+        voiceGain.connect(filter);
+        osc.start(t);
+        osc.stop(t + duration + 0.015);
+      }
+    } catch { /* صدای بوق اختیاری است؛ خطا نباید بازی را متوقف کند */ }
+  }
+
   horn(variant = 0): void {
-    // فایل واقعی: ۳ واریانت با تغییر زیر و بمی
-    const buf = this.buffer('sfx_horn_01');
-    if (buf) {
-      this.playBuffer(buf, 'sfx', 0.8, [0.94, 1.0, 1.12][variant % 3]);
-      return;
-    }
-    const base = [340, 300, 380][variant % 3];
-    this.blip(base, 0.26, 'triangle', 0.22, 'sfx');
-    this.blip(base * 1.26, 0.26, 'triangle', 0.16, 'sfx');
+    // سه رنگ صوتی کنترل‌شده و بدون نویز تیز
+    const tones: Array<[number, number]> = [[350, 440], [330, 415], [370, 466]];
+    const [low, high] = tones[Math.abs(variant) % tones.length];
+    this.cleanHorn(low, high, 0.29, 0.18);
   }
 
   /**
@@ -242,21 +267,19 @@ export class AudioManager {
     switch (id) {
       case 'doble': {
         // دو تُنه فاصله‌دار (نسبت ۱.۲۶) — پرحجم و جدی
-        this.blip(310, 0.34, 'triangle', 0.24, 'sfx');
-        this.blip(310 * 1.26, 0.34, 'triangle', 0.2, 'sfx');
-        this.blip(310 * 0.5, 0.34, 'sine', 0.14, 'sfx');
+        this.cleanHorn(310, 392, 0.34, 0.2);
         break;
       }
       case 'moto': {
         // دو بوق نازک کوتاه — عصبی!
-        this.blip(920, 0.09, 'square', 0.1, 'sfx');
-        window.setTimeout(() => this.blip(920, 0.12, 'square', 0.12, 'sfx'), 130);
+        this.cleanHorn(520, 660, 0.095, 0.12);
+        window.setTimeout(() => this.cleanHorn(520, 660, 0.12, 0.13), 135);
         break;
       }
       case 'klaxon': {
         // آنتیک: دو پالس مربعی بم با فاصله — «تَق تُق»
-        this.blip(235, 0.18, 'square', 0.16, 'sfx');
-        window.setTimeout(() => this.blip(235, 0.26, 'square', 0.18, 'sfx'), 210);
+        this.cleanHorn(220, 278, 0.18, 0.16);
+        window.setTimeout(() => this.cleanHorn(220, 278, 0.24, 0.17), 215);
         break;
       }
       case 'steam': {
@@ -305,8 +328,8 @@ export class AudioManager {
       case 'police': {
         // آژیر: سه دور تناوب دو تُنه
         for (let i = 0; i < 3; i++) {
-          window.setTimeout(() => this.blip(740, 0.22, 'square', 0.09, 'sfx'), i * 440);
-          window.setTimeout(() => this.blip(560, 0.22, 'square', 0.09, 'sfx'), i * 440 + 220);
+          window.setTimeout(() => this.cleanHorn(620, 740, 0.19, 0.11), i * 440);
+          window.setTimeout(() => this.cleanHorn(460, 560, 0.19, 0.11), i * 440 + 220);
         }
         break;
       }

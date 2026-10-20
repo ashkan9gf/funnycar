@@ -155,6 +155,29 @@ export function upgradeTuning(levels: Record<UpgradeId, number>): VehicleTuning 
   };
 }
 
+// ---------- فروشگاه خودروها: هر مدل پیش از خرید در نمایشگاه سه‌بعدی قابل بررسی است ----------
+export type VehicleModelId = 'player' | 'pride' | 'peugeot405' | 'samand' | 'tiba' | 'nissan' | 'renault4' | 'vintage';
+export interface VehicleShopDef {
+  id: string;
+  name: string;
+  variant: VehicleModelId;
+  price: number;
+  description: string;
+}
+export const VEHICLE_SHOP: VehicleShopDef[] = [
+  { id: 'veh_player_01', name: 'سدان پایه', variant: 'player', price: 0, description: 'خودروی شروع بازی' },
+  { id: 'veh_pride_01', name: 'پراید', variant: 'pride', price: 450, description: 'سبک و مناسب کوچه‌ها' },
+  { id: 'veh_tiba_01', name: 'تیبا', variant: 'tiba', price: 700, description: 'هاچ‌بک جمع‌وجور' },
+  { id: 'veh_peugeot405_01', name: 'پژو ۴۰۵', variant: 'peugeot405', price: 950, description: 'سدان کلاسیک و خوش‌فرمان' },
+  { id: 'veh_samand_01', name: 'سمند', variant: 'samand', price: 1200, description: 'بدنهٔ پهن و سنگین‌تر' },
+  { id: 'veh_nissan_01', name: 'نیسان وانت', variant: 'nissan', price: 1400, description: 'وانت آبی معروف' },
+  { id: 'veh_renault4_01', name: 'رنو ۴', variant: 'renault4', price: 1100, description: 'کلاسیک جعبه‌ای' },
+  { id: 'veh_vintage_01', name: 'کلاسیک قدیمی', variant: 'vintage', price: 1550, description: 'ظاهر قدیمی و خاص' },
+];
+export function vehicleById(id: string): VehicleShopDef | undefined {
+  return VEHICLE_SHOP.find((vehicle) => vehicle.id === id);
+}
+
 // ---------- رنگ‌ها ----------
 
 export interface PaintDef {

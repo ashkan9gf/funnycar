@@ -47,6 +47,10 @@ export class TrafficCar {
   spinVel = 0;
   /** 🔕 ثانیه‌های ماندهٔ «تازه‌ضربه‌خورده» — در این مدت بازیافت نمیشود (ضد غیب‌شدن جلوی چشم) */
   knockedSec = 0;
+  /** تعقیب موقت بازیکن پس از برخورد با پلیس/تاکسی */
+  pursuitSec = 0;
+  /** پس از پرتاب، مسیر در محل فرود بازسازی شود؛ بدون تلپورت به مختصات قبلی */
+  routeRecoveryPending = false;
   /** چند ثانیه است پشت مانع گیر کرده (برای بوق) */
   blockedSec = 0;
   /** در همینepisode گیر، بوق زده؟ */
@@ -94,7 +98,8 @@ export class TrafficCar {
     const k = Math.min(TRAFFIC.knockMax, TRAFFIC.knockBase + impact * TRAFFIC.knockScale);
     this.knockVx += (dirX / len) * k;
     this.knockVy += (dirY / len) * k;
-    this.knockedSec = 6; // 🔕 تا ۶ ثانیه بازیافت ممنوع — کاربر باید نتیجهٔ ضربه را ببیند
+    this.knockedSec = 8; // نتیجهٔ ضربه باید دیده شود؛ بازیافت تا پایان پرتاب ممنوع است
+    this.routeRecoveryPending = true;
     // ضربه محکم = کمی چرخش بدنه (طنز کارتونی!)
     if (impact > COLLISION_SOFT) {
       this.spinVel += (Math.random() - 0.5) * 2 * impact * TRAFFIC.spinScale;

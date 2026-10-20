@@ -25,7 +25,8 @@ import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS } from '../data/balance';
-import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
+import { UPGRADES, PAINTS, VEHICLE_SHOP, vehicleById, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId } from '../data/garage';
+import type { CarVariant } from '../render3d/CarFactory3D';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
 import { roadCenter, WORLD as WR } from '../world/World';
@@ -84,6 +85,7 @@ export interface GameCallbacks {
 /** نمای کامل گاراژ برای پوسته React (فاز ۶) */
 export interface GarageView {
   coins: number;
+  vehicles: Array<{ id: string; name: string; variant: string; price: number; description: string; owned: boolean; selected: boolean }>;
   upgrades: Array<{
     id: UpgradeId;
     title: string;
@@ -152,6 +154,7 @@ export class GameManager {
   /** آخرین ورودی — برای رندر (ترمز/فرمان) */
   private lastInput = { gas: false, brake: false, steer: 0 };
   private redRunnerCooldown = 0;
+  private lastTtsAt = 0;
 
   private state: GameState = 'boot';
   private raf = 0;
@@ -292,6 +295,8 @@ export class GameManager {
     // تا آماده‌شدن همهٔ مدل‌ها صفحهٔ لودینگ فعال می‌ماند؛ زمان لودینگ عمداً محدود نشده است.
     try {
       await this.renderer3d?.whenReady();
+      onProgress?.(96, 100);
+      await this.renderer3d?.warmup();
       onProgress?.(100, 100);
     } catch (err) {
       console.warn('[Game] GLB preload failed:', err);
@@ -307,6 +312,8 @@ export class GameManager {
     this.camera.snapTo(spawn.x, spawn.y);
     // فاز ۶ گاراژ: اعمال آپگریدهای سیو + رنگ انتخابی روی مدل سه‌بعدی
     this.applyGarageToVehicle();
+    const savedVehicle = vehicleById(this.save.get().selectedVehicle);
+    if (savedVehicle) this.renderer3d?.setPlayerVariant(savedVehicle.variant as CarVariant);
     const savedPaint = paintById(this.save.get().paint);
     if (savedPaint && this.renderer3d) this.renderer3d.setPlayerPaint(savedPaint.hex);
     this.setState('menu');
@@ -326,6 +333,11 @@ export class GameManager {
     const d = this.save.get();
     return {
       coins: d.coins,
+      vehicles: VEHICLE_SHOP.map((vehicle) => ({
+        ...vehicle,
+        owned: d.unlockedVehicles.includes(vehicle.id),
+        selected: d.selectedVehicle === vehicle.id,
+      })),
       upgrades: UPGRADES.map((u) => {
         const level = d.upgrades[u.id] ?? 0;
         return {
@@ -355,6 +367,38 @@ export class GameManager {
         selected: d.horn === h.id,
       })),
     };
+  }
+
+  /** خرید خودرو پس از پیش‌نمایش؛ مدل انتخابی در سیو ذخیره می‌شود. */
+  buyVehicle(id: string): PurchaseResult {
+    const vehicle = vehicleById(id);
+    const d = this.save.get();
+    if (!vehicle) return { ok: false, coins: d.coins, msg: 'این خودرو در نمایشگاه موجود نیست.' };
+    if (d.unlockedVehicles.includes(id)) return this.selectVehicle(id);
+    if (d.coins < vehicle.price) return { ok: false, coins: d.coins, msg: 'سکه کافی نیست؛ چند مأموریت دیگر انجام بده.' };
+    this.save.mutate((save) => {
+      save.coins -= vehicle.price;
+      save.unlockedVehicles.push(id);
+      save.selectedVehicle = id;
+    });
+    this.renderer3d?.setPlayerVariant(vehicle.variant as CarVariant);
+    const paint = paintById(this.save.get().paint);
+    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    this.audio.coin();
+    return { ok: true, coins: this.save.get().coins, msg: `خودروی «${vehicle.name}» به گاراژ اضافه شد!` };
+  }
+
+  /** انتخاب خودروی خریداری‌شده بدون هزینهٔ دوباره. */
+  selectVehicle(id: string): PurchaseResult {
+    const vehicle = vehicleById(id);
+    const d = this.save.get();
+    if (!vehicle) return { ok: false, coins: d.coins, msg: 'مدل خودرو پیدا نشد.' };
+    if (!d.unlockedVehicles.includes(id)) return { ok: false, coins: d.coins, msg: 'اول باید این خودرو را بخری.' };
+    this.save.mutate((save) => { save.selectedVehicle = id; });
+    this.renderer3d?.setPlayerVariant(vehicle.variant as CarVariant);
+    const paint = paintById(this.save.get().paint);
+    if (paint) this.renderer3d?.setPlayerPaint(paint.hex);
+    return { ok: true, coins: this.save.get().coins, msg: `خودروی «${vehicle.name}» آمادهٔ رانندگی است.` };
   }
 
   /** خرید یک سطح آپگرید — خروجی برای toast پوسته */
@@ -433,6 +477,20 @@ export class GameManager {
     this.audio.ensure();
     this.audio.hornById(id); // پیش‌نمایش!
     return { ok: true, coins: this.save.get().coins, msg: `بوق «${h.name}» وصل شد!` };
+  }
+
+  /** پیش‌نمایش بوق فروشگاه؛ هیچ سکه‌ای خرج نمی‌شود. */
+  previewHorn(id: string): void {
+    if (!hornById(id)) return;
+    this.audio.ensure();
+    this.audio.hornById(id);
+  }
+
+  /** پیش‌نمایش رنگ بدنه؛ null رنگ انتخاب‌شدهٔ ذخیره را بازیابی می‌کند. */
+  previewPaint(id: string | null): void {
+    const paint = id === null ? paintById(this.save.get().paint) : paintById(id);
+    if (!paint) return;
+    this.renderer3d?.setPlayerPaint(paint.hex);
   }
 
   // ============ وضعیت‌ها ============
@@ -692,6 +750,17 @@ export class GameManager {
       const kdx = impact > 40 ? relVx : dx;
       const kdy = impact > 40 ? relVy : dy;
       c.knock(kdx, kdy, impact);
+      // پلیس بعد از برخورد تعقیب را شروع می‌کند؛ تاکسی هم تا چند ثانیه جواب می‌دهد.
+      if (c.assetId.toLowerCase().includes('police')) {
+        c.pursuitSec = Math.max(c.pursuitSec, 22);
+        this.fx.pushBubble('پلیس: کنار بزن! تعقیبت می‌کنم!', c.x, c.y, 'npc_police_01', 2.5);
+        this.speakPersianLine('پلیس! کنار بزن، تعقیبت می‌کنم!');
+        this.voice.trigger('police_chase', performance.now());
+      } else if (c.assetId.toLowerCase().includes('taxi')) {
+        c.pursuitSec = Math.max(c.pursuitSec, 12);
+        this.fx.pushBubble('تاکسی: وایسا ببینم! هنوز حساب داریم!', c.x, c.y, 'char_driver_01_idle', 2.5);
+        this.speakPersianLine('وایسا ببینم! هنوز حساب داریم!');
+      }
 
       // 🔕 شلاق جانبی بازیکن — تصادف واقعی‌تر: ضربهٔ بغلی ماشین را می‌کشد (مطابق rightX/rightY در Vehicle)
       const sideN = mtv.x * Math.cos(v.angle) + mtv.y * Math.sin(v.angle);
@@ -813,6 +882,27 @@ export class GameManager {
     }
   }
 
+  /** صدای فارسی اختیاری از TTS خود دستگاه؛ اگر صدای فارسی نصب نیست، بازی بدون خطا ادامه می‌دهد. */
+  private speakPersianLine(text: string): void {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) return;
+    const now = performance.now();
+    if (now - this.lastTtsAt < 1800) return;
+    const voices = window.speechSynthesis.getVoices();
+    const faVoice = voices.find((voice) => /^fa([_-]|$)/i.test(voice.lang));
+    if (!faVoice) return;
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'fa-IR';
+      utterance.voice = faVoice;
+      utterance.rate = 1.04;
+      utterance.pitch = 1.04;
+      utterance.volume = 0.82;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+      this.lastTtsAt = now;
+    } catch { /* TTS is optional and must never affect gameplay */ }
+  }
+
   // ============ عابرها و تعمیر (فاز BIG-IR) ============
 
   /** عابر ترسید — حباب طنز (با احتمال) */
@@ -855,6 +945,7 @@ export class GameManager {
       this.save.mutate((d) => {
         d.reputation = Math.max(REPUTATION.min, d.reputation - REPUTATION.pedHitPenalty);
       });
+      this.speakPersianLine('ای وای! آبروت کم شد! مواظب عابرا باش!');
       this.voice.trigger('pedestrian_scare', performance.now());
       break;
     }

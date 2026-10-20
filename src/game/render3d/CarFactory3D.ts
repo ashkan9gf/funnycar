@@ -3,7 +3,7 @@
  * ============================================================
  * ارتقای بزرگ نسبت به v2:
  *  - بدنه از «نیم‌رخ واقعی» هر خودرو با ExtrudeGeometry + bevel → بدنه گرد و نرم
- *  - MeshToonMaterial با گرادیان ۳ پله → سایه‌بندی کارتونی (انیمیشنی، نه سینمایی)
+ *  - سیلوئت و outline کارتونی + رنگ بدنه PBR clearcoat برای بازتاب نرم و حس رنگ خودروی واقعی
  *  - خط دور (Outline) معکوس روی بدنه → حس کمیک/GTA کارتونی
  *  - شیشه باندی، خط در، دستگیره، آینه، جلوپنجره کروم، پلاک ایرانی
  *  - راننده داخل کابین دیده می‌شود (سر + تن)
@@ -101,7 +101,7 @@ export interface CarModel3D {
   /** رنگ بدنه برای ذرات/جلوه‌ها */
   bodyColor: string;
   /** متریال بدنه — برای تیره‌شدن با آسیب */
-  bodyMat: THREE.MeshToonMaterial;
+  bodyMat: THREE.MeshToonMaterial | THREE.MeshPhysicalMaterial;
   /** سپرهای جداشدنی (سیستم آسیب داینامیک) */
   bumpers: { front: THREE.Mesh | null; rear: THREE.Mesh | null };
   /** چراغ‌گردان پلیس (فلاش قرمز/آبی) */
@@ -294,10 +294,12 @@ export function buildCar3D(
   const profile = PROFILES[variant] ?? PROFILES.pride;
   const lite = opts.lite === true;
 
-  // رنگ بدنه (فاز ۶ گاراژ: رنگ انتخابی بازیکن فقط برای ماشین بازیکن)
+  // رنگ بدنه: رنگ ارسالی برای پیش‌نمایش روی هر مدل اعمال می‌شود؛ در بازی عادی رنگ‌های اختصاصی حفظ می‌شوند.
   let body = '#f4f4f0';
-  if (variant === 'player') {
-    body = typeof opts.paint === 'string' && opts.paint.startsWith('#') ? opts.paint : '#f4f4f0';
+  if (typeof opts.paint === 'string' && /^#[0-9a-fA-F]{6}$/.test(opts.paint)) {
+    body = opts.paint;
+  } else if (variant === 'player') {
+    body = '#f4f4f0';
   } else if (variant === 'pride' || variant === 'tiba' || variant === 'peugeot405' || variant === 'samand') {
     body = pickColor(COLORS[variant]);
   } else if (variant === 'taxi') body = '#f2c230';
@@ -305,7 +307,16 @@ export function buildCar3D(
   else if (variant === 'nissan') body = '#2f6fae'; // نیسان آبی معروف!
   else if (variant === 'renault4' || variant === 'vintage') body = pickColor(COLORS[variant] ?? ['#d9d9d4']);
 
-  const bodyMat = toon(body);
+  // Automotive clearcoat paint: retain the comic silhouette/outline, but add
+  // broad, controlled reflections that make Iranian car bodies read as painted metal.
+  const bodyMat = new THREE.MeshPhysicalMaterial({
+    color: body,
+    roughness: 0.3,
+    metalness: 0.16,
+    clearcoat: 0.78,
+    clearcoatRoughness: 0.2,
+    envMapIntensity: 0.78,
+  });
   // Per-car material lets the indicator glow animate without changing every car at once.
   const carIndicatorMat = (indicatorMat as THREE.MeshStandardMaterial).clone();
   const g = new THREE.Group();
