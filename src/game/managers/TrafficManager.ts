@@ -267,7 +267,7 @@ export class TrafficManager {
       }
 
       // در زمان پرتاب، AI نباید فرمان تقاطع/مسیر را وسط ضربه عوض کند.
-      if (car.recentlyKnocked()) {
+      if (car.recentlyKnocked() || car.routeRecoveryPending) {
         car.update(dt, 0);
         continue;
       }
