@@ -68,13 +68,8 @@ function CarRender({ variant, paint }: { variant: CarVariant; paint: string }) {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
       scene.remove(model.group);
-      model.group.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        mesh.geometry?.dispose();
-        if (Array.isArray(mesh.material)) mesh.material.forEach((m) => m.dispose());
-        else mesh.material?.dispose();
-      });
+      // CarFactory3D intentionally shares geometry/material caches with the game renderer.
+      // Do not dispose those shared resources when the showroom preview closes.
       renderer.dispose();
       renderer.domElement.remove();
     };
