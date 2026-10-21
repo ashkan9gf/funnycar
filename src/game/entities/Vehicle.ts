@@ -72,12 +72,20 @@ export class Vehicle {
   get hitW(): number { return this.drawW * 0.82; }
   get hitH(): number { return this.drawH * 0.9; }
 
+  /** 🔑 v0.2.46 — فرمان نرم‌شده (‎-1..1‎) — ورودی خام را با نرخ attack/release دنبال می‌کند
+   *  (فرمون دیگر آنی روشن/خاموش نمی‌شود؛ مثل فرمان واقعی می‌چرخد و برمی‌گردد) */
+  steerSmooth = 0;
+  /** آخرین فرمان مؤثر اعمال‌شده (انیمیشن چرخ جلوی 3D) */
+  lastSteerApplied = 0;
+
   reset(x: number, y: number, angle = 0): void {
     this.x = x;
     this.y = y;
     this.angle = angle;
     this.speed = 0;
     this.latVel = 0;
+    this.steerSmooth = 0;
+    this.lastSteerApplied = 0;
     // 🔑 v0.2.45 — شروع/مأموریت جدید = باک پر (سرویس قبل از حرکت!)
     this.fuel = FUEL.max;
   }
@@ -170,22 +178,41 @@ export class Vehicle {
 
     this.speed = Math.max(-VP.maxReverse, Math.min(cap, this.speed));
 
-    // ---------- فرمان (اثر متناسب با سرعت + آپگرید لاستیک فاز ۶) ----------
+    // ---------- 🔑 v0.2.46 — نرم‌سازی فرمان (attack/release مثل فرمان واقعی) ----------
+    const steerTarget = Math.max(-1, Math.min(1, input.steer));
+    const steerDiff = steerTarget - this.steerSmooth;
+    if (Math.abs(steerDiff) <= 0.001) {
+      this.steerSmooth = steerTarget;
+    } else {
+      // در جهت هدف = attack؛ برگشت به مرکز یا عوض‌کردن جهت = release
+      const toward = steerTarget !== 0 && Math.sign(steerDiff) === Math.sign(steerTarget);
+      const rate = toward ? VP.steerAttack : VP.steerRelease;
+      this.steerSmooth += Math.sign(steerDiff) * Math.min(Math.abs(steerDiff), rate * dt);
+    }
+
+    // ---------- 🔑 v0.2.46 — فرمان حرفه‌ای: نرم‌شده × منحنی سرعت ----------
+    // سرعت کم = دستاورد کامل (پارک/مانور راحت)؛ سرعت بالا = محافظه‌کار (نه لرزش و قوس‌وقار)
     const speedRatio = Math.abs(this.speed) / VP.maxSpeed;
     if (speedRatio > VP.minSteerSpeedRatio) {
-      const steerEff = VP.steerStrength * this.tune.steerMul * Math.min(1, speedRatio * 1.6);
+      const lowGain = Math.min(1, VP.steerLowGain + speedRatio * 1.9);
+      const hot = Math.max(0, Math.min(1, (speedRatio - VP.steerHighFrom) / (1 - VP.steerHighFrom)));
+      const damp = 1 - VP.steerHighDamp * hot * hot * (3 - 2 * hot); // smoothstep
+      const steerEff = VP.steerStrength * this.tune.steerMul * lowGain * damp;
       // عقب رفتن فرمان معکوس می‌شود (مثل ماشین واقعی)
-      this.angle += input.steer * steerEff * dt * Math.sign(this.speed || 1);
+      this.angle += this.steerSmooth * steerEff * dt * Math.sign(this.speed || 1);
+      this.lastSteerApplied = this.steerSmooth;
       // محدود کردن زاویه به -π..π برای تمیزی
       if (this.angle > Math.PI) this.angle -= Math.PI * 2;
       if (this.angle < -Math.PI) this.angle += Math.PI * 2;
+    } else {
+      this.lastSteerApplied = 0;
     }
 
-    // ---------- درفت ملایم (فاز 2) ----------
+    // ---------- درفت ملایم (فاز 2) — 🔑 v0.2.46 با فرمان نرم‌شده (پرش لاستیکی ندارد) ----------
     const speedRatioAbs = Math.abs(this.speed) / VP.maxSpeed;
-    if (speedRatioAbs > DRIFT.minSpeedRatio && this.speed > 0 && input.steer !== 0) {
+    if (speedRatioAbs > DRIFT.minSpeedRatio && this.speed > 0 && Math.abs(this.steerSmooth) > 0.05) {
       // بیرون پیچ = خلاف جهت فرمان (فیزیک: جرم به مسیر قبلی ادامه می‌دهد)
-      this.latVel -= input.steer * DRIFT.slipGain * speedRatioAbs * Math.abs(this.speed) * dt;
+      this.latVel -= this.steerSmooth * DRIFT.slipGain * speedRatioAbs * Math.abs(this.speed) * dt;
     }
     // میرایی چسبندگی (لاستیک آپگریدشده = چسبندگی بیشتر — فاز ۶)
     const grip = Math.exp(-DRIFT.gripDecay * this.tune.gripMul * dt);

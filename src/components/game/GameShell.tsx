@@ -2043,8 +2043,9 @@ export default function GameShell() {
 
       {/* ============ صفحه توقف ============ */}
       {phase === "paused" && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#3a2e2a]/45 backdrop-blur-[2px]">
-          <div className="fc-panel fc-pop mx-6 w-full max-w-sm bg-[#FFF9EC] p-6">
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#3a2e2a]/45 backdrop-blur-[2px] p-3">
+          {/* 🔑 v0.2.46 — فیکس اسکرول تنظیمات: پنل توقف با محتوای بلند (بازکردن تنظیمات) بیرون صفحه می‌زد و اسکرول نداشت! */}
+          <div className="fc-panel fc-pop mx-2 max-h-[90vh] w-full max-w-sm overflow-y-auto overscroll-y-contain touch-pan-y bg-[#FFF9EC] p-6">
             <h2 className="mb-1 text-center text-2xl font-extrabold text-[#3a2e2a]">استراحت کوچولو!</h2>
             <p className="mb-4 text-center text-xs font-bold text-[#3a2e2a]/60">ماشین هم نفس تازه می‌کند</p>
             <div className="mb-4 space-y-2">
