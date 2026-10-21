@@ -1146,3 +1146,25 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.43-test.apk
 - لینک: https://uploadkon.ir/uploads/234321_26FunnyCarIR-v0-2-43-test.zip
 - درس: کلاس‌های CSS جدید در dev سرور کهنه اعمال نمی‌شوند — بعد از هر تغییر globals.css یک بار restart dev؛ و snapshot های headless در تب مخفی rAF ندارند — افکت‌های زمان‌دار را با فریم اجباری اسکرین‌شات سنجید
+
+---
+Task ID: 58
+Agent: main (Z.ai)
+Task: شکایت کاربر — «سرعت‌سنج جلوی دید را کامل گرفته، صفحه داغونه؛ بررسی و آنالیز و رفع کن» (v0.2.44)
+
+Work Log:
+- تحلیل ۲ اسکرین‌شات واقعی کاربر + کد: ۱) SpeedGauge+چیپ GPS وسط صفحه بود (anchored بالای خوشه‌ها → روی جاده)، ۲) حباب گفتار بازیکن روی کانواس بالای ماشین = وسط دید، ۳) پنل مأموریت ۱۸۸px در ستون چپ سکه/قهوه/آچار را تا نصف صفحه می‌راند، ۴) geom.stacked ضریب controlsScale را حساب نمی‌کرد
+- HUD بازچینی شد: چپ=توقف+سکه/قهوه/آچار/FPS (ثابت)، وسط=تعقیب→مأموریت فشرده→توست گفتار→آموزش (justify-between + اسپیسر راست هم‌عرض مینی‌مپ تا ستون وسط واقعاً وسط باشد)
+- سرعت‌سنج: سه حالت geom.gaugeMode — center (پایین-وسط، فقط وقتی ≥126px آزاد) / corner (پله‌ای؛ آزادترین گوشه، چپ‌دست mirrored) / raised (پورت‌ریت+اسکیل بزرگ؛ فشرده ۸۴px بالای خوشه). SVG بازطراحی: قوس ۲۲۰° (-110..110)، مرکز (60,58)، بدون بریدگی عقربه/قوس (نسخه قبل در -120° کلیپ می‌شد)
+- پنل مأموریت فشرده w-[min(230px,52vw)]: عنوان+X / هدف line-clamp-2 / چیپ GPS (فلش زنده + متر) + ثانیه / نوار زمان / نوار پیشرفت / extra truncate — چیپ GPS جدا از میان حذف شد
+- حباب بازیکن حذف از WorldRenderer3D (playerBubble?: null) → HudData.say {line,speaker,portrait} در emitHud → SayToast DOM (پرتره از ASSETS_MANIFEST با /^src + onError→🚕) وسط-بالا؛ حباب‌های NPC کانواس دست‌نخورده
+- GameManager: draw3DFrame دیگر speech نمی‌فرستد؛ emitHud شامل say؛ GameShell: SayToast keyed by speaker:line (imgOk reset بین گوینده‌ها)
+- E2E (dev :3000 + prod :8899): منظر 780×360 — گیج cx offset=0، bottom 71-98%vh، صفر هم‌پوشانی با گاز/فرمان/مأموریت/توقف؛ پورت‌ریت 390×844 — گوشه/بالا بسته به اسکیل، صفر هم‌پوشانی؛ چپ‌دست flip تأیید (گوشه راست)؛ توست با پرتره لودشده وسط-بالا (y=125)؛ پروفایل ۱۴۰٪ قدیمی localStorage هم تست شد
+- درس: setUiPrefs مستقیم روی موتور state راکت را عوض نمی‌کند (فقط پنل تنظیمات هر دو را آپدیت می‌کند) — برای تست باید reload کرد؛ HMR Fast Refresh state را حفظ می‌کند (پروفایل کهنه می‌ماند)؛ دکمه‌های منو <button> هستند، پیدا کردن با textContent+pointerdown dispatch
+- APK v0.2.44/VCODE=44 (SIGN OK، 20,609,616 bytes) از scripts/build_apk_v0244.sh
+
+Stage Summary:
+- main = 5931842 (push شد)
+- APK: download/FunnyCarIR-v0.2.44-test.apk
+- لینک: https://uploadkon.ir/uploads/1b1621_26FunnyCarIR-v0-2-44-test.zip (HEAD 200)
+- نتیجه: جلوی دید کاملاً باز شد — هیچ پنل دائمی وسط صفحه نیست؛ اسکرین‌شات‌های اثبات: scripts/v0244_landscape_final.png، v0244_prod_landscape.png، v0244_portrait_lefthand.png
