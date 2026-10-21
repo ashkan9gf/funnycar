@@ -71,8 +71,8 @@ export interface Draw3DOptions {
   target: { x: number; y: number } | null;
   /** فاز ۵: ماشین‌های نگهبان جای پارک دوبل (فقط مأموریت فعال) */
   guardCars?: GuardCar[];
-  /** حباب بازیکن (اگر جمله فعال دارد) */
-  playerBubble: { line: string; x: number; y: number; portrait: string } | null;
+  /** 🔑 v0.2.44 — حباب بازیکن حذف شد؛ جملات گفتار از راه HUD (toast بالای صفحه) نمایش داده می‌شوند */
+  playerBubble?: null;
   // ---------- فاز GRAPHICS_OVERHAUL ----------
   /** پدال ترمز بازیکن (چراغ ترمز + پیک بدنه) */
   braking?: boolean;
@@ -3679,11 +3679,7 @@ export class WorldRenderer3D {
       ctx.globalAlpha = 1;
     }
 
-    // حباب بازیکن
-    if (opts.playerBubble) {
-      const p = this.worldToScreen(opts.playerBubble.x, opts.playerBubble.y);
-      if (p.ok) this.drawBubbleBox(ctx, opts.playerBubble.line, p.sx, p.sy, opts.car.drawH * 0.75, opts.playerBubble.portrait);
-    }
+    // 🔑 v0.2.44 — حباب بازیکن حذف شد (toast DOM بالای صفحه جایگزین شد؛ حباب وسط کانواس جلوی دید رانندگی را می‌گرفت)
 
     // فاز OVERHAUL: پنل دیباگ (کلید F) — بخش Y سند مادر
     if (opts.debug) {

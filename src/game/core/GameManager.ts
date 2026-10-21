@@ -61,6 +61,8 @@ export interface HudData {
   engineDead: boolean;
   /** v0.2.42 — تعقیب فعال (پلیس/تاکسی عصبانی)؛ null = آرامش */
   chase: { kind: 'police' | 'taxi'; dist: number; bust: number; /** v0.2.43 — ستاره‌های تعقیب ۱..۳ */ stars: number } | null;
+  /** 🔑 v0.2.44 — جملهٔ گفتار فعال بازیکن (به‌جای حباب روی کانواس که جلوی دید بود) */
+  say: { line: string; speaker: string; portrait: string } | null;
 }
 
 /** نتیجه مأموریت برای پوسته React (فاز 4) */
@@ -1681,7 +1683,6 @@ export class GameManager {
 
   /** یک فریم کامل سه‌بعدی: صحنه + اورلی (حباب‌ها و فلش هدف) */
   private draw3DFrame(mTarget: { x: number; y: number } | null): void {
-    const speech = this.voice.current;
     this.renderer3d!.draw3D({
       car: this.vehicle,
       traffic: this.traffic.cars,
@@ -1692,14 +1693,8 @@ export class GameManager {
       target: mTarget,
       // فاز ۵: ماشین‌های نگهبان جای پارک
       guardCars: this.mission.getGuardCars() as GuardCar[],
-      playerBubble: speech
-        ? {
-            line: speech.line,
-            x: this.vehicle.x,
-            y: this.vehicle.y,
-            portrait: SPEAKER_PORTRAIT[speech.speaker] ?? 'char_driver_01_idle',
-          }
-        : null,
+      // 🔑 v0.2.44 — حباب بازیکن به HUD منتقل شد (toast بالای صفحه؛ حباب وسط کانواس جلوی دید را می‌گرفت)
+      playerBubble: null,
       // ---------- فاز GRAPHICS_OVERHAUL ----------
       braking: this.lastInput.brake,
       accelerating: this.lastInput.gas && !this.vehicle.dead,
@@ -1744,6 +1739,14 @@ export class GameManager {
             stars: this.chaseKind === 'police'
               ? (this.chaseElapsed > 7 ? (this.chaseBust > 0.5 ? 3 : 2) : 1)
               : 1,
+          }
+        : null,
+      // 🔑 v0.2.44 — گفتار فعال به‌صورت toast بالای صفحه (نه حباب وسط کانواس)
+      say: this.voice.current
+        ? {
+            line: this.voice.current.line,
+            speaker: this.voice.current.speaker,
+            portrait: SPEAKER_PORTRAIT[this.voice.current.speaker] ?? 'char_driver_01_idle',
           }
         : null,
     });

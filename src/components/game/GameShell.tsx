@@ -55,6 +55,7 @@ import type { MissionCategory, UpgradeId, UiPrefs } from "@/game";
 import type { CarVariant } from "@/game/render3d/CarFactory3D";
 import { renderCarPreview, renderCarPreviewAsync, renderCarPreviewSpin, SPIN_STEPS } from "@/game/render3d/CarPreview";
 import { LOADING_LINES } from "@/game/data/dialogues";
+import { ASSETS_MANIFEST } from "@/game/data/assets.manifest";
 import {
   createGame,
   GARAGE_FOOTER,
@@ -265,12 +266,12 @@ function CarPreviewImg({ variant, paint, className }: { variant: string; paint: 
   );
 }
 
-// ==================== 🔑 v0.2.43 — سرعت‌سنج عقربه‌ای (SVG) ====================
+// ==================== 🔑 v0.2.44 — سرعت‌سنج عقربه‌ای فشرده (پایین صفحه — دیگر جلوی دید نیست) ====================
 const GAUGE_MAX = 180;
 
 function gaugePolar(ang: number, rad: number): [number, number] {
   const t = ((ang - 90) * Math.PI) / 180; // ۰ درجه = بالا
-  return [60 + rad * Math.cos(t), 62 + rad * Math.sin(t)];
+  return [60 + rad * Math.cos(t), 58 + rad * Math.sin(t)];
 }
 function gaugeArc(a1: number, a2: number, rad: number): string {
   const [x1, y1] = gaugePolar(a1, rad);
@@ -279,32 +280,33 @@ function gaugeArc(a1: number, a2: number, rad: number): string {
   return `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${rad} ${rad} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`;
 }
 
-function SpeedGauge({ kmh }: { kmh: number }) {
+/** پیکان ۲۲۰° (۱۱۰- تا ۱۱۰+) — هندسهٔ بدون بریدگی؛ w = پهنای کل پنل */
+function SpeedGauge({ kmh, w = 112 }: { kmh: number; w?: number }) {
   const frac = Math.max(0, Math.min(1, kmh / GAUGE_MAX));
-  const ang = -120 + frac * 240;
+  const ang = -110 + frac * 220;
   return (
-    <div className="fc-panel bg-[#FFF9EC]/90 px-2.5 pb-1 pt-1" style={{ borderRadius: "999px" }}>
-      <svg width="118" height="64" viewBox="0 0 120 68" aria-hidden="true">
+    <div className="fc-panel bg-[#FFF9EC]/88 px-1.5 pb-0.5 pt-1" style={{ borderRadius: "999px", width: w }}>
+      <svg width={w - 12} height={((w - 12) * 74) / 120} viewBox="0 0 120 74" aria-hidden="true">
         {/* قوس زمینه */}
-        <path d={gaugeArc(-120, 120, 46)} fill="none" stroke="#eadfc6" strokeWidth="9" strokeLinecap="round" />
+        <path d={gaugeArc(-110, 110, 40)} fill="none" stroke="#eadfc6" strokeWidth="9" strokeLinecap="round" />
         {/* ناحیهٔ خطر: ۱۵۰ به بالا */}
-        <path d={gaugeArc(80, 120, 46)} fill="none" stroke="#e8b6b6" strokeWidth="9" strokeLinecap="round" />
+        <path d={gaugeArc(73, 110, 40)} fill="none" stroke="#e8b6b6" strokeWidth="9" strokeLinecap="round" />
         {/* قوس سرعت فعلی */}
-        {frac > 0.005 && <path d={gaugeArc(-120, ang, 46)} fill="none" stroke="#2A9D8F" strokeWidth="9" strokeLinecap="round" />}
+        {frac > 0.005 && <path d={gaugeArc(-110, ang, 40)} fill="none" stroke="#2A9D8F" strokeWidth="9" strokeLinecap="round" />}
         {/* تیک‌ها */}
-        {[-120, -60, 0, 60, 120].map((a) => {
-          const [x1, y1] = gaugePolar(a, 34);
-          const [x2, y2] = gaugePolar(a, 39);
+        {[-110, -55, 0, 55, 110].map((a) => {
+          const [x1, y1] = gaugePolar(a, 26);
+          const [x2, y2] = gaugePolar(a, 32);
           return <line key={a} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#3a2e2a" strokeWidth="2" opacity="0.45" strokeLinecap="round" />;
         })}
         {/* عقربه — بین آپدیت‌های HUD نرم حرکت می‌کند */}
-        <g className="fc-needle" style={{ transform: `rotate(${ang}deg)`, transformOrigin: "60px 62px" }}>
-          <line x1="60" y1="68" x2="60" y2="24" stroke="#D64545" strokeWidth="4" strokeLinecap="round" />
+        <g className="fc-needle" style={{ transform: `rotate(${ang}deg)`, transformOrigin: "60px 58px" }}>
+          <line x1="60" y1="62" x2="60" y2="26" stroke="#D64545" strokeWidth="4" strokeLinecap="round" />
         </g>
-        <circle cx="60" cy="62" r="6" fill="#3a2e2a" />
+        <circle cx="60" cy="58" r="5.5" fill="#3a2e2a" />
       </svg>
-      <div className="-mt-0.5 text-center text-[15px] font-black leading-4 text-[#3a2e2a]">{fa(kmh)}</div>
-      <div className="text-center text-[8px] font-bold leading-3 text-[#3a2e2a]/50">km/h</div>
+      <div className="-mt-1 text-center text-[14px] font-black leading-4 text-[#3a2e2a]">{fa(kmh)}</div>
+      <div className="text-center text-[8px] font-bold leading-2.5 text-[#3a2e2a]/50">km/h</div>
     </div>
   );
 }
@@ -331,6 +333,31 @@ function Confetti() {
           style={{ left: `${p.left}%`, backgroundColor: p.color, width: p.w, height: p.w * 1.6, animationDelay: `${p.delay}s`, animationDuration: `${p.dur}s` }}
         />
       ))}
+    </div>
+  );
+}
+
+// ==================== 🔑 v0.2.44 — توست گفتار بازیکن (بالای صفحه، جای حباب وسط کانواس) ====================
+function SayToast({ say }: { say: { line: string; speaker: string; portrait: string } }) {
+  const [imgOk, setImgOk] = useState(true);
+  const entry = ASSETS_MANIFEST[say.portrait];
+  const src = entry ? `/${entry.src}` : null; // همان قاعدهٔ AssetManager: از ریشهٔ سایت
+  return (
+    <div
+      className="fc-panel fc-pop flex max-w-[min(320px,64vw)] items-center gap-2 bg-[#FFF9EC]/95 py-1 pl-2.5 pr-1.5"
+      style={{ borderRadius: "999px" }}
+    >
+      {imgOk && src ? (
+        <img
+          src={src}
+          alt=""
+          className="h-7 w-7 shrink-0 rounded-full border-2 border-[#3a2e2a] object-cover"
+          onError={() => setImgOk(false)}
+        />
+      ) : (
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-[#3a2e2a] bg-[#E8C39E] text-[13px]">🚕</span>
+      )}
+      <p dir="rtl" className="truncate text-[11px] font-extrabold leading-5 text-[#3a2e2a]">{say.line}</p>
     </div>
   );
 }
@@ -532,7 +559,7 @@ export default function GameShell() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState(0);
   const isAndroidBuild = process.env.NEXT_PUBLIC_ANDROID_BUILD === "1";
-  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false, chase: null });
+  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false, chase: null, say: null });
   const [toast, setToast] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showMissions, setShowMissions] = useState(false);
@@ -751,20 +778,32 @@ export default function GameShell() {
     window.addEventListener("resize", upd);
     return () => window.removeEventListener("resize", upd);
   }, []);
+  // ---------- 🔑 v0.2.44 — هندسهٔ کنترل‌ها: مقیاس-آگاه + رزرو فضای سرعت‌سنج ----------
   const geom = (() => {
     const W = vp?.w ?? 390;
     const H = vp?.h ?? 844;
+    const sc = ui.controlsScale;
     const cp = (min: number, frac: number, max: number) => Math.min(max, Math.max(min, H * frac));
     const steer1 = cp(84, 0.19, 124);
     const gas1 = cp(94, 0.21, 134);
     const brake1 = cp(76, 0.17, 108);
     const horn1 = cp(58, 0.13, 84);
     const edge = Math.min(20, Math.max(10, W * 0.025));
-    const rowW = steer1 * 2 + 14 + brake1 + 12 + gas1 + edge * 2;
-    const stacked = rowW > W;
+    // ضریب اندازه در «جا شدن» لحاظ می‌شود + دست‌کم ۱۲۶px وسط برای سرعت‌سنج آزاد می‌ماند
+    const rowW = (steer1 * 2 + 14 + brake1 + 12 + gas1 + edge * 2) * sc;
+    const stacked = rowW + 126 > W;
     const pedalH = Math.max(gas1, horn1 + 10 + brake1);
-    return { stacked, steer1, pedalH };
+    // پهنای خوشهٔ هم‌سمت در چیدمان پله‌ای (پدال+فرمان یک طرف‌اند) → گوشهٔ دیگر آزاد است
+    const sideW = Math.max(steer1 * 2 + 14, brake1 + 12 + gas1) * sc;
+    const cornerFree = W - sideW - edge * 2;
+    // 🔑 v0.2.44 — سه حالت: وسط-پایین (عادی) / گوشهٔ آزاد (پله‌ای) / بالای خوشه (پورت‌ریت با دکمه‌های خیلی بزرگ)
+    const mode = !stacked ? "center" : cornerFree >= 84 ? "corner" : "raised";
+    const gaugeW = mode === "center" ? 112 : mode === "corner" ? Math.max(76, Math.min(112, cornerFree - 8)) : 84;
+    return { stacked, steer1, pedalH, edge, gaugeW, gaugeMode: mode };
   })();
+
+  // 🔑 v0.2.44 — پهنای مینی‌مپ (مطابق drawMinimap در WorldRenderer3D) برای اسپیسر نوار بالا
+  const mmSize = Math.min(112, (vp?.w ?? 390) * 0.24);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
@@ -1436,18 +1475,52 @@ export default function GameShell() {
       {/* ============ HUD گیم‌پلی ============ */}
       {phase === "playing" && (
         <>
-          {/* نوار بالا — dir ltr: توقف چپ، پنل‌ها کنارش؛ مینی‌مپ روی بوم بالا-راست است */}
-          <div dir="ltr" className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-start gap-2 p-3">
-            <div className="pointer-events-auto">
-              <TapButton ariaLabel="توقف بازی" className="h-10 w-10 bg-[#FFF9EC] text-[#3a2e2a]" onTap={() => gameRef.current?.pause()}>
-                <Pause className="h-5 w-5" />
-              </TapButton>
-            </div>
+          {/* 🔑 v0.2.44 — نوار بالا بازچینی شد: چپ=توقف+وضعیت، وسط=تعقیب/مأموریت/گفتار/آموزش — هیچ پنلی جلوی دید رانندگی نیست */}
+          <div dir="ltr" className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-3">
             <div className="flex flex-col items-start gap-1.5">
+              <div className="pointer-events-auto">
+                <TapButton ariaLabel="توقف بازی" className="h-10 w-10 bg-[#FFF9EC] text-[#3a2e2a]" onTap={() => gameRef.current?.pause()}>
+                  <Pause className="h-5 w-5" />
+                </TapButton>
+              </div>
+              <div className="fc-panel relative flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+                <Coins className="h-4 w-4 text-[#B8801A]" />
+                <span key={hud.coins} className="fc-pop text-[11px] font-bold text-[#3a2e2a]">{fa(hud.coins)}</span>
+                {/* سکه پران +۱۲ / −۸ */}
+                {coinFx.map((c) => (
+                  <span
+                    key={c.id}
+                    className={`fc-coin-fly absolute -top-1 left-1/2 -translate-x-1/2 text-[12px] font-black ${c.delta > 0 ? "text-[#5c9e1f]" : "text-[#D64545]"}`}
+                  >
+                    {c.delta > 0 ? `+${fa(c.delta)}` : `−${fa(-c.delta)}`}
+                  </span>
+                ))}
+              </div>
+              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+                <Coffee className="h-4 w-4 text-[#D64545]" />
+                <div className="h-2.5 w-16 overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
+                  <div className="h-full transition-all" style={{ width: `${hud.reputation}%`, backgroundColor: repColor }} />
+                </div>
+              </div>
+              {/* سلامت ماشین (فاز BIG-IR) */}
+              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+                <Wrench className="h-4 w-4 text-[#5d6d7e]" />
+                <div className="h-2.5 w-16 overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
+                  <div className="h-full transition-all" style={{ width: `${hud.health}%`, backgroundColor: healthColor }} />
+                </div>
+              </div>
+              {hud.showFps && (
+                <div className="fc-panel bg-[#3a2e2a]/85 px-2 py-0.5">
+                  <span className="text-[10px] font-bold text-white">FPS: {fa(hud.fps)}</span>
+                </div>
+              )}
+            </div>
+            {/* ستون وسط: تعقیب → مأموریت → گفتار → آموزش (همه موقتی/کوچک) */}
+            <div className="flex min-w-0 flex-col items-center gap-1.5">
               {/* v0.2.42 — بج تعقیب: پلیس/تاکسی عصبانی */}
               {hud.chase && (
                 <div
-                  className="fc-panel pointer-events-auto flex w-[188px] flex-col gap-1 border-2 p-2"
+                  className="fc-panel flex w-[188px] flex-col gap-1 border-2 p-2"
                   style={{
                     borderColor: hud.chase.kind === "police" ? "#5b8dd9" : "#e8a33d",
                     background: hud.chase.kind === "police" ? "rgba(91,141,217,0.14)" : "rgba(232,163,61,0.14)",
@@ -1487,148 +1560,119 @@ export default function GameShell() {
                   )}
                 </div>
               )}
-              {/* پنل مأموریت فعال (فاز 4) */}
+              {/* 🔑 v0.2.44 — پنل مأموریت فشرده وسط-بالا + فلش GPS داخل خود پنل (دیگر وسط جاده نیست) */}
               {hud.mission && (
-                <div className="fc-panel pointer-events-auto w-[188px] bg-[#FFF9EC]/95 p-2">
+                <div className="fc-panel pointer-events-auto w-[min(230px,52vw)] bg-[#FFF9EC]/95 p-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-[#3a2e2a]">{hud.mission.title}</span>
+                    <span className="truncate text-[11px] font-bold text-[#3a2e2a]">{hud.mission.title}</span>
                     <TapButton
                       ariaLabel="انصراف از مأموریت"
-                      className="h-6 w-6 bg-[#D64545] text-white"
+                      className="h-6 w-6 shrink-0 bg-[#D64545] text-white"
                       onTap={() => gameRef.current?.abandonMission()}
                     >
                       <X className="h-3.5 w-3.5" />
                     </TapButton>
                   </div>
-                  <p className="mt-0.5 text-[9px] font-medium leading-3 text-[#3a2e2a]/70">{hud.mission.objective}</p>
+                  <p className="mt-0.5 line-clamp-2 text-[9px] font-medium leading-3 text-[#3a2e2a]/70">{hud.mission.objective}</p>
+                  <div className="mt-1 flex items-center justify-between gap-1.5">
+                    {hud.mission.dirDeg !== null && hud.mission.distM > 12 && (
+                      <span className="flex shrink-0 items-center gap-1 rounded-full bg-[#2A9D8F] px-1.5 py-0.5 text-white">
+                        <svg
+                          className="fc-gps-arrow"
+                          width="11"
+                          height="11"
+                          viewBox="0 0 24 24"
+                          style={{ transform: `rotate(${hud.mission.dirDeg}deg)` }}
+                          aria-hidden="true"
+                        >
+                          <path d="M12 2 L19 21 L12 16 L5 21 Z" fill="#ffffff" stroke="#3a2e2a" strokeWidth="1.6" strokeLinejoin="round" />
+                        </svg>
+                        <span className="text-[9px] font-extrabold">{fa(hud.mission.distM)} متر</span>
+                      </span>
+                    )}
+                    {hud.mission.timeLeft >= 0 ? (
+                      <span className="text-[9px] font-extrabold text-[#3a2e2a]/80">{fa(Math.ceil(hud.mission.timeLeft))} ثانیه</span>
+                    ) : (
+                      <span className="text-[9px] font-extrabold text-[#3a2e2a]/80">هدف نزدیکه!</span>
+                    )}
+                  </div>
                   {hud.mission.timeLeft >= 0 && (
-                    <div className="mt-1">
-                      <div className="h-2 w-full overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
-                        <div
-                          className="h-full transition-all"
-                          style={{
-                            width: `${hud.mission.timeLimit > 0 ? Math.max(0, Math.min(100, (hud.mission.timeLeft / hud.mission.timeLimit) * 100)) : 0}%`,
-                            backgroundColor: hud.mission.timeLeft > 15 ? "#8AC926" : hud.mission.timeLeft > 7 ? "#F2B705" : "#D64545",
-                          }}
-                        />
-                      </div>
-                      <div className="mt-0.5 flex items-center justify-between text-[9px] font-bold text-[#3a2e2a]/80">
-                        <span>{fa(Math.ceil(hud.mission.timeLeft))} ثانیه</span>
-                        <span>{fa(hud.mission.distM)} متر</span>
-                      </div>
+                    <div className="mt-1 h-2 w-full overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
+                      <div
+                        className="h-full transition-all"
+                        style={{
+                          width: `${hud.mission.timeLimit > 0 ? Math.max(0, Math.min(100, (hud.mission.timeLeft / hud.mission.timeLimit) * 100)) : 0}%`,
+                          backgroundColor: hud.mission.timeLeft > 15 ? "#8AC926" : hud.mission.timeLeft > 7 ? "#F2B705" : "#D64545",
+                        }}
+                      />
                     </div>
                   )}
-                  {hud.mission.timeLeft < 0 && (
-                    <div className="mt-1 text-[9px] font-bold text-[#3a2e2a]/80">{fa(hud.mission.distM)} متر تا هدف</div>
-                  )}
-                  {/* 🔑 v0.2.43 — نوار پیشرفت مسیر */}
+                  {/* نوار پیشرفت مسیر (v0.2.43) */}
                   {hud.mission.progress !== null && (
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full border border-[#3a2e2a]/35 bg-white">
                       <div className="h-full bg-[#2A9D8F] transition-all" style={{ width: `${Math.round(hud.mission.progress * 100)}%` }} />
                     </div>
                   )}
                   {hud.mission.extra && (
-                    <div className="mt-1 rounded-full bg-[#FFF3D6] px-2 py-0.5 text-center text-[9px] font-bold text-[#3a2e2a]">{hud.mission.extra}</div>
+                    <div className="mt-1 truncate rounded-full bg-[#FFF3D6] px-2 py-0.5 text-center text-[9px] font-bold text-[#3a2e2a]">{hud.mission.extra}</div>
                   )}
                 </div>
               )}
-              <div className="fc-panel relative flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
-                <Coins className="h-4 w-4 text-[#B8801A]" />
-                <span key={hud.coins} className="fc-pop text-[11px] font-bold text-[#3a2e2a]">{fa(hud.coins)}</span>
-                {/* 🔑 v0.2.43 — سکه پران +۱۲ / −۸ */}
-                {coinFx.map((c) => (
-                  <span
-                    key={c.id}
-                    className={`fc-coin-fly absolute -top-1 left-1/2 -translate-x-1/2 text-[12px] font-black ${c.delta > 0 ? "text-[#5c9e1f]" : "text-[#D64545]"}`}
+              {/* 🔑 v0.2.44 — توست گفتار بازیکن (جای حباب وسط کانواس که جلوی دید بود) */}
+              {hud.say && <SayToast key={`${hud.say.speaker}:${hud.say.line}`} say={hud.say} />}
+              {/* 🔑 v0.2.43 — آموزش سه‌قدمی (وسط، زیر مأموریت — نزدیک دکمه‌هایی که یاد می‌دهد نیست ولی دید را نمی‌بندد) */}
+              {tutStep !== null && (
+                <div className="fc-panel pointer-events-auto flex items-center gap-2.5 bg-[#3a2e2a] px-4 py-2.5 text-white">
+                  {tutStep === 0 ? (
+                    <ArrowUp className="h-6 w-6 shrink-0 text-[#8AC926]" />
+                  ) : tutStep === 1 ? (
+                    <MoveHorizontal className="h-6 w-6 shrink-0 text-[#F2B705]" />
+                  ) : (
+                    <Megaphone className="h-6 w-6 shrink-0 text-[#e07be0]" />
+                  )}
+                  <p className="text-[12px] font-extrabold leading-5">
+                    {tutStep === 0
+                      ? "قدم ۱ از ۳ — دکمهٔ سبزِ گاز رو نگه دار تا راه بیفتی!"
+                      : tutStep === 1
+                        ? "قدم ۲ از ۳ — حالا با فرمان چپ/راست بپیچون!"
+                        : "قدم ۳ از ۳ — بوق بزن تا همه بفهمن اینجایی!"}
+                  </p>
+                  <button
+                    type="button"
+                    className="fc-btn shrink-0 rounded-xl bg-[#FFF9EC] px-2.5 py-1 text-[10px] font-extrabold text-[#3a2e2a]"
+                    onClick={finishTutorial}
                   >
-                    {c.delta > 0 ? `+${fa(c.delta)}` : `−${fa(-c.delta)}`}
-                  </span>
-                ))}
-              </div>
-              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
-                <Coffee className="h-4 w-4 text-[#D64545]" />
-                <div className="h-2.5 w-16 overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
-                  <div className="h-full transition-all" style={{ width: `${hud.reputation}%`, backgroundColor: repColor }} />
-                </div>
-              </div>
-              {/* سلامت ماشین (فاز BIG-IR) */}
-              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
-                <Wrench className="h-4 w-4 text-[#5d6d7e]" />
-                <div className="h-2.5 w-16 overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
-                  <div className="h-full transition-all" style={{ width: `${hud.health}%`, backgroundColor: healthColor }} />
-                </div>
-              </div>
-              {hud.showFps && (
-                <div className="fc-panel bg-[#3a2e2a]/85 px-2 py-0.5">
-                  <span className="text-[10px] font-bold text-white">FPS: {fa(hud.fps)}</span>
+                    رد کردن
+                  </button>
                 </div>
               )}
             </div>
+            {/* اسپیسر راست هم‌عرض مینی‌مپ تا ستون وسط واقعاً وسط بماند */}
+            <div className="shrink-0" style={{ width: mmSize }} aria-hidden="true" />
           </div>
 
-          {/* 🔑 v0.2.43 — سرعت‌سنج عقربه‌ای + فلش GPS (مرکز، بالای بلندترین خوشه) */}
+          {/* 🔑 v0.2.44 — سرعت‌سنج فشرده: پایین-وسط (عادی) / گوشهٔ آزاد (پله‌ای) / بالای خوشه (اکستریم) — پیش‌فرض دیگر جلوی دید نیست */}
           <div
-            className="pointer-events-none absolute inset-x-0 z-20 flex flex-col items-center gap-1.5"
-            style={{
-              bottom: geom.stacked
-                ? `calc(clamp(10px, 4vh, 28px) + (${geom.pedalH}px + ${geom.steer1}px) * ${ui.controlsScale} + 26px)`
-                : `calc(max(clamp(94px, 21vh, 134px), clamp(58px, 13vh, 84px) + clamp(8px, 1.6vh, 12px) + clamp(76px, 17vh, 108px)) * ${ui.controlsScale} + 18px)`,
-            }}
+            className="pointer-events-none absolute z-20"
+            style={
+              geom.gaugeMode === "center"
+                ? { left: "50%", transform: "translateX(-50%)", bottom: "clamp(8px, 2vh, 14px)" }
+                : geom.gaugeMode === "corner"
+                  ? ui.leftHanded
+                    ? { right: geom.edge, bottom: "clamp(8px, 2vh, 14px)" }
+                    : { left: geom.edge, bottom: "clamp(8px, 2vh, 14px)" }
+                  : {
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      bottom: `calc(clamp(10px, 4vh, 28px) + (${geom.pedalH}px + ${geom.steer1}px) * ${ui.controlsScale} + 16px)`,
+                    }
+            }
           >
-            <SpeedGauge kmh={hud.speedKmh} />
-            {hud.mission && hud.mission.dirDeg !== null && hud.mission.distM > 12 && (
-              <div
-                className="fc-panel flex items-center gap-1.5 bg-[#2A9D8F]/95 px-2 py-0.5 text-white shadow-lg"
-                style={{ borderRadius: "999px", borderWidth: 3 }}
-              >
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white">
-                  <svg
-                    className="fc-gps-arrow"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    style={{ transform: `rotate(${hud.mission.dirDeg}deg)` }}
-                    aria-hidden="true"
-                  >
-                    <path d="M12 2 L19 21 L12 16 L5 21 Z" fill="#2A9D8F" stroke="#3a2e2a" strokeWidth="1.8" strokeLinejoin="round" />
-                  </svg>
-                </span>
-                <span className="text-[10px] font-extrabold">{fa(hud.mission.distM)} متر</span>
-              </div>
-            )}
+            <SpeedGauge kmh={hud.speedKmh} w={geom.gaugeW} />
           </div>
 
           {/* 🔑 v0.2.43 — وینیت قرمز ضربه */}
           {hitFxKey > 0 && <div key={hitFxKey} className="fc-vignette absolute inset-0 z-30" />}
-
-          {/* 🔑 v0.2.43 — آموزش سه‌قدمی */}
-          {tutStep !== null && (
-            <div className="pointer-events-none absolute inset-x-0 top-[132px] z-30 flex justify-center px-4">
-              <div className="fc-panel pointer-events-auto flex items-center gap-2.5 bg-[#3a2e2a] px-4 py-2.5 text-white">
-                {tutStep === 0 ? (
-                  <ArrowUp className="h-6 w-6 shrink-0 text-[#8AC926]" />
-                ) : tutStep === 1 ? (
-                  <MoveHorizontal className="h-6 w-6 shrink-0 text-[#F2B705]" />
-                ) : (
-                  <Megaphone className="h-6 w-6 shrink-0 text-[#e07be0]" />
-                )}
-                <p className="text-[12px] font-extrabold leading-5">
-                  {tutStep === 0
-                    ? "قدم ۱ از ۳ — دکمهٔ سبزِ گاز رو نگه دار تا راه بیفتی!"
-                    : tutStep === 1
-                      ? "قدم ۲ از ۳ — حالا با فرمان چپ/راست بپیچون!"
-                      : "قدم ۳ از ۳ — بوق بزن تا همه بفهمن اینجایی!"}
-                </p>
-                <button
-                  type="button"
-                  className="fc-btn shrink-0 rounded-xl bg-[#FFF9EC] px-2.5 py-1 text-[10px] font-extrabold text-[#3a2e2a]"
-                  onClick={finishTutorial}
-                >
-                  رد کردن
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* کنترل‌ها — v0.2.43: اندازه/شفافیت قابل‌تنظیم + حالت چپ‌دست + چیدمان پله‌ای هوشمند
               (اگر خوشه‌ها در عرض صفحه جا نشوند، فرمان بالا می‌رود تا هرگز هم‌پوشان نشوند) */}
