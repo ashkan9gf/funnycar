@@ -25,7 +25,7 @@ import { TrafficLights } from '../world/TrafficLights';
 import { WorldRenderer } from '../world/WorldRenderer';
 import { WorldRenderer3D } from '../render3d/WorldRenderer3D';
 import type { CarVariant } from '../render3d/CarFactory3D';
-import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS, CHASE } from '../data/balance';
+import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS, CHASE, FUEL, RESPAWN_DROP } from '../data/balance';
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId, type VehicleTuning } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
 import { MISSION_LIST } from '../data/missions';
@@ -34,6 +34,7 @@ import { PLAYER_VEHICLES, vehicleById, VEHICLE_FACTORY_COLORS } from '../data/ve
 import { roadCenter, WORLD as WR } from '../world/World';
 import { SPEAKER_PORTRAIT } from '../data/assets.manifest';
 import { DIALOGUES } from '../data/dialogues';
+import type { ControlMode } from './SaveManager';
 
 export type GameState = 'boot' | 'menu' | 'playing' | 'paused';
 
@@ -63,6 +64,10 @@ export interface HudData {
   chase: { kind: 'police' | 'taxi'; dist: number; bust: number; /** v0.2.43 — ستاره‌های تعقیب ۱..۳ */ stars: number } | null;
   /** 🔑 v0.2.44 — جملهٔ گفتار فعال بازیکن (به‌جای حباب روی کانواس که جلوی دید بود) */
   say: { line: string; speaker: string; portrait: string } | null;
+  /** 🔑 v0.2.45 — باک بنزین ۰..۱۰۰ */
+  fuel: number;
+  /** 🔑 v0.2.45 — زون کاربردی فعال (سوخت‌گیری/ترمیم) — null = هیچ */
+  zone: 'fuel' | 'repair' | null;
 }
 
 /** نتیجه مأموریت برای پوسته React (فاز 4) */
@@ -197,6 +202,13 @@ export class GameManager {
   private breakCooldown = 0;
   private damageSmokeTimer = 0;
   private repairVoiceLatch = false;
+  /** 🔑 v0.2.45 — انیمیشن سقوط ماشین از آسمان (دکمهٔ ریفرش) — >=۰ = فعال */
+  private dropT = -1;
+  /** 🔑 v0.2.45 — لچ هشدارهای بنزین (یک بار در هر سقوط) */
+  private fuelWarnLatch = false;
+  private fuelEmptyLatch = false;
+  /** 🔑 v0.2.45 — زون کاربردی فعال (برای HUD) */
+  private zoneActive: 'fuel' | 'repair' | null = null;
   private engineDeadShown = false;
   private brakeSoundLatch = false;
   private skidSoundTimer = 0;
@@ -645,6 +657,10 @@ export class GameManager {
   }
   setVirtualGas(v: boolean): void { this.input.setVirtualGas(v); }
   setVirtualBrake(v: boolean): void { this.input.setVirtualBrake(v); }
+  /** 🔑 v0.2.45 — فرمان آنالوگ (فرمان‌دستی/ژیروسکوپ) — null = برگشت به دکمه‌ها */
+  setVirtualSteerAnalog(v: number | null): void { this.input.setVirtualSteerAnalog(v); }
+  /** 🔑 v0.2.45 — چرخش ۳۶۰ درجهٔ دوربین با کشیدن انگشت (بعد از رها شدن، نرم برمی‌گردد) */
+  orbitCamera(delta: number): void { this.renderer3d?.orbitBy(delta); }
   pressHorn(): void {
     if (this.state !== 'playing') return;
     // فاز ۷: بوق شخصی بازیکن — امضای صوتی هر بوق جداست
@@ -686,7 +702,7 @@ export class GameManager {
   getSave() { return this.save.get(); }
 
   /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) — clamp و ذخیره */
-  setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration'>>): void {
+  setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode'>>): void {
     this.save.mutate((d) => {
       if (typeof p.controlsScale === 'number' && Number.isFinite(p.controlsScale)) {
         d.settings.controlsScale = Math.min(1.5, Math.max(0.8, p.controlsScale));
@@ -696,6 +712,11 @@ export class GameManager {
       }
       if (typeof p.leftHanded === 'boolean') d.settings.leftHanded = p.leftHanded;
       if (typeof p.vibration === 'boolean') d.settings.vibration = p.vibration;
+      // 🔑 v0.2.45 — مود رانندگی + خروج امن از حالت آنالوگ
+      if (p.controlMode === 'buttons' || p.controlMode === 'wheel' || p.controlMode === 'tilt') {
+        d.settings.controlMode = p.controlMode;
+        if (p.controlMode === 'buttons') this.input.setVirtualSteerAnalog(null);
+      }
     });
   }
 
@@ -1296,16 +1317,19 @@ export class GameManager {
     }
   }
 
-  /** زون تعمیرگاه: ترمیم تدریجی داخل شعاع */
+  /** زون تعمیرگاه: ترمیم تدریجی داخل شعاع (فقط زون‌های kind=repair — v0.2.45) */
   private updateRepairZones(dt: number, nowMs: number): void {
     const v = this.vehicle;
-    if (v.health >= DAMAGE.maxHealth) {
-      this.repairVoiceLatch = false;
-      return;
-    }
+    this.zoneActive = null;
     for (const z of this.world.repairZones) {
+      if (z.kind !== 'repair') continue;
       const d = Math.hypot(v.x - z.x, v.y - z.y);
       if (d > DAMAGE.repairRadius) continue;
+      this.zoneActive = 'repair';
+      if (v.health >= DAMAGE.maxHealth) {
+        this.repairVoiceLatch = false;
+        return;
+      }
 
       v.health = Math.min(DAMAGE.maxHealth, v.health + DAMAGE.repairRate * dt);
       if (Math.random() < 0.25) {
@@ -1324,6 +1348,33 @@ export class GameManager {
       }
       break;
     }
+  }
+
+  /** 🔑 v0.2.45 — زون پمپ بنزین: سوخت‌گیری تدریجی داخل شعاع */
+  private updateFuelZones(dt: number, nowMs: number): void {
+    const v = this.vehicle;
+    for (const z of this.world.repairZones) {
+      if (z.kind !== 'fuel') continue;
+      const d = Math.hypot(v.x - z.x, v.y - z.y);
+      if (d > DAMAGE.repairRadius) continue;
+      this.zoneActive = 'fuel';
+      if (v.refuel(dt)) {
+        // باک پر شد — جشن کوچک + جمله طنز
+        this.audio.coin();
+        this.fx.spawnBurst(v.x, v.y, '#F2B705', 12, 140);
+        this.voice.trigger('fuel_done', nowMs);
+      }
+      return;
+    }
+  }
+
+  /** 🔑 v0.2.45 — دکمهٔ ریفرش (ضدگیرکردن): ماشین از آسمان همان‌جا می‌افتد پایین */
+  respawnDrop(): void {
+    if (this.state !== 'playing' || this.dropT >= 0) return;
+    this.vehicle.speed = 0;
+    this.vehicle.latVel = 0;
+    this.dropT = 0;
+    this.voice.trigger('car_drop', performance.now());
   }
 
   /** اسکران به تعمیرگاه بعد از خاموشی — از پوسته React (فاز BIG-IR) */
@@ -1405,6 +1456,26 @@ export class GameManager {
   };
 
   private step(dt: number): void {
+    // ---------- 🔑 v0.2.45 — انیمیشن سقوط از آسمان: ماشین معلق است، فیزیک خاموش ----------
+    if (this.dropT >= 0) {
+      this.dropT += dt;
+      this.audio.setEngineSpeed(0);
+      if (this.dropT >= RESPAWN_DROP.durSec) {
+        this.dropT = -1;
+        // فرود: کوبش + غبار + لرزش
+        this.camera.addShake(CAM.maxShake * 0.65);
+        this.audio.bump();
+        this.fx.spawnBurst(this.vehicle.x, this.vehicle.y + 50, 'rgba(190,170,130,0.95)', 12, 150);
+        this.fx.spawnBurst(this.vehicle.x, this.vehicle.y + 50, 'rgba(220,205,170,0.9)', 8, 110);
+      }
+      // ترافیک شهر زنده می‌ماند؛ ماشین ما frozen است (بدون برخورد/مأموریت/زون)
+      this.lights.update(dt);
+      this.traffic.update(dt, this.vehicle);
+      this.fx.update(dt);
+      this.camera.update(dt, this.vehicle.x, this.vehicle.y, 0, 0);
+      return;
+    }
+
     // ---------- شهر بی‌پایان: قطعه‌های فعال دور بازیکن (ارزان — داده منطقی) ----------
     this.world.updateStreaming(this.vehicle.x, this.vehicle.y);
 
@@ -1542,8 +1613,21 @@ export class GameManager {
       this.mission.onCrash('hard');
     }
 
-    // ---------- زون‌های تعمیرگاه (فاز BIG-IR) ----------
+    // ---------- زون‌های تعمیرگاه و پمپ بنزین (فاز BIG-IR + v0.2.45) ----------
     this.updateRepairZones(dt, nowMs);
+    this.updateFuelZones(dt, nowMs);
+    // 🔑 v0.2.45 — مصرف بنزین + هشدارها (خالی = موتور بی‌نفس، نه خاموشی)
+    this.vehicle.drainFuel(dt);
+    if (this.vehicle.fuel <= FUEL.warnBelow && this.vehicle.fuel > 0 && !this.fuelWarnLatch) {
+      this.fuelWarnLatch = true;
+      this.voice.trigger('fuel_low', nowMs);
+    }
+    if (this.vehicle.fuel > FUEL.warnBelow + 10) this.fuelWarnLatch = false;
+    if (this.vehicle.fuel <= 0 && !this.fuelEmptyLatch) {
+      this.fuelEmptyLatch = true;
+      this.voice.trigger('fuel_empty', nowMs);
+    }
+    if (this.vehicle.fuel > 0) this.fuelEmptyLatch = false;
 
     // ---------- رویدادهای تصادفی (فاز 2) ----------
     this.randomEvents.update(dt, this.vehicle);
@@ -1683,6 +1767,18 @@ export class GameManager {
 
   /** یک فریم کامل سه‌بعدی: صحنه + اورلی (حباب‌ها و فلش هدف) */
   private draw3DFrame(mTarget: { x: number; y: number } | null): void {
+    // 🔑 v0.2.45 — ارتفاع سقوط ماشین (دکمهٔ ریفرش): بالا رفتن → معلق → سقوط گرانشی
+    let playerLift = 0;
+    if (this.dropT >= 0) {
+      const t01 = Math.min(1, this.dropT / RESPAWN_DROP.durSec);
+      if (t01 < RESPAWN_DROP.riseFrac) {
+        const f = t01 / RESPAWN_DROP.riseFrac;
+        playerLift = RESPAWN_DROP.maxHeight * (1 - (1 - f) * (1 - f)); // ease-out بالا رفتن
+      } else {
+        const f = (t01 - RESPAWN_DROP.riseFrac) / (1 - RESPAWN_DROP.riseFrac);
+        playerLift = RESPAWN_DROP.maxHeight * (1 - f * f); // گرانش: شتاب مثبت به پایین
+      }
+    }
     this.renderer3d!.draw3D({
       car: this.vehicle,
       traffic: this.traffic.cars,
@@ -1695,9 +1791,11 @@ export class GameManager {
       guardCars: this.mission.getGuardCars() as GuardCar[],
       // 🔑 v0.2.44 — حباب بازیکن به HUD منتقل شد (toast بالای صفحه؛ حباب وسط کانواس جلوی دید را می‌گرفت)
       playerBubble: null,
+      // 🔑 v0.2.45 — ارتفاع سقوط ماشین (دکمهٔ ریفرش)
+      playerLift,
       // ---------- فاز GRAPHICS_OVERHAUL ----------
       braking: this.lastInput.brake,
-      accelerating: this.lastInput.gas && !this.vehicle.dead,
+      accelerating: this.lastInput.gas && !this.vehicle.dead && this.vehicle.fuel > 0,
       steer: this.lastInput.steer,
       debug: this.showFps,
       fps: this.fpsValue,
@@ -1749,6 +1847,9 @@ export class GameManager {
             portrait: SPEAKER_PORTRAIT[this.voice.current.speaker] ?? 'char_driver_01_idle',
           }
         : null,
+      // 🔑 v0.2.45 — باک بنزین + زون کاربردی فعال
+      fuel: Math.round(this.vehicle.fuel),
+      zone: this.zoneActive,
     });
   }
 

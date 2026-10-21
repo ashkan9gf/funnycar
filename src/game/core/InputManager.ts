@@ -21,6 +21,8 @@ export class InputManager {
   private keys = new Set<string>();
   private virtual = { left: false, right: false, gas: false, brake: false };
   private hornEdge = false;
+  /** 🔑 v0.2.45 — فرمان آنالوگ (فرمان‌دستی/ژیروسکوپ) — null = غیرفعال (دکمه‌ها)؛ -1..1 = فعال */
+  private analogSteer: number | null = null;
   /** جلوگیری از تکرار رویداد کیبورد وقتی در input/textbox هستیم */
   private enabled = true;
 
@@ -60,6 +62,10 @@ export class InputManager {
   setVirtualRight(v: boolean): void { this.virtual.right = v; }
   setVirtualGas(v: boolean): void { this.virtual.gas = v; }
   setVirtualBrake(v: boolean): void { this.virtual.brake = v; }
+  /** 🔑 v0.2.45 — فرمان آنالوگ: فرمان‌دستی (چرخش انگشت) و ژیروسکوپ اینجا می‌ریزند */
+  setVirtualSteerAnalog(v: number | null): void {
+    this.analogSteer = v === null ? null : Math.max(-1, Math.min(1, v));
+  }
   pressHorn(): void { this.hornEdge = true; }
 
   /**
@@ -71,7 +77,10 @@ export class InputManager {
     const keyGas = this.keys.has('arrowup') || this.keys.has('w');
     const keyBrake = this.keys.has('arrowdown') || this.keys.has('s') || this.keys.has(' ');
 
-    const steerRaw = (this.virtual.right || keyRight ? 1 : 0) - (this.virtual.left || keyLeft ? 1 : 0);
+    // 🔑 v0.2.45 — آنالوگ فعال است؟ (فرمان/ژیروسکوپ) — دکمه‌های چپ/رست پشت آن بی‌اثرند
+    const steerRaw = this.analogSteer !== null
+      ? this.analogSteer
+      : (this.virtual.right || keyRight ? 1 : 0) - (this.virtual.left || keyLeft ? 1 : 0);
     const state: InputState = {
       steer: steerRaw,
       gas: this.virtual.gas || keyGas,

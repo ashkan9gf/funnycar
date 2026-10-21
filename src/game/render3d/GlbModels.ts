@@ -542,15 +542,28 @@ export function assembleCarFromGLB(
       axisWorld.y = 0;
       if (axisWorld.lengthSq() < 1e-6) axisWorld.set(1, 0, 0);
       axisWorld.normalize();
-      // جهت: جلو = -Z جهانی؛ نقطه بالای چرخ باید به -Z حرکت کند → ωx منفی
-      const sign = axisWorld.x > 0 ? -1 : 1;
       // محور به فضای محلی spinner + 🔑 SNAP به محور اصلی — چرخ هیچ‌وقت کج نچرخد
       spinner.getWorldQuaternion(tmpQ).invert();
       const axisLocal = axisWorld.clone().applyQuaternion(tmpQ).normalize();
       if (Math.abs(axisLocal.x) >= Math.abs(axisLocal.z)) axisLocal.set(Math.sign(axisLocal.x) || 1, 0, 0);
       else axisLocal.set(0, 0, Math.sign(axisLocal.z));
-      // 🔑 base مطلق + angle تجمعی — spinWheels هر فریم quaternion مطلق می‌سازد (صفر drift)
-      extWheels.push({ spinner, axis: axisLocal, sign, base: spinner.quaternion.clone(), angle: 0 });
+      // 🔑 v0.2.45 — جهت چرخش «حسابی» نه حدسی (فیکس چرخش لاستیک):
+      // قدیم: حدس از علامت axisWorld.x — برای چرخ‌های محور-Z (اکسپورت‌های خاص) برعکس درمی‌آمد.
+      // جدید: سرعت نقطهٔ بالای چرخ در چرخش +۱ حول محور واقعی را با بردار جلوی مدل مقایسه می‌کنیم؛
+      // اگر بالای چرخ به سمت جلو رفت → جهت مثبت درست است، وگرنه منفی.
+      {
+        const qSpin = spinner.getWorldQuaternion(new THREE.Quaternion());
+        const invQ = qSpin.clone().invert();
+        // نقطهٔ بالای چرخ (جهت Y جهانی) در فضای spinner — فقط جهت مهم است نه شعاع
+        const topLocal = new THREE.Vector3(0, 1, 0).applyQuaternion(invQ);
+        // سرعت چرخش حول axisLocal: v = ω × r
+        const vWorld = new THREE.Vector3().crossVectors(axisLocal, topLocal).applyQuaternion(qSpin);
+        // جلوی مدل: -Z محلی مدل (رندرر rotation.y=-angle می‌گذارد؛ جلو=(sin,−cos))
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(g.getWorldQuaternion(new THREE.Quaternion()));
+        const sign = vWorld.dot(fwd) > 0 ? 1 : -1;
+        // 🔑 base مطلق + angle تجمعی — spinWheels هر فریم quaternion مطلق می‌سازد (صفر drift)
+        extWheels.push({ spinner, axis: axisLocal, sign, base: spinner.quaternion.clone(), angle: 0 });
+      }
 
       // محور فرمان (Y جهانی) در فضای محلی پیوت
       cl.pivot.getWorldQuaternion(tmpQ).invert();

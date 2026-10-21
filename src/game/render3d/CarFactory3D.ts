@@ -45,7 +45,9 @@ export function spinWheels(model: CarModel3D, amount: number): void {
       ew.spinner.quaternion.copy(ew.base).multiply(_spinQ.setFromAxisAngle(ew.axis, ew.angle));
     }
   } else {
-    for (const w of model.wheels) w.rotation.x += amount;
+    // 🔑 v0.2.45 — فیکس «چرخش لاستیک»: جلوی ماشین -Z است؛ بالای چرخ در حرکت جلو باید به -Z برود
+    // → چرخش حول +X باید منفی باشد (قدیم += بود و چرخ‌های پروسیجرال برعکس می‌چرخیدند!)
+    for (const w of model.wheels) w.rotation.x -= amount;
   }
 }
 

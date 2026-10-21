@@ -12,6 +12,8 @@ import { DEFAULT_PAINT_ID, PAINT_IDS, UPGRADES, MAX_UPGRADE_LEVEL, type UpgradeI
 import { DEFAULT_HORN_ID, HORN_IDS } from '../data/horns';
 import { PLAYER_VEHICLES } from '../data/vehicles';
 
+export type ControlMode = 'buttons' | 'wheel' | 'tilt';
+
 export interface GameSettings {
   music: number;  // 0..1
   sfx: number;
@@ -24,6 +26,8 @@ export interface GameSettings {
   controlsOpacity: number;
   /** 🔑 v0.2.43 — چیدمان چپ‌دست: فرمان راست، پدال‌ها چپ */
   leftHanded: boolean;
+  /** 🔑 v0.2.45 — مود رانندگی: دکمه‌ای / فرمان و پدال / ژیروسکوپ */
+  controlMode: ControlMode;
 }
 
 export interface SaveData {
@@ -57,7 +61,7 @@ function defaultSave(): SaveData {
     unlockedVehicles: ['veh_player_01'],
     selectedVehicle: 'veh_player_01',
     completedMissions: [],
-    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true, graphicsQuality: 'balanced', controlsScale: 1, controlsOpacity: 1, leftHanded: false },
+    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true, graphicsQuality: 'balanced', controlsScale: 1, controlsOpacity: 1, leftHanded: false, controlMode: 'buttons' },
     progress: { tutorialDone: false, firstRunDone: false },
     upgrades: defaultUpgrades(),
     ownedPaints: [DEFAULT_PAINT_ID],
@@ -165,6 +169,10 @@ function migrateSettings(raw: unknown, base: GameSettings): GameSettings {
     controlsScale: clampedNum(value.controlsScale, base.controlsScale, 0.8, 1.5),
     controlsOpacity: clampedNum(value.controlsOpacity, base.controlsOpacity, 0.4, 1),
     leftHanded: typeof value.leftHanded === 'boolean' ? value.leftHanded : base.leftHanded,
+    // v0.2.45 — مود رانندگی (سیوهای قدیمی → دکمه‌ای)
+    controlMode: value.controlMode === 'wheel' || value.controlMode === 'tilt'
+      ? value.controlMode
+      : 'buttons',
   };
 }
 

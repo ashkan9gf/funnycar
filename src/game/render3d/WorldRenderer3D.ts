@@ -80,6 +80,8 @@ export interface Draw3DOptions {
   accelerating?: boolean;
   /** فرمان -1..1 (فرمان بصری چرخ‌های جلو) */
   steer?: number;
+  /** 🔑 v0.2.45 — ارتفاع سقوط ماشین (دکمهٔ ریفرش) — px جهانی به بالا */
+  playerLift?: number;
   /** نمایش اطلاعات دیباگ (کلید F) */
   debug?: boolean;
   fps?: number;
@@ -461,6 +463,10 @@ export class WorldRenderer3D {
 
   // دوربین
   private camAngle = 0;
+  /** 🔑 v0.2.45 — چرخش ۳۶۰ درجهٔ دستی دوربین (کشیدن انگشت روی صحنه) — رادیان نسبی پشت ماشین */
+  private camOrbit = 0;
+  /** آخرین زمان کشیدن — بعد از ~۱٫۱ ثانیه رها شدن، نرم به پشت ماشین برمی‌گردد */
+  private camOrbitAt = -99999;
   private lastDrawMs = 0;
   private dpr = 1;
   private overlayW = 1;
@@ -3094,7 +3100,8 @@ export class WorldRenderer3D {
     this.suspensionVelocity += (springTarget - this.suspensionY) * 34 * springDt;
     this.suspensionVelocity *= Math.exp(-9.5 * springDt);
     this.suspensionY = Math.max(-2.2, Math.min(2.2, this.suspensionY + this.suspensionVelocity * springDt));
-    this.playerModel.group.position.set(car.x, this.suspensionY, car.y);
+    // 🔑 v0.2.45 — دکمهٔ ریفرش: ماشین از آسمان می‌افتد پایین (بالا رفتن + سقوط گرانشی)
+    this.playerModel.group.position.set(car.x, this.suspensionY + (opts.playerLift ?? 0), car.y);
     this.playerModel.group.rotation.y = -car.angle;
     const wheelR = car.drawH * 0.135;
     const spin = (car.speed / wheelR) * frameDt;
@@ -3496,6 +3503,13 @@ export class WorldRenderer3D {
     this.drawOverlay(opts, t);
   }
 
+  /** 🔑 v0.2.45 — چرخش دوربین با کشیدن انگشت (دلتای پیکسل → دلتای رادیان سمت React محاسبه می‌شود) */
+  orbitBy(deltaRad: number): void {
+    // کامل ۳۶۰ درجه آزاد است؛ فقط از فرفره‌شدن بیش‌ازحد جلوگیری می‌کنیم
+    this.camOrbit = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, this.camOrbit + deltaRad));
+    this.camOrbitAt = performance.now();
+  }
+
   private updateChaseCamera(car: Vehicle, dt: number, t: number): void {
     // زاویهٔ دوربین با کوتاه‌ترین مسیر دنبال می‌شود.
     let diff = car.angle - this.camAngle;
@@ -3503,9 +3517,16 @@ export class WorldRenderer3D {
     while (diff < -Math.PI) diff += Math.PI * 2;
     this.camAngle += diff * Math.min(1, RENDER3D.camAngleLerp * dt);
 
+    // 🔑 v0.2.45 — بعد از رها کردن انگشت، چرخش دستی نرم به پشت ماشین برمی‌گردد
+    if (performance.now() - this.camOrbitAt > 1100 && this.camOrbit !== 0) {
+      this.camOrbit *= Math.exp(-2.6 * Math.max(dt, 1 / 60));
+      if (Math.abs(this.camOrbit) < 0.004) this.camOrbit = 0;
+    }
+    const orbitAngle = this.camAngle + this.camOrbit;
+
     const speedFrac = Math.min(1, Math.abs(car.speed) / 380);
-    const fx = Math.sin(this.camAngle);
-    const fz = -Math.cos(this.camAngle);
+    const fx = Math.sin(orbitAngle);
+    const fz = -Math.cos(orbitAngle);
     const back = RENDER3D.camBack + Math.abs(car.speed) * RENDER3D.camBackPerSpeed + speedFrac * 24;
     const targetHeight = RENDER3D.camHeight + speedFrac * 18;
     const safeDt = Math.min(dt, 1 / 30);
@@ -3514,8 +3535,8 @@ export class WorldRenderer3D {
     // without changing vehicle physics or creating extra scene objects.
     const slip = Math.max(-1, Math.min(1, car.latVel / 105));
     const driftLead = slip * speedFrac * 20;
-    const rightX = Math.cos(this.camAngle);
-    const rightZ = Math.sin(this.camAngle);
+    const rightX = Math.cos(orbitAngle);
+    const rightZ = Math.sin(orbitAngle);
     const desired = this.tmpP.set(
       car.x - fx * back + rightX * driftLead,
       targetHeight,

@@ -8,7 +8,7 @@
  *  - سلامت (health): برخورد با موانع بزرگ آسیب می‌زند؛ سرعت بیشینه افت می‌کند
  */
 
-import { VEHICLE_PHYSICS as VP, COLLISION, DRIFT, DAMAGE } from '../data/balance';
+import { VEHICLE_PHYSICS as VP, COLLISION, DRIFT, DAMAGE, FUEL } from '../data/balance';
 import { NEUTRAL_TUNING, type VehicleTuning } from '../data/garage';
 import { obbFromAngle, obbFromAABB, satOverlapMTV } from './obb';
 
@@ -65,6 +65,9 @@ export class Vehicle {
   /** فاز ۶ گاراژ — ضرایب آپگرید (پیش‌فرض: کارخانه) */
   tune: VehicleTuning = { ...NEUTRAL_TUNING };
 
+  /** 🔑 v0.2.45 — باک بنزین ۰..۱۰۰ (۰ = موتور به نفس نمی‌رسد) */
+  fuel: number = FUEL.max;
+
   /** جعبه برخورد کوچک‌تر از رسم (راندمان و حس بهتر) */
   get hitW(): number { return this.drawW * 0.82; }
   get hitH(): number { return this.drawH * 0.9; }
@@ -75,6 +78,8 @@ export class Vehicle {
     this.angle = angle;
     this.speed = 0;
     this.latVel = 0;
+    // 🔑 v0.2.45 — شروع/مأموریت جدید = باک پر (سرویس قبل از حرکت!)
+    this.fuel = FUEL.max;
   }
 
   /** ماشین کامل ترمیم شد (زون تعمیرگاه/اسکران) */
@@ -97,10 +102,15 @@ export class Vehicle {
     return this.health <= 0;
   }
 
-  /** سرعت بیشینه مؤثر با توجه به خرابی (تا -35%) و آپگرید موتور (فاز ۶) */
+  /** 🔑 v0.2.45 — ضریب توان موتور با توجه به باک (خالی = ۳۴٪ قدرت — نه خاموشی کامل) */
+  private get powerMul(): number {
+    return this.fuel > 0 ? 1 : FUEL.emptyPowerMul;
+  }
+
+  /** سرعت بیشینه مؤثر با توجه به خرابی (تا -35%) و آپگرید موتور (فاز ۶) و باک (v0.2.45) */
   get maxSpeed(): number {
     const k = 1 - DAMAGE.maxSpeedPenalty * (1 - this.health / DAMAGE.maxHealth);
-    return VP.maxSpeed * this.tune.maxSpeedMul * k;
+    return VP.maxSpeed * this.tune.maxSpeedMul * k * this.powerMul;
   }
 
   get vx(): number { return Math.sin(this.angle) * this.speed; }
@@ -116,6 +126,19 @@ export class Vehicle {
     return dot < 0; // نرمال خلاف جهت جلو = مانع جلوی ماشین است
   }
 
+  /** 🔑 v0.2.45 — مصرف بنزین (هر گام فیزیک) — بیکاری تقریباً صفر، سرعت بیشتر = مصرف بیشتر */
+  drainFuel(dt: number): void {
+    if (this.fuel <= 0) return;
+    this.fuel = Math.max(0, this.fuel - (FUEL.drainBase + Math.abs(this.speed) * FUEL.drainPerSpeed) * dt);
+  }
+
+  /** 🔑 v0.2.45 — سوخت‌گیری در زون پمپ بنزین؛ true = باک پر شد */
+  refuel(dt: number): boolean {
+    if (this.fuel >= FUEL.max) return false;
+    this.fuel = Math.min(FUEL.max, this.fuel + FUEL.refillRate * dt);
+    return this.fuel >= FUEL.max;
+  }
+
   /**
    * یک گام فیزیک (dt ثابت 1/120) — ورودی از InputManager.collect
    */
@@ -126,7 +149,11 @@ export class Vehicle {
     const cap = this.maxSpeed;
     const prevSpeed = this.speed;
     if (input.gas) {
-      this.speed += VP.accel * this.tune.accelMul * dt;
+      // 🔑 v0.2.45 — شتاب تدریجی: نزدیک سقف، گشتاور موتور کم می‌شود (خم توان)
+      // 0..40٪ سرعت = شتاب کامل؛ بعدش نرم تا ~۲۲٪ در سقف → «سرعت کم‌کم بالا می‌ره»
+      const frac = Math.max(0, this.speed) / cap;
+      const curve = 1 - VP.accelCurve * frac * frac;
+      this.speed += VP.accel * this.tune.accelMul * curve * dt;
     } else if (input.brake) {
       if (this.speed > 8) {
         this.speed -= VP.brake * this.tune.brakeMul * dt;
@@ -197,13 +224,13 @@ export class Vehicle {
       res.nx = mtv.x;
       res.ny = mtv.y;
 
-      // نقطه تماس تقریبی: گوشه ماشین در جهت نرمال (برای ذرات/خرابی)
-      const alongF = mtv.x * playerBox.ax + mtv.y * playerBox.ay;
-      const alongR = mtv.x * playerBox.bx + mtv.y * playerBox.by;
-      const pushF = Math.abs(alongF) >= Math.abs(alongR) ? Math.sign(alongF) * playerBox.ha : 0;
-      const pushR = pushF === 0 ? Math.sign(alongR) * playerBox.hb : 0;
-      res.impactX = this.x + playerBox.ax * pushF + playerBox.bx * pushR;
-      res.impactY = this.y + playerBox.ay * pushF + playerBox.by * pushR;
+      // 🔑 v0.2.45 — نقطهٔ تماس واقعی: نزدیک‌ترین نقطهٔ AABB مانع به مرکز ماشین؛
+      // برای ذرات درست‌تر است و مهم‌تر: گشتاور ضربهٔ گوشه‌ای از همین r حساب می‌شود
+      // (تخمین قدیمی همیشه وسط وجه ماشین می‌افتاد → گشتاور همیشه صفر بود)
+      const clampCx = Math.max(c.x, Math.min(this.x, c.x + c.w));
+      const clampCy = Math.max(c.y, Math.min(this.y, c.y + c.h));
+      res.impactX = clampCx;
+      res.impactY = clampCy;
 
       // آسیب داینامیک با جهت برخورد (جلو/عقب — فاز BIG-IR)
       // فقط برخورد واقعی (سرعت > آستانه نرم) آسیب می‌زند — ساییدنِ ایستانه صفر
@@ -221,6 +248,19 @@ export class Vehicle {
         hardImpact ? COLLISION.hardRestitution : COLLISION.restitution,
         hardImpact ? COLLISION.hardTangentRetention : COLLISION.tangentRetention,
       );
+
+      // 🔑 v0.2.45 — گشتاور طبیعی: ضربهٔ گوشه‌ای (خارج از مرکز) ماشین را می‌چرخاند؛
+      // ضربه‌های وسط‌بدنه گشتاور تقریباً صفر دارند → برخورد سر‌به‌سر مستقیم می‌ماند
+      if (axisImpact > COLLISION.softCrashSpeed) {
+        const rx = res.impactX - this.x;
+        const ry = res.impactY - this.y;
+        // نیروی وارد بر ماشین = خلاف نرمال جداسازی (مانع ماشین را هل می‌دهد)
+        const Fx = -mtv.x * axisImpact;
+        const Fy = -mtv.y * axisImpact;
+        const torque = rx * Fy - ry * Fx;
+        const kick = Math.max(-COLLISION.spinKickMax, Math.min(COLLISION.spinKickMax, torque * COLLISION.spinKick));
+        this.angle += kick;
+      }
 
       if (axisImpact > COLLISION.softCrashSpeed) {
         res.crashed = true;

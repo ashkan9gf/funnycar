@@ -10,8 +10,8 @@ import type { GameSettings } from './core/SaveManager';
 import type { MissionCategory } from './data/missions';
 import type { UpgradeId } from './data/garage';
 
-/** 🔑 v0.2.43 — تنظیمات کنترل لمسی (بین موتور و پوستهٔ React) */
-export type UiPrefs = Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration'>;
+/** 🔑 v0.2.43 + v0.2.45 — تنظیمات کنترل لمسی (بین موتور و پوستهٔ React) */
+export type UiPrefs = Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode'>;
 
 export interface MissionListItem {
   id: string;
@@ -37,6 +37,12 @@ export interface GameInstance {
   setVirtualSteer: (dir: -1 | 0 | 1) => void;
   setVirtualGas: (v: boolean) => void;
   setVirtualBrake: (v: boolean) => void;
+  /** 🔑 v0.2.45 — فرمان آنالوگ برای مود فرمان‌دستی/ژیروسکوپ (null = غیرفعال) */
+  setVirtualSteerAnalog: (v: number | null) => void;
+  /** 🔑 v0.2.45 — چرخش ۳۶۰ درجهٔ دوربین با کشیدن انگشت روی صحنه */
+  orbitCamera: (delta: number) => void;
+  /** 🔑 v0.2.45 — دکمهٔ ریفرش: ماشین از آسمان همان‌جا می‌افتد پایین (ضدگیرکردن) */
+  respawnDrop: () => void;
   pressHorn: () => void;
   setSetting: <K extends 'music' | 'sfx' | 'voice'>(k: K, v: number) => void;
   setGraphicsQuality: (quality: 'performance' | 'balanced' | 'quality') => void;
@@ -83,6 +89,9 @@ export async function createGame(
     setVirtualSteer: (dir) => gm.setVirtualSteer(dir),
     setVirtualGas: (v) => gm.setVirtualGas(v),
     setVirtualBrake: (v) => gm.setVirtualBrake(v),
+    setVirtualSteerAnalog: (v) => gm.setVirtualSteerAnalog(v),
+    orbitCamera: (delta) => gm.orbitCamera(delta),
+    respawnDrop: () => gm.respawnDrop(),
     pressHorn: () => gm.pressHorn(),
     setSetting: (k, v) => gm.setSetting(k, v),
     setGraphicsQuality: (quality) => gm.setGraphicsQuality(quality),

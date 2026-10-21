@@ -21,8 +21,10 @@ import {
   CircleDot,
   Coffee,
   Coins,
+  Flag,
   FolderOpen,
   FlaskConical,
+  Fuel,
   Gauge,
   Home,
   Infinity as InfinityIcon,
@@ -38,6 +40,7 @@ import {
   Pause,
   Play,
   Radio,
+  RotateCcw,
   RotateCw,
   Shield,
   Siren,
@@ -50,6 +53,7 @@ import {
   Wrench,
   X,
   Hand,
+  Smartphone,
 } from "lucide-react";
 import type { MissionCategory, UpgradeId, UiPrefs } from "@/game";
 import type { CarVariant } from "@/game/render3d/CarFactory3D";
@@ -80,6 +84,87 @@ interface Settings {
   sfx: number;
   voice: number;
   graphicsQuality: 'performance' | 'balanced' | 'quality';
+}
+
+// ==================== 🔑 v0.2.45 — فرمان‌دستی لمسی (مود «فرمان و پدال») ====================
+const WHEEL_MAX = 120; // بیشترین چرخش فرمان (درجه)
+
+function SteeringWheel({ size, onSteer, className = "", style }: {
+  size: number;
+  onSteer: (v: number) => void;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const [angle, setAngle] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ lastA: number } | null>(null);
+
+  const angleAt = (e: React.PointerEvent): number => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return (Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180) / Math.PI;
+  };
+
+  const down = (e: React.PointerEvent) => {
+    e.preventDefault();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch { /* بی‌خطر */ }
+    dragRef.current = { lastA: angleAt(e) };
+    setDragging(true);
+  };
+  const move = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    const a = angleAt(e);
+    let d = a - dragRef.current.lastA;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    dragRef.current.lastA = a;
+    setAngle((prev) => {
+      const next = Math.max(-WHEEL_MAX, Math.min(WHEEL_MAX, prev + d));
+      onSteer(next / WHEEL_MAX);
+      return next;
+    });
+  };
+  const up = () => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    setDragging(false);
+    setAngle(0);
+    onSteer(0); // فنر بازگشت
+  };
+
+  return (
+    <div
+      role="slider"
+      aria-label="فرمان"
+      aria-valuenow={Math.round(angle)}
+      aria-valuemin={-120}
+      aria-valuemax={120}
+      aria-valuetext={`${Math.round(angle)} درجه`}
+      className={`fc-btn relative select-none touch-none rounded-full ${className}`}
+      style={{ width: size, height: size, touchAction: "none", ...style }}
+      onPointerDown={down}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={up}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* رینگ */}
+      <div className="absolute inset-0 rounded-full border-[10px] border-[#3a2e2a] bg-[#FFF3D6]" />
+      {/* سه پره + توپی وسط — با خود فرمان می‌چرخند */}
+      <div
+        className="absolute inset-3"
+        style={{ transform: `rotate(${angle}deg)`, transition: dragging ? "none" : "transform 0.28s ease-out" }}
+      >
+        <div className="absolute left-1/2 top-1/2 h-[9%] w-[42%] -translate-y-1/2 rounded-full bg-[#3a2e2a]" />
+        <div className="absolute left-1/2 top-[16%] h-[36%] w-[9%] -translate-x-1/2 rounded-full bg-[#3a2e2a]" />
+        <div className="absolute bottom-[16%] left-1/2 h-[36%] w-[9%] -translate-x-1/2 rounded-full bg-[#3a2e2a]" />
+        <div className="absolute left-1/2 top-1/2 flex h-[34%] w-[34%] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-[#3a2e2a] bg-[#F2B705]">
+          <Car className="h-[55%] w-[55%] text-[#3a2e2a]" strokeWidth={2.6} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** 🔑 v0.2.43 — سوییچ دوتایی تنظیمات */
@@ -161,6 +246,42 @@ function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
       <p className="text-xs leading-5 text-[#6b5b49]">
         تغییر کیفیت فوراً اعمال و ذخیره می‌شود؛ جزئیات جهان ثابت می‌ماند و فقط بودجهٔ وضوح رندر سه‌بعدی تغییر می‌کند.
       </p>
+      {/* ---------- 🔑 v0.2.45 — مود رانندگی: ۳ نوع کنترل ---------- */}
+      <div className="rounded-2xl bg-[#FFF3D6] p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-[#3a2e2a]">
+          <Car className="h-4 w-4" />
+          مود رانندگی — هر جور دستت راحت‌تره!
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {([
+            { key: "buttons", icon: <MoveHorizontal className="h-5 w-5" />, label: "دکمه‌ای", hint: "همین که هست" },
+            { key: "wheel", icon: <CircleDot className="h-5 w-5" />, label: "فرمان و پدال", hint: "فرمان بچرخون" },
+            { key: "tilt", icon: <Smartphone className="h-5 w-5" />, label: "ژیروسکوپ", hint: "گوشی رو کج کن" },
+          ] as const).map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              aria-label={`مود رانندگی ${m.label}`}
+              aria-pressed={ui.controlMode === m.key}
+              className={`fc-btn flex flex-col items-center gap-1 rounded-xl px-1 py-2 text-[11px] font-extrabold ${
+                ui.controlMode === m.key ? "bg-[#8AC926] text-[#3a2e2a]" : "bg-[#FFF9EC] text-[#3a2e2a]/65"
+              }`}
+              onClick={() => onChangeUi({ controlMode: m.key })}
+            >
+              {m.icon}
+              <span>{m.label}</span>
+              <span className="text-[8.5px] font-bold leading-3 opacity-70">{m.hint}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[10px] font-bold leading-4 text-[#3a2e2a]/55">
+          {ui.controlMode === "tilt"
+            ? "گوشی رو صاف جلوت نگه دار؛ برای پیچیدن فقط کجش کن. کلید وسط زیر دکمه گاز، مرکز رو از نو ثبت می‌کنه."
+            : ui.controlMode === "wheel"
+              ? "فرمان رو با انگشت بچرخون؛ ولش کن خودش برمی‌گرده. پدال گاز و ترمز هم کنارشه."
+              : "همون دکمه‌های همیشگی: فرمان چپ/راست + گاز و ترمز."}
+        </p>
+      </div>
       {/* ---------- 🔑 v0.2.43 — دکمه‌های رانندگی: اندازه/شفافیت/چپ‌دست/ویبره ---------- */}
       <div className="rounded-2xl bg-[#FFF3D6] p-3">
         <p className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-[#3a2e2a]">
@@ -559,7 +680,7 @@ export default function GameShell() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState(0);
   const isAndroidBuild = process.env.NEXT_PUBLIC_ANDROID_BUILD === "1";
-  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false, chase: null, say: null });
+  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false, chase: null, say: null, fuel: 100, zone: null });
   const [toast, setToast] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showMissions, setShowMissions] = useState(false);
@@ -575,13 +696,13 @@ export default function GameShell() {
   const [previewHornId, setPreviewHornId] = useState<string | null>(null);
   /** 🔑 v0.2.41 — رنگ کارخانه‌ای انتخابی هر خودرو در نمایشگاه (id → hex) */
   const [chosenColors, setChosenColors] = useState<Record<string, string>>({});
-  /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) */
-  const [ui, setUi] = useState<UiPrefs>({ controlsScale: 1, controlsOpacity: 1, leftHanded: false, vibration: true });
+  /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) + v0.2.45 مود رانندگی */
+  const [ui, setUi] = useState<UiPrefs>({ controlsScale: 1, controlsOpacity: 1, leftHanded: false, vibration: true, controlMode: "buttons" });
   /** v0.2.43 — تب فروشگاه: همه / مال من / خریدنی */
   const [garageTab, setGarageTab] = useState<"all" | "owned" | "shop">("all");
   /** v0.2.43 — مدال چرخش سه‌بعدی خودرو */
   const [spinCar, setSpinCar] = useState<SpinCarData | null>(null);
-  /** v0.2.43 — آموزش سه‌قدمی: ۰=گاز، ۱=فرمان، ۲=بوق؛ null=خاموش */
+  /** v0.2.43 — آموزش (v0.2.45: ۲ قدم — بوق از HUD حذف شد): ۰=گاز، ۱=فرمان؛ null=خاموش */
   const [tutStep, setTutStep] = useState<number | null>(null);
   /** v0.2.43 — جملهٔ لودینگ طنز */
   const [loadLineIdx, setLoadLineIdx] = useState(0);
@@ -632,7 +753,8 @@ export default function GameShell() {
   const advanceTutorial = useCallback((step: number) => {
     setTutStep((cur) => {
       if (cur !== step) return cur;
-      if (cur >= 2) {
+      // 🔑 v0.2.45 — آموزش ۲ قدمی شد (بوق از HUD حذف شد)
+      if (cur >= 1) {
         try {
           window.localStorage.setItem("fc_tutorial_done", "1");
         } catch {
@@ -701,7 +823,7 @@ export default function GameShell() {
       setGame(inst);
       // 🔑 v0.2.43 — بارگذاری تنظیمات کنترل لمسی + آموزش بار اول
       const st = inst.getSettings();
-      setUi({ controlsScale: st.controlsScale, controlsOpacity: st.controlsOpacity, leftHanded: st.leftHanded, vibration: st.vibration });
+      setUi({ controlsScale: st.controlsScale, controlsOpacity: st.controlsOpacity, leftHanded: st.leftHanded, vibration: st.vibration, controlMode: st.controlMode });
       setHapticsEnabled(st.vibration);
       try {
         setTutStep(window.localStorage.getItem("fc_tutorial_done") === "1" ? null : 0);
@@ -737,11 +859,69 @@ export default function GameShell() {
       const k = e.key.toLowerCase();
       if (tutStep === 0 && (k === "w" || k === "arrowup")) advanceTutorial(0);
       else if (tutStep === 1 && (k === "a" || k === "d" || k === "arrowleft" || k === "arrowright")) advanceTutorial(1);
-      else if (tutStep === 2 && k === "h") advanceTutorial(2);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [tutStep, advanceTutorial]);
+
+  // ---------- 🔑 v0.2.45 — چرخش ۳۶۰ درجهٔ دوربین: کشیدن انگشت روی صحنه (خارج از دکمه‌ها) ----------
+  const orbitRef = useRef<{ id: number; x: number } | null>(null);
+  const onCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (phase !== "playing") return;
+    orbitRef.current = { id: e.pointerId, x: e.clientX };
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch { /* بی‌خطر */ }
+  }, [phase]);
+  const onCanvasPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const d = orbitRef.current;
+    if (!d || d.id !== e.pointerId) return;
+    const dx = e.clientX - d.x;
+    d.x = e.clientX;
+    if (dx !== 0) gameRef.current?.orbitCamera(dx * 0.0072);
+  }, []);
+  const onCanvasPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (orbitRef.current?.id === e.pointerId) orbitRef.current = null;
+  }, []);
+
+  // ---------- 🔑 v0.2.45 — مود ژیروسکوپ: کج‌کردن گوشی = فرمان آنالوگ ----------
+  const tiltCenterRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (phase !== "playing" || ui.controlMode !== "tilt") {
+      gameRef.current?.setVirtualSteerAnalog(null);
+      return;
+    }
+    const onOrient = (e: DeviceOrientationEvent) => {
+      if (e.gamma === null || e.beta === null) return;
+      // جبران جهت صفحه: پرتره = gamma، لنداسکیپ = ±beta
+      let tilt: number;
+      const ang = (typeof screen !== "undefined" && screen.orientation ? screen.orientation.angle : (window as unknown as { orientation?: number }).orientation) ?? 0;
+      if (ang === 90) tilt = e.beta;
+      else if (ang === -90 || ang === 270) tilt = -e.beta;
+      else tilt = e.gamma;
+      // مرکز اولیه = وضعیت فعلی گوشی؛ با دکمهٔ «ثبت مرکز» از نو ثبت می‌شود
+      if (tiltCenterRef.current === null) tiltCenterRef.current = tilt;
+      const steer = Math.max(-1, Math.min(1, (tilt - tiltCenterRef.current) / 22));
+      gameRef.current?.setVirtualSteerAnalog(steer);
+      if (Math.abs(steer) > 0.35) advanceTutorial(1); // آموزش قدم ۲ در مود ژیروسکوپ
+    };
+    let granted = true;
+    type OrientPerm = { requestPermission?: () => Promise<string> };
+    const doe = (typeof window !== "undefined" ? (window as unknown as { DeviceOrientationEvent?: OrientPerm }).DeviceOrientationEvent : undefined);
+    if (doe && typeof doe.requestPermission === "function") {
+      doe.requestPermission().then((r) => {
+        if (r === "granted") window.addEventListener("deviceorientation", onOrient);
+        else granted = false;
+      }).catch(() => { granted = false; });
+    } else {
+      window.addEventListener("deviceorientation", onOrient);
+    }
+    void granted;
+    return () => {
+      window.removeEventListener("deviceorientation", onOrient);
+      gameRef.current?.setVirtualSteerAnalog(null);
+    };
+  }, [phase, ui.controlMode, advanceTutorial]);
 
   // ---------- فرمان ترکیبی (چپ+راست هم‌زمان = مستقیم) ----------
   const applySteer = useCallback(() => {
@@ -778,7 +958,10 @@ export default function GameShell() {
     window.addEventListener("resize", upd);
     return () => window.removeEventListener("resize", upd);
   }, []);
-  // ---------- 🔑 v0.2.44 — هندسهٔ کنترل‌ها: مقیاس-آگاه + رزرو فضای سرعت‌سنج ----------
+  // 🔑 v0.2.44 — پهنای مینی‌مپ (مطابق drawMinimap در WorldRenderer3D) برای اسپیسر نوار بالا
+  const mmSize = Math.min(112, (vp?.w ?? 390) * 0.24);
+  // ---------- 🔑 v0.2.45 — هندسهٔ کنترل‌ها: بدون بوق؛ سرعت‌سنج رفت بالا-راست زیر مینی‌مپ
+  // (اسکرین‌شات کاربر: گیجِ پایین-وسط دقیقاً روی خودِ ماشین می‌افتاد و «جلوی دید» بود)
   const geom = (() => {
     const W = vp?.w ?? 390;
     const H = vp?.h ?? 844;
@@ -787,28 +970,25 @@ export default function GameShell() {
     const steer1 = cp(84, 0.19, 124);
     const gas1 = cp(94, 0.21, 134);
     const brake1 = cp(76, 0.17, 108);
-    const horn1 = cp(58, 0.13, 84);
     const edge = Math.min(20, Math.max(10, W * 0.025));
-    // ضریب اندازه در «جا شدن» لحاظ می‌شود + دست‌کم ۱۲۶px وسط برای سرعت‌سنج آزاد می‌ماند
     const rowW = (steer1 * 2 + 14 + brake1 + 12 + gas1 + edge * 2) * sc;
-    const stacked = rowW + 126 > W;
-    const pedalH = Math.max(gas1, horn1 + 10 + brake1);
-    // پهنای خوشهٔ هم‌سمت در چیدمان پله‌ای (پدال+فرمان یک طرف‌اند) → گوشهٔ دیگر آزاد است
-    const sideW = Math.max(steer1 * 2 + 14, brake1 + 12 + gas1) * sc;
-    const cornerFree = W - sideW - edge * 2;
-    // 🔑 v0.2.44 — سه حالت: وسط-پایین (عادی) / گوشهٔ آزاد (پله‌ای) / بالای خوشه (پورت‌ریت با دکمه‌های خیلی بزرگ)
-    const mode = !stacked ? "center" : cornerFree >= 84 ? "corner" : "raised";
-    const gaugeW = mode === "center" ? 112 : mode === "corner" ? Math.max(76, Math.min(112, cornerFree - 8)) : 84;
-    return { stacked, steer1, pedalH, edge, gaugeW, gaugeMode: mode };
+    const stacked = rowW > W;
+    const pedalH = Math.max(gas1, brake1);
+    return { stacked, steer1, pedalH, edge, gaugeTop: 10 + mmSize + 8, gaugeW: 96 };
   })();
-
-  // 🔑 v0.2.44 — پهنای مینی‌مپ (مطابق drawMinimap در WorldRenderer3D) برای اسپیسر نوار بالا
-  const mmSize = Math.min(112, (vp?.w ?? 390) * 0.24);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
-      {/* بوم بازی — زیر همه لایه‌ها */}
-      <canvas ref={canvasRef} className="fc-canvas absolute inset-0 h-full w-full" />
+      {/* بوم بازی — زیر همه لایه‌ها — 🔑 v0.2.45: کشیدن افقی روی صحنه = چرخش ۳۶۰° دوربین */}
+      <canvas
+        ref={canvasRef}
+        className="fc-canvas absolute inset-0 h-full w-full"
+        style={{ touchAction: "none" }}
+        onPointerDown={onCanvasPointerDown}
+        onPointerMove={onCanvasPointerMove}
+        onPointerUp={onCanvasPointerUp}
+        onPointerCancel={onCanvasPointerUp}
+      />
 
       {/* صفحهٔ خطای boot + تلاش دوباره (ادغام از شاخهٔ کاربر) */}
       {bootError && (
@@ -1475,13 +1655,34 @@ export default function GameShell() {
       {/* ============ HUD گیم‌پلی ============ */}
       {phase === "playing" && (
         <>
-          {/* 🔑 v0.2.44 — نوار بالا بازچینی شد: چپ=توقف+وضعیت، وسط=تعقیب/مأموریت/گفتار/آموزش — هیچ پنلی جلوی دید رانندگی نیست */}
+          {/* 🔑 v0.2.45 — نوار بالا: چپ=توقف+ریفرش+مأموریت+وضعیت (باک هم اضافه شد) — هیچ پنلی جلوی دید رانندگی نیست */}
           <div dir="ltr" className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-3">
             <div className="flex flex-col items-start gap-1.5">
-              <div className="pointer-events-auto">
+              <div className="pointer-events-auto flex items-center gap-1.5">
                 <TapButton ariaLabel="توقف بازی" className="h-10 w-10 bg-[#FFF9EC] text-[#3a2e2a]" onTap={() => gameRef.current?.pause()}>
                   <Pause className="h-5 w-5" />
                 </TapButton>
+                {/* 🔑 v0.2.45 — دکمهٔ ریفرش: ماشین از آسمان همان‌جا می‌افتد پایین (ضدگیرکردن) — جای آن بالای صفحه سمت چپ */}
+                <TapButton
+                  ariaLabel="ریفرش ماشین — آزاد شدن از گیرکردن"
+                  className="h-10 w-10 bg-[#FFF9EC] text-[#2A9D8F]"
+                  onTap={() => gameRef.current?.respawnDrop()}
+                >
+                  <RotateCcw className="h-5 w-5" />
+                </TapButton>
+                {/* 🔑 v0.2.45 — شروع مأموریت در رانندگی آزاد: کوچک و کاربردی (وقتی مأموریتی فعال نیست) */}
+                {!hud.mission && (
+                  <TapButton
+                    ariaLabel="شروع مأموریت بعدی"
+                    className="h-10 w-10 bg-[#F2B705] text-[#3a2e2a]"
+                    onTap={() => {
+                      const nid = gameRef.current?.nextMissionId();
+                      if (nid) gameRef.current?.startMission(nid);
+                    }}
+                  >
+                    <Flag className="h-5 w-5" />
+                  </TapButton>
+                )}
               </div>
               <div className="fc-panel relative flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
                 <Coins className="h-4 w-4 text-[#B8801A]" />
@@ -1507,6 +1708,16 @@ export default function GameShell() {
                 <Wrench className="h-4 w-4 text-[#5d6d7e]" />
                 <div className="h-2.5 w-16 overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
                   <div className="h-full transition-all" style={{ width: `${hud.health}%`, backgroundColor: healthColor }} />
+                </div>
+              </div>
+              {/* 🔑 v0.2.45 — باک بنزین: پمپ بنزین حالا معنی داره! */}
+              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+                <Fuel className={`h-4 w-4 ${hud.fuel > 25 ? "text-[#B8801A]" : "text-[#D64545]"}`} />
+                <div className="h-2.5 w-16 overflow-hidden rounded-full border-2 border-[#3a2e2a] bg-white">
+                  <div
+                    className="h-full transition-all"
+                    style={{ width: `${hud.fuel}%`, backgroundColor: hud.fuel > 40 ? "#8AC926" : hud.fuel > 25 ? "#F2B705" : "#D64545" }}
+                  />
                 </div>
               </div>
               {hud.showFps && (
@@ -1620,22 +1831,26 @@ export default function GameShell() {
               )}
               {/* 🔑 v0.2.44 — توست گفتار بازیکن (جای حباب وسط کانواس که جلوی دید بود) */}
               {hud.say && <SayToast key={`${hud.say.speaker}:${hud.say.line}`} say={hud.say} />}
-              {/* 🔑 v0.2.43 — آموزش سه‌قدمی (وسط، زیر مأموریت — نزدیک دکمه‌هایی که یاد می‌دهد نیست ولی دید را نمی‌بندد) */}
+              {/* 🔑 v0.2.43 — آموزش (v0.2.45: ۲ قدم — متن قدم فرمان بر اساس مود رانندگی) */}
               {tutStep !== null && (
                 <div className="fc-panel pointer-events-auto flex items-center gap-2.5 bg-[#3a2e2a] px-4 py-2.5 text-white">
                   {tutStep === 0 ? (
                     <ArrowUp className="h-6 w-6 shrink-0 text-[#8AC926]" />
-                  ) : tutStep === 1 ? (
-                    <MoveHorizontal className="h-6 w-6 shrink-0 text-[#F2B705]" />
+                  ) : ui.controlMode === "wheel" ? (
+                    <CircleDot className="h-6 w-6 shrink-0 text-[#F2B705]" />
+                  ) : ui.controlMode === "tilt" ? (
+                    <Smartphone className="h-6 w-6 shrink-0 text-[#F2B705]" />
                   ) : (
-                    <Megaphone className="h-6 w-6 shrink-0 text-[#e07be0]" />
+                    <MoveHorizontal className="h-6 w-6 shrink-0 text-[#F2B705]" />
                   )}
                   <p className="text-[12px] font-extrabold leading-5">
                     {tutStep === 0
-                      ? "قدم ۱ از ۳ — دکمهٔ سبزِ گاز رو نگه دار تا راه بیفتی!"
-                      : tutStep === 1
-                        ? "قدم ۲ از ۳ — حالا با فرمان چپ/راست بپیچون!"
-                        : "قدم ۳ از ۳ — بوق بزن تا همه بفهمن اینجایی!"}
+                      ? "قدم ۱ از ۲ — دکمهٔ سبزِ گاز رو نگه دار تا راه بیفتی!"
+                      : ui.controlMode === "wheel"
+                        ? "قدم ۲ از ۲ — فرمان رو با انگشت بچرخون!"
+                        : ui.controlMode === "tilt"
+                          ? "قدم ۲ از ۲ — گوشی رو آروم کج کن تا بپیچی!"
+                          : "قدم ۲ از ۲ — حالا با فرمان چپ/راست بپیچون!"}
                   </p>
                   <button
                     type="button"
@@ -1651,36 +1866,118 @@ export default function GameShell() {
             <div className="shrink-0" style={{ width: mmSize }} aria-hidden="true" />
           </div>
 
-          {/* 🔑 v0.2.44 — سرعت‌سنج فشرده: پایین-وسط (عادی) / گوشهٔ آزاد (پله‌ای) / بالای خوشه (اکستریم) — پیش‌فرض دیگر جلوی دید نیست */}
-          <div
-            className="pointer-events-none absolute z-20"
-            style={
-              geom.gaugeMode === "center"
-                ? { left: "50%", transform: "translateX(-50%)", bottom: "clamp(8px, 2vh, 14px)" }
-                : geom.gaugeMode === "corner"
-                  ? ui.leftHanded
-                    ? { right: geom.edge, bottom: "clamp(8px, 2vh, 14px)" }
-                    : { left: geom.edge, bottom: "clamp(8px, 2vh, 14px)" }
-                  : {
-                      left: "50%",
-                      transform: "translateX(-50%)",
-                      bottom: `calc(clamp(10px, 4vh, 28px) + (${geom.pedalH}px + ${geom.steer1}px) * ${ui.controlsScale} + 16px)`,
-                    }
-            }
-          >
+          {/* 🔑 v0.2.45 — سرعت‌سنج: بالا-راست، زیر مینی‌مپ (دیگر هیچ‌وقت روی خودِ ماشین نمی‌افتد) */}
+          <div className="pointer-events-none absolute z-20" style={{ right: 12, top: geom.gaugeTop }}>
             <SpeedGauge kmh={hud.speedKmh} w={geom.gaugeW} />
+            {/* زون کاربردی فعال — فقط وقتی داخل پمپ بنزین/تعمیرگاه هستیم */}
+            {hud.zone && (
+              <div className="fc-panel mt-1 bg-[#FFF3D6]/95 px-2 py-0.5 text-center text-[10px] font-extrabold text-[#3a2e2a]">
+                {hud.zone === "fuel" ? "در حال سوخت‌گیری…" : "در حال تعمیر…"}
+              </div>
+            )}
           </div>
 
           {/* 🔑 v0.2.43 — وینیت قرمز ضربه */}
           {hitFxKey > 0 && <div key={hitFxKey} className="fc-vignette absolute inset-0 z-30" />}
 
-          {/* کنترل‌ها — v0.2.43: اندازه/شفافیت قابل‌تنظیم + حالت چپ‌دست + چیدمان پله‌ای هوشمند
+          {/* کنترل‌ها — v0.2.45: سه مود رانندگی (دکمه‌ای/فرمان و پدال/ژیروسکوپ) + بوق حذف شد
               (اگر خوشه‌ها در عرض صفحه جا نشوند، فرمان بالا می‌رود تا هرگز هم‌پوشان نشوند) */}
           <div className="pointer-events-none absolute inset-0 z-20" style={csStyle}>
             {(() => {
               const edge = "clamp(10px, 2.5vw, 20px)";
               const bottom = "clamp(10px, 4vh, 28px)";
-              // v0.2.43 — چیدمان پله‌ای: اگر خوشه‌ها در عرض جا نشوند، فرمان بالاتر از پدال‌ها
+              const sz = (base: string) => `calc(${base} * var(--fcCs, 1))`;
+              const steerBtn = sz("clamp(84px, 19vh, 124px)");
+              const steerIcon = sz("clamp(44px, 10vh, 64px)");
+              const gasBtn = sz("clamp(94px, 21vh, 134px)");
+              const gasIcon = sz("clamp(48px, 11vh, 70px)");
+              const brakeBtn = sz("clamp(76px, 17vh, 108px)");
+              const brakeIcon = sz("clamp(36px, 8vh, 52px)");
+              const gasPx = Math.min(134, Math.max(94, (vp?.h ?? 844) * 0.21)) * ui.controlsScale;
+              const brakePx = Math.min(108, Math.max(76, (vp?.h ?? 844) * 0.17)) * ui.controlsScale;
+              const wheelPx = Math.min(200, Math.max(150, (vp?.h ?? 844) * 0.3)) * Math.min(ui.controlsScale, 1.15);
+
+              // ---------- مود فرمان‌دستی: فرمان گردان + پدال گاز و ترمز ----------
+              if (ui.controlMode === "wheel") {
+                const wheelPos: React.CSSProperties = ui.leftHanded ? { right: edge, bottom } : { left: edge, bottom };
+                const pedalPos: React.CSSProperties = ui.leftHanded ? { left: edge, bottom } : { right: edge, bottom };
+                return (
+                  <>
+                    <div className="pointer-events-auto absolute flex items-end" style={{ ...wheelPos, opacity: ui.controlsOpacity }}>
+                      <SteeringWheel
+                        size={wheelPx}
+                        onSteer={(v) => {
+                          gameRef.current?.setVirtualSteerAnalog(v);
+                          if (Math.abs(v) > 0.35) advanceTutorial(1);
+                        }}
+                      />
+                    </div>
+                    <div className="pointer-events-auto absolute flex items-end" style={{ ...pedalPos, display: "flex", direction: "ltr", gap: "clamp(10px, 2vw, 16px)", opacity: ui.controlsOpacity }}>
+                      {/* پدال‌ها — عمودی مثل ماشین واقعی */}
+                      <HoldButton
+                        ariaLabel="ترمز"
+                        onHold={(d) => gameRef.current?.setVirtualBrake(d)}
+                        className="rounded-[22px] bg-[#D64545] text-white"
+                        style={{ width: brakePx * 0.82, height: brakePx * 1.28 }}
+                      >
+                        <Square style={{ width: brakeIcon, height: brakeIcon }} strokeWidth={2.8} />
+                      </HoldButton>
+                      <HoldButton
+                        ariaLabel="گاز"
+                        onHold={(d) => {
+                          if (d) advanceTutorial(0);
+                          gameRef.current?.setVirtualGas(d);
+                        }}
+                        className={`rounded-[22px] bg-[#8AC926] text-[#3a2e2a] ${tutStep === 0 ? "fc-tut-target" : ""}`}
+                        style={{ width: gasPx * 0.82, height: gasPx * 1.28 }}
+                      >
+                        <ArrowUp style={{ width: gasIcon, height: gasIcon }} strokeWidth={3} />
+                      </HoldButton>
+                    </div>
+                  </>
+                );
+              }
+
+              // ---------- مود ژیروسکوپ: فقط گاز + ترمز کوچک؛ پیچیدن با کج‌کردن گوشی ----------
+              if (ui.controlMode === "tilt") {
+                const gasPos: React.CSSProperties = ui.leftHanded ? { left: edge, bottom } : { right: edge, bottom };
+                const brakePos: React.CSSProperties = ui.leftHanded ? { left: `calc(${edge} + ${gasPx + 14}px)`, bottom } : { right: `calc(${edge} + ${gasPx + 14}px)`, bottom };
+                return (
+                  <>
+                    <HoldButton
+                      ariaLabel="گاز"
+                      onHold={(d) => {
+                        if (d) advanceTutorial(0);
+                        gameRef.current?.setVirtualGas(d);
+                      }}
+                      className={`pointer-events-auto absolute flex items-center justify-center rounded-full bg-[#8AC926] text-[#3a2e2a] ${tutStep === 0 ? "fc-tut-target" : ""}`}
+                      style={{ ...gasPos, width: gasPx, height: gasPx, opacity: ui.controlsOpacity }}
+                    >
+                      <ArrowUp style={{ width: gasIcon, height: gasIcon }} strokeWidth={3} />
+                    </HoldButton>
+                    <HoldButton
+                      ariaLabel="ترمز"
+                      onHold={(d) => gameRef.current?.setVirtualBrake(d)}
+                      className="pointer-events-auto absolute flex items-center justify-center rounded-full bg-[#D64545] text-white"
+                      style={{ ...brakePos, width: brakePx, height: brakePx, opacity: ui.controlsOpacity }}
+                    >
+                      <Square style={{ width: brakeIcon, height: brakeIcon }} strokeWidth={2.8} />
+                    </HoldButton>
+                    {/* راهنمای ژیروسکوپ + ثبت دوبارهٔ مرکز */}
+                    <button
+                      type="button"
+                      className="fc-btn pointer-events-auto absolute left-1/2 -translate-x-1/2 rounded-full bg-[#3a2e2a]/80 px-3.5 py-1.5 text-[10px] font-extrabold text-white"
+                      style={{ bottom: `calc(${bottom} + ${gasPx + 18}px)` }}
+                      onClick={() => { tiltCenterRef.current = null; }}
+                    >
+                      <Smartphone className="mr-1 inline h-3.5 w-3.5" />
+                      گوشی رو کج کن تا بپیچی — لمس: ثبت مرکز
+                    </button>
+                  </>
+                );
+              }
+
+              // ---------- مود دکمه‌ای (پیش‌فرض): فرمان چپ/راست + گاز و ترمز — بوق حذف شد ----------
               const steerBottom = geom.stacked
                 ? `calc(${bottom} + ${geom.pedalH}px * var(--fcCs, 1) + 12px)`
                 : bottom;
@@ -1690,15 +1987,6 @@ export default function GameShell() {
               const pedalPos: React.CSSProperties = ui.leftHanded
                 ? { left: edge, bottom }
                 : { right: edge, bottom };
-              const sz = (base: string) => `calc(${base} * var(--fcCs, 1))`;
-              const steerBtn = sz("clamp(84px, 19vh, 124px)");
-              const steerIcon = sz("clamp(44px, 10vh, 64px)");
-              const gasBtn = sz("clamp(94px, 21vh, 134px)");
-              const gasIcon = sz("clamp(48px, 11vh, 70px)");
-              const brakeBtn = sz("clamp(76px, 17vh, 108px)");
-              const brakeIcon = sz("clamp(36px, 8vh, 52px)");
-              const hornBtn = sz("clamp(58px, 13vh, 84px)");
-              const hornIcon = sz("clamp(28px, 6.5vh, 42px)");
               return (
                 <>
                   <div
@@ -1726,27 +2014,14 @@ export default function GameShell() {
                     className="pointer-events-auto absolute flex items-end"
                     style={{ ...pedalPos, display: "flex", direction: "ltr", gap: "clamp(8px, 1.8vw, 12px)", opacity: ui.controlsOpacity }}
                   >
-                    <div className="flex flex-col items-center" style={{ gap: "clamp(8px, 1.6vh, 12px)" }}>
-                      <TapButton
-                        ariaLabel="بوق"
-                        onTap={() => {
-                          advanceTutorial(2); // v0.2.43 — آموزش قدم ۳
-                          gameRef.current?.pressHorn();
-                        }}
-                        className={`bg-[#F2B705] text-[#3a2e2a] ${tutStep === 2 ? "fc-tut-target" : ""}`}
-                        style={{ width: hornBtn, height: hornBtn }}
-                      >
-                        <Megaphone style={{ width: hornIcon, height: hornIcon }} />
-                      </TapButton>
-                      <HoldButton
-                        ariaLabel="ترمز"
-                        onHold={(d) => gameRef.current?.setVirtualBrake(d)}
-                        className="bg-[#D64545] text-white"
-                        style={{ width: brakeBtn, height: brakeBtn }}
-                      >
-                        <Square style={{ width: brakeIcon, height: brakeIcon }} strokeWidth={2.8} />
-                      </HoldButton>
-                    </div>
+                    <HoldButton
+                      ariaLabel="ترمز"
+                      onHold={(d) => gameRef.current?.setVirtualBrake(d)}
+                      className="bg-[#D64545] text-white"
+                      style={{ width: brakeBtn, height: brakeBtn }}
+                    >
+                      <Square style={{ width: brakeIcon, height: brakeIcon }} strokeWidth={2.8} />
+                    </HoldButton>
                     <HoldButton
                       ariaLabel="گاز"
                       onHold={(d) => {

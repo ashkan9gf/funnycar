@@ -55,7 +55,8 @@ export interface ParkedCar {
 export interface SpeedBump { x: number; y: number; horiz: boolean }
 
 /** زون تعمیرگاه — ماشین داخل آن خودش را ترمیم می‌کند (فاز BIG-IR) */
-export interface RepairZone { x: number; y: number; r: number; label: string }
+/** 🔑 v0.2.45 — زون کاربردی: پمپ بنزین (سوخت‌گیری) یا تعمیرگاه (ترمیم) */
+export interface RepairZone { x: number; y: number; r: number; label: string; kind: 'fuel' | 'repair' }
 
 export interface Coin {
   x: number; y: number;
@@ -404,12 +405,17 @@ export class World {
       return m === 4 ? apt : shop;
     };
 
-    // ---------- سلول ویژه: پمپ بنزین (هر ~۸ قطعه — ترمیم همه‌جا در دسترس) ----------
+    // ---------- سلول ویژه: پمپ بنزین (هر ~۸ قطعه — سوخت‌گیری همه‌جا در دسترس) ----------
     // 🔑 v0.2.41: عقب‌نشینی ۶۰px از کناره‌ها — قبلاً از لبهٔ بلوک شروع می‌شد و دوبله‌پارک‌ها
     // نصفشان داخل ساختمان می‌رفت (گزارش کاربر)
     if (h % 8 === 3) {
       addB(bx + 60, by + 60, 'env_building_shop_01', 600, 600, true);
-      ch.repairZones.push({ x: bx + 330, y: by + 330, r: 150, label: 'پمپ بنزین' });
+      // 🔑 v0.2.45 — پمپ بنزین واقعی: زون سوخت‌گیری (نه ترمیم)
+      ch.repairZones.push({ x: bx + 330, y: by + 330, r: 150, label: 'پمپ بنزین', kind: 'fuel' });
+    } else if (h % 9 === 4) {
+      // ---------- 🔑 v0.2.45 — تعمیرگاه محله (هر ~۹ قطعه): ساختمان گاراژ + زون ترمیم ----------
+      addB(bx + 60, by + 60, 'env_building_garage_01', 600, 600, true);
+      ch.repairZones.push({ x: bx + 330, y: by + 330, r: 150, label: 'تعمیرگاه', kind: 'repair' });
     } else if (h % 13 === 5) {
       // ---------- پارک محله ----------
       addPr('fountain', cx - 55, cy - 55, 110, 110, true);
@@ -826,10 +832,10 @@ export class World {
       { x: segMids[4], y: roadCenter(3), horiz: true },
     );
 
-    // ---------- زون‌های تعمیرگاه (روی جاده، کنار تعمیرگاه و پمپ بنزین) ----------
+    // ---------- زون‌های کاربردی (روی جاده، کنار تعمیرگاه و پمپ بنزین) ----------
     this._rz.push(
-      { x: roadCenter(2) + WORLD.laneOut, y: 2 * WORLD.pitch + WORLD.roadW + 420, r: 150, label: 'تعمیرگاه' },
-      { x: 3 * WORLD.pitch + WORLD.roadW + 420, y: roadCenter(3), r: 150, label: 'پمپ بنزین' },
+      { x: roadCenter(2) + WORLD.laneOut, y: 2 * WORLD.pitch + WORLD.roadW + 420, r: 150, label: 'تعمیرگاه', kind: 'repair' },
+      { x: 3 * WORLD.pitch + WORLD.roadW + 420, y: roadCenter(3), r: 150, label: 'پمپ بنزین', kind: 'fuel' },
     );
 
     // ---------- پراپ‌های خیابانی ----------
