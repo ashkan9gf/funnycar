@@ -1122,3 +1122,27 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.42-test.apk
 - لینک: https://uploadkon.ir/uploads/8b4d20_26fc0242.zip
 - درس: تصاویر dev (SwiftShader) با prod فرق رنگی دارند — پیش‌نمایش GLB را همیشه روی خروجی export سنجیدیم
+
+---
+Task ID: 57
+Agent: main (Z.ai)
+Task: ارتقای کامل UI — سرعت‌سنج/GPS/ستاره/پیشرفت + تنظیمات کنترل + نمایشگاه چرخشی + آموزش + افکت‌ها (v0.2.43)
+
+Work Log:
+- کاربر همه ۵ گروه پیشنهادی UI را انتخاب کرد → پیاده‌سازی کامل در v0.2.43
+- HUD: SpeedGauge عقربه‌ای SVG (قوس ۲۴۰ درجه، ناحیه خطر ۱۵۰+، transition نرم 0.14s) + فلش GPS (MissionHud.dirDeg بر اساس heading=(sin,−cos)، چرخش CSS زنده) + نوار پیشرفت مسیر (لنگر hudAnchor per phase/checkpoint) + ستاره‌های تعقیب ۱..۳ (chaseElapsed>7s / bust>0.5) — چیپ سرعت متنی حذف شد
+- کنترل‌ها: GameSettings += controlsScale/controlsOpacity/leftHanded (migrate + clamp در setUiPrefs)؛ اسلایدرها + ToggleRow سوییچی در SettingsPanel؛ ویبره navigator.vibrate با setHapticsEnabled ماژولی در touch-controls؛ چیدمان چپ‌دست (جابه‌جایی خوشه‌ها با CSS)
+- چیدمان پله‌ای هوشمند: geom از innerW/H محاسبه می‌شود؛ اگر rowW > W → خوشه فرمان bottom += pedalH×scale+12 بالا می‌رود؛ gauge هم بالاترین خوشه را پوشش می‌دهد — صفر هم‌پوشانی در هر اسکیل (فیکس هم‌پوشانی v0.2.42 روی گوشی باریک که 124×2+266 > 390 بود!)
+- نمایشگاه: تب‌های همه/مال من/خریدنی + دکمه چرخش روی هر کارت + SpinModal (renderCarPreviewSpin: یک loadCar → captureSpin ۱۲ فریم × ۳۰° کش dataURL؛ درگ فقط ایندکس فریم را عوض می‌کند — صفر WebGL حین درگ) + سواچ رنگ زنده داخل مدال + خرید از خود مدال
+- آموزش ۳ قدمی: ۰=گاز/۱=فرمان/۲=بوق؛ fc-tut-target پالس طلایی روی دکمه هدف؛ پیشروی با دکمه لمسی و کیبورد (WASD/H listener)؛ localStorage fc_tutorial_done + «دیدن دوباره» در تنظیمات + رد کردن
+- افکت‌ها: fc-rise منو (پله‌ای ۶۰ms)، وینیت قرمز + fc-shake کانواس روی افت سلامت (≥6)، سکه‌پران ±سبز/سرخ بالای شمارنده (در onHud callback — بدون setState در effect)، confetti ۲۶ تکه در موفقیت، ۱۲ جمله لودینگ طنز LOADING_LINES (۲.۴s چرخش)
+- فیکس باگ قدیمی: startGameplay اینپوت کیبورد را re-enable نمی‌کرد → بعد از Pause→منو→مأموریت کیبورد مرده بود (لمس سالم بود) → setEnabled(true)
+- فیکس تست: setPointerCapture با pointerId جعلی → try/catch؛ درس: dev سرور طولانی CSS جدید را سرو نمی‌کرد → kill/restart لازم بود؛ TapButton با .click() فعال نمی‌شود (pointerdown لازم)
+- E2E dev+prod(:8899): منو/گاراژ/تب‌ها/مدال چرخش (درگ واقعی CDP: idx=6 مطابق فرمول)/گیم‌پلی/آموزش ۳قدم+پالس طلایی/تنظیمات ۱۴۰٪-۶۰٪-چپ‌دست ذخیره شد/وینیت+لرزش/کنترل پاک
+- APK v0.2.43/VCODE=43 (SIGN OK، 20,609,616 bytes) → push 14b3449..96d155b → uploadkon HEAD 200
+
+Stage Summary:
+- main = 96d155b
+- APK: download/FunnyCarIR-v0.2.43-test.apk
+- لینک: https://uploadkon.ir/uploads/234321_26FunnyCarIR-v0-2-43-test.zip
+- درس: کلاس‌های CSS جدید در dev سرور کهنه اعمال نمی‌شوند — بعد از هر تغییر globals.css یک بار restart dev؛ و snapshot های headless در تب مخفی rAF ندارند — افکت‌های زمان‌دار را با فریم اجباری اسکرین‌شات سنجید
