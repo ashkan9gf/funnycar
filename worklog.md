@@ -1168,3 +1168,29 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.44-test.apk
 - لینک: https://uploadkon.ir/uploads/1b1621_26FunnyCarIR-v0-2-44-test.zip (HEAD 200)
 - نتیجه: جلوی دید کاملاً باز شد — هیچ پنل دائمی وسط صفحه نیست؛ اسکرین‌شات‌های اثبات: scripts/v0244_landscape_final.png، v0244_prod_landscape.png، v0244_portrait_lefthand.png
+
+---
+Task ID: 59
+Agent: main (Z.ai)
+Task: v0.2.45 — ادامه تحویل قابلیت‌های ۱۰گانه (از جلسه قبل: ریفرش/مأموریت/پمپ بنزین/تعویضگاه/۳مود/دوربین ۳۶۰/چرخش لاستیک/گاز تدریجی/حذف بوق) + مدل جدید کاربر: دانلود و بهینه‌سازی Dodge Challenger و جایگزینی ماشین سفید ترافیک
+
+Work Log:
+- کشف وضعیت: قابلیت‌های ۱۰گانه v0.2.45 در جلسه قبل کامل و E2E شده بود (کمیته a73b5c5 + اسکرین‌شات‌های v0245_*)؛ مانیفست هنوز VCODE=44 و build_apk_v0245.sh نبود → تحویل این نسخه باضافه مدل چلنجر
+- مدل کاربر (۱۰۱MB GLB اسکچفب): dequantize → رندر تست دو/چهارنما (تعیین جلو=-Z ✓) → اسکریپت split_challenger.js با @gltf-transform/core: خوشه‌بندی k-means k=4 روی مرکز مثلث‌های Tyres_Shd (۴ خوشه متقارن ±2.6x) → ۴ نود wheel_fl/fr/rl/rr (۱۰۱۴ مثلث هرکدام) → مقیاس به len=212 (۴۲u/m) + گراند minY=0 + سنترینگ
+- درس: Accessor.getElement(i, arr, off) خراب کار می‌کند (فقط اولین عنصر) → مستقیم getArray() استفاده شود (بعد از dequantize فشرده است)
+- بهینه‌سازی: optimize یک‌جا چرخ‌ها را join می‌کند (خراب!) → خط لوله دستی: resize 1024 → webp q82 → meshopt → prune = 101MB → 965KB
+- بافت بدنه (t0): پیکسل‌های سبز با HSV → خاکستری روشن (حفظ value برای سایه/AO) تا تینت رنگ گاراژ واقعی شود؛ دو پاس (دوم برای سبزهای تیره)
+- فیکس متریال GLB: Body_Shd/Tyres_Shd alphaMode BLEND→OPAQUE (BLEND تینت را می‌بند — paintMats خالی می‌ماند!)؛ Other_Shd emissiveStrength 10×→0.5× (چراغ می‌درخشد ولی کور نمی‌کند)
+- یکپارچه‌سازی: CarVariant/VehicleVariant += challenger + همه Records (SPECS 212×88 wheelR15 axleF0.30/R0.28, PROFILES موسکل فست‌بک, GLASS_BAND, CABIN_W, LIGHT_SPEC, GRILLE_SPEC در هر دو فایل) + variantFromAssetId + EXTERNAL_MODELS + preloadCars + setPlayerVehicle + نمایشگاه veh_challenger_01 (۲۹۵۰ سکه، متن طنز) + VEHICLE_FACTORY_COLORS + VEHICLE_COLORS (قرمز/سفید/مشکی/نقره‌ای/آبی/طلایی)
+- ترافیک: ۲ اسلات veh_renault4_01 → veh_challenger_01 («بزارش جای ماشین سفید»)
+- 🐛 فیکس عمومی: upgradePlayerToGLB بدون external بود → بازیکنِ مدل‌های خارجی (سمند/پلیس/تاکسی/رنو۴/چلنجر) همیشه procedural می‌ماند با چرخ‌های غیر GLB — حالا external: EXTERNAL_MODELS.has(variant) → PBR + extWheels + paintMats برای بازیکن هم
+- E2E چلنجر (dev :3000): ترافیک ۲×چلنجر با extWheels=4 ✓ / کارت گاراژ FOUND ✓ / خرید ۹۰۰۰-۲۹۵۰=۶۰۵۰ ✓ / بازیکن variant=challenger extWheels=4 paint=#b03a2e ✓ / گاز کیبوردی → سرعت تدریجی 12.5→49.8 و زاویه چرخ منفی (جهت درست) — در هدلس ~۱fps جمع‌شدن کند است ولی ریاضی (speed/wheelR)×dt درست است
+- درس: دکمه‌های منو onClick معمولی (باید click() هم فرستاد)، TapButton/HoldButton فقط pointerdown؛ HoldButton با pointerId جعلی setPointerCapture می‌بَرد → برای گازِ تست از keyboard 'w' استفاده شد
+- رگرسیون v0245 part1/2/4: دکمه‌های بالا-چپ/حذف بوق/گیج بالا-راست/اوربیت/شروع مأموریت/چیپ سوخت‌گیری همه OK
+- tsc + lint پاک؛ APK v0.2.45/VCODE=45 از scripts/build_apk_v0245.sh (SIGN OK، 22,350,609 bytes)
+
+Stage Summary:
+- main = 0d30eb0 (push شد)
+- APK: download/FunnyCarIR-v0.2.45-test.apk + .zip
+- لینک: https://uploadkon.ir/uploads/1b8c21_26FunnyCarIR-v0-2-45-test.zip (HEAD 200)
+- چلنجر: ۱۰۱MB → ۹۶۵KB با ۴ چرخ چرخان/فرمان‌پذیر + رنگ‌پذیری گاراژ؛ در ترافیک جای ماشین سفید + در نمایشگاه قابل خرید
