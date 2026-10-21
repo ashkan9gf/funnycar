@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin:0; background:#202030; font-family:monospace; color:#fff; }
+  #info { position:fixed; top:4px; left:6px; font-size:13px; white-space:pre; z-index:9; text-shadow:0 1px 2px #000; }
+  canvas { display:block; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "/node_modules/three/build/three.module.js",
+    "three/addons/": "/node_modules/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="info">loading…</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+const url = new URL(location.href).searchParams.get('url') || '/upload/challenger/test.glb';
+const info = document.getElementById('info');
+const W = innerWidth, H = innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#3a3a52');
+const hemi = new THREE.HemisphereLight('#ffffff', '#444455', 2.2);
+scene.add(hemi);
+const dir = new THREE.DirectionalLight('#ffffff', 2.0);
+dir.position.set(3, 8, 4);
+scene.add(dir);
+
+const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
+
+loader.load(url, (gltf) => {
+  const car = gltf.scene;
+  scene.add(car);
+  // تینت تست — مثل بازی: متریال بدنه × رنگ
+  const tint = new URL(location.href).searchParams.get('tint');
+  if (tint) {
+    car.traverse((o) => {
+      if (o.isMesh && /Body_Shd|body/i.test(Array.isArray(o.material) ? o.material.map(m => m.name).join() : o.material.name)) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) m.color.set(tint);
+      }
+    });
+  }
+  car.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(car);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  info.textContent =
+    `url: ${url}\ndims  X(wid): ${size.x.toFixed(2)}  Y(h): ${size.y.toFixed(2)}  Z(len): ${size.z.toFixed(2)}\n` +
+    `min (${box.min.x.toFixed(2)}, ${box.min.y.toFixed(2)}, ${box.min.z.toFixed(2)})  max (${box.max.x.toFixed(2)}, ${box.max.y.toFixed(2)}, ${box.max.z.toFixed(2)})\n` +
+    `LEFT panel = camera at -Z (sees -Z face)\nRIGHT panel = camera at +Z (sees +Z face)\nmeshes:`;
+  car.traverse(o => { if (o.isMesh) info.textContent += `\n  mesh "${o.name}" mat="${Array.isArray(o.material)?o.material.map(m=>m.name).join('+'):o.material.name}" tris=${(o.geometry.getIndex()?o.geometry.getIndex().count:o.geometry.getAttribute('position').count)/3}`; });
+
+  // scissor four views: -Z / +Z / -X / +X
+  const d = Math.max(size.x, size.z) * 1.9;
+  const cy = center.y + size.y * 0.35;
+  const views = [
+    { pos: new THREE.Vector3(center.x, cy, center.z - d) },
+    { pos: new THREE.Vector3(center.x, cy, center.z + d) },
+    { pos: new THREE.Vector3(center.x - d, cy, center.z) },
+    { pos: new THREE.Vector3(center.x + d, cy, center.z) },
+  ];
+  const vw = W / views.length;
+  renderer.setScissorTest(true);
+  renderer.autoClear = true;
+  views.forEach((v, i) => {
+    const cam = new THREE.PerspectiveCamera(38, vw / H, 0.1, 3000);
+    cam.position.copy(v.pos);
+    cam.lookAt(center.x, center.y, center.z);
+    renderer.setViewport(i * vw, 0, vw, H);
+    renderer.setScissor(i * vw, 0, vw, H);
+    renderer.render(scene, cam);
+  });
+  window.__done = true;
+}, undefined, (e) => { info.textContent = 'ERR ' + e; window.__done = true; });
+</script>
+</body>
+</html>

@@ -271,11 +271,12 @@ export class GameManager {
 
     // ترافیک و رویدادهای تصادفی (فاز 2)
     // فاز GTA-IR v0.2.12: + رنو۴ و قدیمی زنگ‌زده (مدل‌های جدید کاربر)
+    // v0.2.45: چلنجر موسکل جای رنو۴ در خیابان (درخواست کاربر: «بزارش جای ماشین سفید»)
     this.traffic = new TrafficManager(
       [
-        'veh_pride_01', 'veh_sedan_01', 'veh_samand_01', 'veh_renault4_01',
+        'veh_pride_01', 'veh_sedan_01', 'veh_samand_01', 'veh_challenger_01',
         'veh_samand_01', 'veh_pride_01', 'veh_taxi_01',
-        'veh_renault4_01', 'veh_pride_01', 'veh_taxi_01', 'veh_samand_01',
+        'veh_challenger_01', 'veh_pride_01', 'veh_taxi_01', 'veh_samand_01',
         'veh_tiba_01', 'veh_pickup_01', 'veh_police_01', 'veh_taxi_01',
         'veh_police_01', // v0.2.42 — دو پلیس/سه تاکسی: تعقیب همیشه در دسترس است
       ],

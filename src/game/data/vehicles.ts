@@ -2,7 +2,7 @@
 export type PlayerVehicleVariant =
   | 'player' | 'pride' | 'peugeot405' | 'samand'
   | 'nissan' | 'tiba' | 'renault4' | 'vintage'
-  | 'taxi' | 'police';
+  | 'taxi' | 'police' | 'challenger';
 
 export interface PlayerVehicleDef {
   id: string;
@@ -24,6 +24,7 @@ export const PLAYER_VEHICLES: PlayerVehicleDef[] = [
   { id: 'veh_vintage_01', name: 'کلاسیک زنگاری', variant: 'vintage', price: 1650, description: 'ماشین خاص برای راننده‌های باتجربه', flavor: 'زنگش تزئینیه؛ خودت رو به اون راه بزن!' },
   { id: 'veh_taxi_01', name: 'تاکسی فانی‌کار', variant: 'taxi', price: 1850, description: 'با تابلوی تاکسی؛ مسافرها خودشون سوار می‌شن!', flavor: 'کرایه‌چی رسمی محله؛ فقط سر چراغ گیر نده!' },
   { id: 'veh_police_01', name: 'پلیس محلّه', variant: 'police', price: 2400, description: 'چراغ‌گردان فلاش‌دار و آژیر واقعی؛ با نظم برانش!', flavor: 'حالا تو پلیسی... ولی خداییش قانون‌شکنی نکن!' },
+  { id: 'veh_challenger_01', name: 'چلنجر موسکل', variant: 'challenger', price: 2950, description: 'موثل‌کار امریکایی؛ گاز که بدهی کل محله بیدار می‌شن!', flavor: 'ورودی‌ش که باز بشه، پراید محله خیس می‌شه!' },
 ];
 
 export function vehicleById(id: string): PlayerVehicleDef | undefined {
@@ -47,4 +48,5 @@ export const VEHICLE_FACTORY_COLORS: Record<PlayerVehicleVariant, string[]> = {
   vintage: ['#8a6d3b', '#5d6d7e'],
   taxi: ['#f2c230', '#f4f4f0', '#2a9d8f', '#b03a2e'],
   police: ['#f7f7f2', '#274e36', '#1c2833'],
+  challenger: ['#b03a2e', '#f4f4f0', '#2c3e50', '#7f8c8d', '#1a5276', '#e8a33d'],
 };

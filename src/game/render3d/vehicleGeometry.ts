@@ -16,7 +16,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 export type VehicleVariant =
   | 'player' | 'pride' | 'peugeot405' | 'samand'
   | 'nissan' | 'tiba' | 'taxi' | 'police'
-  | 'renault4' | 'vintage';
+  | 'renault4' | 'vintage' | 'challenger';
 
 export interface VehicleSpec {
   len: number;
@@ -44,6 +44,8 @@ export const VEHICLE_SPECS: Record<VehicleVariant, VehicleSpec> = {
   // مدل‌های جدید کاربر (رنو۴ و قدیمی زنگ‌زده) — ابعاد واقعی از خود GLB
   renault4:   { len: 176, wid: 77,  wheelR: 16, axleF: 0.323, axleR: 0.323 },
   vintage:    { len: 197, wid: 73,  wheelR: 16, axleF: 0.32,  axleR: 0.32  },
+  // چلنجر موسکل (مدل کاربر ۱۴۰۴) — GLB واقعی: ۲۱۲×۸۸×۵۹ (کشیده و پهن، سقف کوتاه)
+  challenger: { len: 212, wid: 88,  wheelR: 15, axleF: 0.30,  axleR: 0.28  },
 };
 
 /**
@@ -54,7 +56,7 @@ export const VEHICLE_SPECS: Record<VehicleVariant, VehicleSpec> = {
 export const CABIN_W: Record<VehicleVariant, number> = {
   player: 0.86, pride: 0.84, peugeot405: 0.80, taxi: 0.80,
   samand: 0.88, police: 0.88, nissan: 0.78, tiba: 0.76,
-  renault4: 0.82, vintage: 0.80,
+  renault4: 0.82, vintage: 0.80, challenger: 0.82,
 };
 
 /** v5 — شکل چراغ جلو/عقب مخصوص هر مدل: [نسبت عرض، ارتفاع] */
@@ -69,6 +71,7 @@ export const LIGHT_SPEC: Record<VehicleVariant, { fW: number; fH: number; rW: nu
   tiba:       { fW: 0.17, fH: 9,  rW: 0.17, rH: 9 },   // بادامی
   renault4:   { fW: 0.20, fH: 9,  rW: 0.20, rH: 9 },   // گرد و ساده
   vintage:    { fW: 0.22, fH: 10, rW: 0.22, rH: 10 },  // گلگیرگرد قدیمی
+  challenger: { fW: 0.22, fH: 8,  rW: 0.28, rH: 9 },   // چراغ باریک جلو + نوار عقب پهن
 };
 
 /** v5 — جلوپنجره مخصوص هر مدل: [نسبت عرض، ارتفاع، کروم؟] — پراید پلاستیکی مشکی! */
@@ -83,6 +86,7 @@ export const GRILLE_SPEC: Record<VehicleVariant, { w: number; h: number; chrome:
   tiba:       { w: 0.34, h: 7,  chrome: false },
   renault4:   { w: 0.42, h: 8,  chrome: false },   // جلوپنجره ساده قدیمی
   vintage:    { w: 0.50, h: 10, chrome: true },    // جلوپنجره کروم بزرگ کلاسیک
+  challenger: { w: 0.46, h: 9,  chrome: false },   // جلوپنجره مشکی موسکل
 };
 
 // ---------- نیم‌رخ v5 — هر مدل با سیلوئت متمایز ----------
@@ -106,6 +110,8 @@ export const PROFILES: Record<VehicleVariant, Profile> = {
   renault4: [[-88, 14], [-89, 34], [-87, 48], [-80, 52], [-30, 54], [-24, 74], [-20, 90], [24, 90], [36, 62], [58, 54], [74, 46], [84, 32], [88, 16]],
   // قدیمی کلاسیک: سدان سه‌حجمه کاپوت‌بلند
   vintage: [[-98, 14], [-99, 36], [-96, 50], [-88, 55], [-34, 57], [-26, 78], [-20, 94], [26, 95], [40, 66], [52, 58], [84, 56], [94, 42], [98, 26], [98, 15]],
+  // چلنجر موسکل: کاپوت خیلی بلند، سقف کوتاه فست‌بک — عریض و زمین‌گیر
+  challenger: [[-104, 12], [-106, 26], [-104, 36], [-99, 42], [-42, 44], [-32, 48], [-26, 52], [20, 53], [34, 46], [48, 42], [90, 40], [100, 32], [105, 22], [105, 13]],
 };
 
 /** ناحیه شیشه: [ز جلو، ز عقب، ارتفاع پایین، ارتفاع بالا] — v5 هماهنگ با نیم‌رخ جدید */
@@ -120,6 +126,7 @@ export const GLASS_BAND: Record<VehicleVariant, [number, number, number, number]
   tiba:   [-10, 28, 53, 79],
   renault4: [-24, 30, 55, 84],
   vintage: [-26, 34, 58, 88],
+  challenger: [-30, 22, 44, 52],
 };
 
 // ---------- رنگ‌های مبنا (hex → خطی هنگام نوشتن) ----------
@@ -131,6 +138,8 @@ export const VEHICLE_COLORS: Record<string, string[]> = {
   // مدل‌های جدید: رنگ ثابت خودشان را دارند (تکسچر واقعی) — فقط فال‌بک پروسیجرال
   renault4: ['#e8e8e2', '#7b9db8', '#b8543f', '#d8c9a3'],
   vintage: ['#8a6f4d', '#6b7d5a', '#9a4f3c', '#7a7a72'],
+  // چلنجر: بافت بدنه خاکستری‌شده — تینت رنگ گاراژ واقعی کار می‌کند
+  challenger: ['#b03a2e', '#f4f4f0', '#2c3e50', '#7f8c8d', '#1a5276', '#e8a33d'],
 };
 export const FIXED_COLORS: Partial<Record<VehicleVariant, string>> = {
   player: '#f4f4f0',

@@ -28,7 +28,7 @@ import { buildCar3D, variantFromAssetId, applyDamageVisual, detachBumper, spinWh
 import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin, dequantizeGeoNew, mergeTemplateStatics } from './GlbModels';
 
 /** واریانت‌های با مدل خارجی کاربر — متریال GLB حفظ می‌شود (بدون پره مصنوعی) */
-const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage']);
+const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage', 'challenger']);
 import type { GuardCar } from '../managers/MissionManager';
 import { buildParkedGeometry, type VehicleVariant } from './vehicleGeometry';
 import type { TrafficLights } from '../world/TrafficLights';
@@ -1235,7 +1235,7 @@ export class WorldRenderer3D {
 
   /** پیش‌بارگذاری GLB همه واریانت‌ها + تعویض بازیکن/ترافیک پس از آماده‌شدن */
   private preloadCars(): void {
-    const variants: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police', 'renault4', 'vintage'];
+    const variants: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police', 'renault4', 'vintage', 'challenger'];
     for (const v of variants) {
       this.readyJobs.push(
         this.glb.loadCar(v, false).then((scene) => {
@@ -1298,7 +1298,12 @@ export class WorldRenderer3D {
     const scene = this.glbCars.get(this.playerVariant);
     if (!scene || !this.playerModel) return;
     const old = this.playerModel;
-    const model = assembleCarFromGLB(this.playerVariant, scene, { bodyColor: old.bodyColor });
+    // 🔑 v0.2.45 — مدل‌های خارجی (سمند/پلیس/تاکسی/چلنجر/...) مسیر external:
+    // متریال PBR حفظ + چرخ با پیوت هندسی (extWheels) + paintMats برای رنگ گاراژ
+    const model = assembleCarFromGLB(this.playerVariant, scene, {
+      bodyColor: old.bodyColor,
+      external: EXTERNAL_MODELS.has(this.playerVariant),
+    });
     model.group.scale.setScalar(old.group.scale.x);
     model.group.position.copy(old.group.position);
     model.group.rotation.copy(old.group.rotation);
@@ -1311,7 +1316,7 @@ export class WorldRenderer3D {
   /** انتخاب خودروی بازیکن از گاراژ؛ مدل GLB یا procedural، بدون ریست موقعیت */
   setPlayerVehicle(variant: CarVariant): void {
     // v0.2.42 — تاکسی و پلیس هم قابل خرید شدند (مدل GLB هر دو موجود است)
-    const allowed: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'renault4', 'vintage', 'taxi', 'police'];
+    const allowed: CarVariant[] = ['player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'renault4', 'vintage', 'taxi', 'police', 'challenger'];
     if (!allowed.includes(variant) || variant === this.playerVariant || !this.playerModel) return;
     this.playerVariant = variant;
     const old = this.playerModel;

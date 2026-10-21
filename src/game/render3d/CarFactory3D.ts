@@ -17,7 +17,7 @@ import { getPlateTexture, getTaxiSignTexture } from './textures3d';
 export type CarVariant =
   | 'player' | 'pride' | 'peugeot405' | 'samand'
   | 'nissan' | 'tiba' | 'taxi' | 'police'
-  | 'renault4' | 'vintage';
+  | 'renault4' | 'vintage' | 'challenger';
 
 /** چرخ مدل خارجی: چرخش حول محور واقعی خودش با جهت خودکار */
 export interface ExtWheelSpin {
@@ -65,7 +65,7 @@ export function steerWheels(model: CarModel3D, angle: number): void {
 const CABIN_W: Record<CarVariant, number> = {
   player: 0.86, pride: 0.84, peugeot405: 0.80, taxi: 0.80,
   samand: 0.88, police: 0.88, nissan: 0.78, tiba: 0.76,
-  renault4: 0.82, vintage: 0.80,
+  renault4: 0.82, vintage: 0.80, challenger: 0.82,
 };
 /** شکل چراغ جلو/عقب مخصوص هر مدل */
 const LIGHT_SPEC: Record<CarVariant, { fW: number; fH: number; rW: number; rH: number }> = {
@@ -79,6 +79,7 @@ const LIGHT_SPEC: Record<CarVariant, { fW: number; fH: number; rW: number; rH: n
   tiba:       { fW: 0.17, fH: 9,  rW: 0.17, rH: 9 },
   renault4:   { fW: 0.20, fH: 9,  rW: 0.20, rH: 9 },
   vintage:    { fW: 0.22, fH: 10, rW: 0.22, rH: 10 },
+  challenger: { fW: 0.22, fH: 8,  rW: 0.28, rH: 9 },
 };
 /** جلوپنجره مخصوص هر مدل (پراید/تیبا پلاستیکی تیره) */
 const GRILLE_SPEC: Record<CarVariant, { w: number; h: number; chrome: boolean }> = {
@@ -92,6 +93,7 @@ const GRILLE_SPEC: Record<CarVariant, { w: number; h: number; chrome: boolean }>
   tiba:       { w: 0.34, h: 7,  chrome: false },
   renault4:   { w: 0.42, h: 8,  chrome: false },
   vintage:    { w: 0.50, h: 10, chrome: true },
+  challenger: { w: 0.46, h: 9,  chrome: false },
 };
 
 export interface CarModel3D {
@@ -227,6 +229,8 @@ const PROFILES: Record<CarVariant, Profile> = {
   renault4: [[-88, 14], [-89, 34], [-87, 48], [-80, 52], [-30, 54], [-24, 74], [-20, 90], [24, 90], [36, 62], [58, 54], [74, 46], [84, 32], [88, 16]],
   // قدیمی کلاسیک: سدان سه‌حجمه با کاپوت بلند و گلگیر گرد
   vintage: [[-98, 14], [-99, 36], [-96, 50], [-88, 55], [-34, 57], [-26, 78], [-20, 94], [26, 95], [40, 66], [52, 58], [84, 56], [94, 42], [98, 26], [98, 15]],
+  // چلنجر موسکل: کاپوت خیلی بلند، سقف کوتاه فست‌بک
+  challenger: [[-104, 12], [-106, 26], [-104, 36], [-99, 42], [-42, 44], [-32, 48], [-26, 52], [20, 53], [34, 46], [48, 42], [90, 40], [100, 32], [105, 22], [105, 13]],
 };
 
 /** ناحیه شیشه هر خودرو v5: [ز جلو، ز عقب، ارتفاع پایین شیشه، ارتفاع بالا] */
@@ -241,6 +245,7 @@ const GLASS_BAND: Record<CarVariant, [number, number, number, number]> = {
   tiba: [-10, 28, 53, 79],
   renault4: [-24, 30, 55, 84],
   vintage: [-26, 34, 58, 88],
+  challenger: [-30, 22, 44, 52],
 };
 
 /** مشخصات بدنه هر خودرو v5 (واحد: پیکسل منطقی) */
@@ -255,6 +260,7 @@ const SPECS: Record<CarVariant, { len: number; wid: number; wheelR: number; hood
   tiba:       { len: 158, wid: 98,  wheelR: 21, hoodFrac: 0.32 },
   renault4:   { len: 176, wid: 77,  wheelR: 16, hoodFrac: 0.26 },
   vintage:    { len: 197, wid: 73,  wheelR: 16, hoodFrac: 0.38 },
+  challenger: { len: 212, wid: 88,  wheelR: 15, hoodFrac: 0.40 },
 };
 
 /** ساخت بدنه اکسترودشده از نیم‌رخ — عرض در محور X، جلو سمت -Z */
@@ -773,6 +779,7 @@ export function variantFromAssetId(assetId: string): CarVariant {
   if (assetId.includes('pickup')) return 'nissan';
   if (assetId.includes('renault')) return 'renault4';
   if (assetId.includes('vintage')) return 'vintage';
+  if (assetId.includes('challenger')) return 'challenger';
   if (assetId.includes('pride')) return 'pride';
   if (assetId.includes('tiba')) return 'tiba';
   if (assetId.includes('samand')) return 'samand';
