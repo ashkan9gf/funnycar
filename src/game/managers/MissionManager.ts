@@ -38,6 +38,10 @@ export interface MissionHud {
   timeLimit: number;
   /** فاصله نمایشی تا هدف فعلی (متر) */
   distM: number;
+  /** 🔑 v0.2.43 — زاویهٔ نسبی هدف نسبت به جهت خودرو (درجه؛ ۰=رو به جلو، +​=سمت راست)؛ null = هدفی نیست */
+  dirDeg: number | null;
+  /** 🔑 v0.2.43 — پیشرفت مسیر ۰..۱ نسبت به فاصلهٔ شروع لنگر فعلی؛ null = قابل نمایش نیست */
+  progress: number | null;
   /** متن وضعیت اضافه (تصادف/چاله/جریمه/راهنمای پارک...) */
   extra: string;
   /** وضعیت مأموریت */
@@ -108,6 +112,8 @@ export class MissionManager {
   private phase: MissionPhase = 'only';
   /** شمارنده چک‌پوینت عبورشده */
   private checkpointIdx = 0;
+  /** 🔑 v0.2.43 — لنگر پیشرفت HUD: فاصلهٔ شروع برای هر (فاز/چک‌پوینت) */
+  private hudAnchor: { key: string; startDist: number } | null = null;
   /** تعداد سکه جمع‌شده (coin_rush) */
   private coinsGot = 0;
   /** تایمر مکث پارک/توقف تاکسی */
@@ -230,6 +236,7 @@ export class MissionManager {
     this.coinsGot = 0;
     this.holdT = 0;
     this.tipCoins = 0;
+    this.hudAnchor = null; // 🔑 v0.2.43 — لنگر پیشرفت برای مأموریت تازه
     this.guards = def.kind === 'parallel_park' ? this.spawnGuards(def) : [];
     this.potholes = def.kind === 'pothole_run' ? this.spawnPotholes(def) : [];
     return true;
@@ -459,6 +466,32 @@ export class MissionManager {
     } else if (def.kind === 'taxi_fare') {
       extra = this.phase === 'to_pickup' ? 'برو سر جای سوارشدن و وایسا' : 'مسافر سرنشین داره — برسونش!';
     }
+    // ---------- v0.2.43 — فلش GPS: زاویهٔ نسبی هدف نسبت به جهت خودرو ----------
+    // قرارداد Vehicle: angle=0 رو به بالا، heading = (sin, −cos)
+    let dirDeg: number | null = null;
+    let distPx = 0;
+    if (tgt) {
+      const dx = tgt.x - vehicle.x;
+      const dy = tgt.y - vehicle.y;
+      distPx = Math.hypot(dx, dy);
+      const hx = Math.sin(vehicle.angle);
+      const hy = -Math.cos(vehicle.angle);
+      const cross = hx * dy - hy * dx; // + = هدف سمت راست (مختصات صفحه با y رو به پایین)
+      const dot = hx * dx + hy * dy;
+      dirDeg = Math.round((Math.atan2(cross, dot) * 180) / Math.PI);
+    }
+    // ---------- پیشرفت مسیر: لنگر فاصلهٔ شروع برای هر هدف/فاز ----------
+    const tkey = tgt ? `${this.phase}:${this.checkpointIdx}` : null;
+    if (tgt && tkey) {
+      if (!this.hudAnchor || this.hudAnchor.key !== tkey) {
+        this.hudAnchor = { key: tkey, startDist: Math.max(140, distPx) };
+      }
+    } else {
+      this.hudAnchor = null;
+    }
+    const progress = tgt && this.hudAnchor && distPx > 0
+      ? Math.max(0, Math.min(1, 1 - distPx / this.hudAnchor.startDist))
+      : null;
     return {
       id: def.id,
       title: def.title,
@@ -467,7 +500,9 @@ export class MissionManager {
         ? Math.max(0, def.timeLimitSec - this.elapsed - this.penaltySec)
         : -1,
       timeLimit: def.timeLimitSec,
-      distM: tgt ? Math.round(Math.hypot(tgt.x - vehicle.x, tgt.y - vehicle.y) / M.pxPerMeter) : 0,
+      distM: tgt ? Math.round(distPx / M.pxPerMeter) : 0,
+      dirDeg,
+      progress,
       extra,
       state: this.state,
     };

@@ -10,6 +10,21 @@
 
 import { useCallback, useRef, useState } from "react";
 
+// ---------- 🔑 v0.2.43 — ویبرهٔ لمس (قابل خاموشی از تنظیمات) ----------
+let hapticsEnabled = true;
+export function setHapticsEnabled(v: boolean): void {
+  hapticsEnabled = v;
+}
+function buzz(ms = 8): void {
+  try {
+    if (hapticsEnabled && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate(ms);
+    }
+  } catch {
+    /* بی‌خطر */
+  }
+}
+
 interface HoldButtonProps {
   label?: React.ReactNode;
   /** محتوای دکمه — نام‌ترجیحی با children (هم‌خوان با عرف React) */
@@ -32,6 +47,7 @@ export function HoldButton({ label, children, ariaLabel, className = "", style, 
       e.preventDefault();
       ref.current?.setPointerCapture?.(e.pointerId);
       setPressed(true);
+      buzz();
       onHold(true);
     },
     [disabled, onHold],
@@ -83,6 +99,7 @@ export function TapButton({ label, children, ariaLabel, className = "", style, o
       style={{ touchAction: "manipulation", ...style }}
       onPointerDown={(e) => {
         e.preventDefault();
+        buzz(6);
         onTap();
       }}
       onContextMenu={(e) => e.preventDefault()}

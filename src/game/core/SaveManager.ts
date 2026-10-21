@@ -18,6 +18,12 @@ export interface GameSettings {
   voice: number;
   vibration: boolean;
   graphicsQuality: 'performance' | 'balanced' | 'quality';
+  /** 🔑 v0.2.43 — ضریب اندازهٔ دکمه‌های لمسی (0.8..1.5) */
+  controlsScale: number;
+  /** 🔑 v0.2.43 — شفافیت دکمه‌های لمسی (0.4..1) تا جاده پشت‌شون دیده بشه */
+  controlsOpacity: number;
+  /** 🔑 v0.2.43 — چیدمان چپ‌دست: فرمان راست، پدال‌ها چپ */
+  leftHanded: boolean;
 }
 
 export interface SaveData {
@@ -51,7 +57,7 @@ function defaultSave(): SaveData {
     unlockedVehicles: ['veh_player_01'],
     selectedVehicle: 'veh_player_01',
     completedMissions: [],
-    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true, graphicsQuality: 'balanced' },
+    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true, graphicsQuality: 'balanced', controlsScale: 1, controlsOpacity: 1, leftHanded: false },
     progress: { tutorialDone: false, firstRunDone: false },
     upgrades: defaultUpgrades(),
     ownedPaints: [DEFAULT_PAINT_ID],
@@ -145,6 +151,8 @@ function migrateSettings(raw: unknown, base: GameSettings): GameSettings {
   const value = raw as Partial<GameSettings>;
   const volume = (v: unknown, fallback: number): number =>
     typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : fallback;
+  const clampedNum = (v: unknown, fallback: number, min: number, max: number): number =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
   return {
     music: volume(value.music, base.music),
     sfx: volume(value.sfx, base.sfx),
@@ -153,6 +161,10 @@ function migrateSettings(raw: unknown, base: GameSettings): GameSettings {
     graphicsQuality: value.graphicsQuality === 'performance' || value.graphicsQuality === 'quality'
       ? value.graphicsQuality
       : 'balanced',
+    // v0.2.43 — تنظیمات کنترل لمسی (سیوهای قدیمی بدون این فیلدها → پیش‌فرض)
+    controlsScale: clampedNum(value.controlsScale, base.controlsScale, 0.8, 1.5),
+    controlsOpacity: clampedNum(value.controlsOpacity, base.controlsOpacity, 0.4, 1),
+    leftHanded: typeof value.leftHanded === 'boolean' ? value.leftHanded : base.leftHanded,
   };
 }
 

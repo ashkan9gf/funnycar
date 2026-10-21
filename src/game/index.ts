@@ -6,8 +6,12 @@
  */
 
 import { GameManager, type GameCallbacks, type GameState, type HudData, type MissionResultData, type GarageView, type PurchaseResult } from './core/GameManager';
+import type { GameSettings } from './core/SaveManager';
 import type { MissionCategory } from './data/missions';
 import type { UpgradeId } from './data/garage';
+
+/** 🔑 v0.2.43 — تنظیمات کنترل لمسی (بین موتور و پوستهٔ React) */
+export type UiPrefs = Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration'>;
 
 export interface MissionListItem {
   id: string;
@@ -36,7 +40,9 @@ export interface GameInstance {
   pressHorn: () => void;
   setSetting: <K extends 'music' | 'sfx' | 'voice'>(k: K, v: number) => void;
   setGraphicsQuality: (quality: 'performance' | 'balanced' | 'quality') => void;
-  getSettings: () => { music: number; sfx: number; voice: number; vibration: boolean; graphicsQuality: 'performance' | 'balanced' | 'quality' };
+  getSettings: () => GameSettings;
+  /** 🔑 v0.2.43 — اندازه/شفافیت/چپ‌دست/ویبرهٔ دکمه‌های لمسی */
+  setUiPrefs: (p: Partial<UiPrefs>) => void;
   getSave: () => { coins: number; reputation: number };
   toggleDebugFps: () => void;
   /** فاز 4: مأموریت‌ها (فاز ۵: با فیلتر دسته — park/taxi/challenge) */
@@ -81,6 +87,7 @@ export async function createGame(
     setSetting: (k, v) => gm.setSetting(k, v),
     setGraphicsQuality: (quality) => gm.setGraphicsQuality(quality),
     getSettings: () => gm.getSettings(),
+    setUiPrefs: (p) => gm.setUiPrefs(p),
     getSave: () => gm.getSave(),
     toggleDebugFps: () => gm.toggleDebugFps(),
     listMissions: (category?: MissionCategory) => gm.listMissions(category),

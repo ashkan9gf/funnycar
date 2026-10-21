@@ -150,3 +150,94 @@ export function renderCarPreviewAsync(variant: CarVariant, paintHex: string | nu
   glbPreviewJobs.set(key, job);
   return job;
 }
+
+// ==================== 🔑 v0.2.43 — پیش‌نمایش چرخشی (نمایشگاه سه‌بعدی) ====================
+// یک بار مدل ساخته/لود می‌شود و ۱۲ فریم با گام ۳۰ درجه ضبط می‌شود؛ کشیدن انگشت روی
+// فریم‌های کش‌شده می‌چرخد — بدون رندر WebGL در لحظهٔ درگ (صفر لگ روی گوشی ضعیف).
+
+export const SPIN_STEPS = 12;
+/** زاویهٔ شروع = همان نمای سه‌رخ کارت‌ها (پیوستگی بصری) */
+const SPIN_START_YAW = -0.62;
+
+const spinJobs = new Map<string, Promise<(string | null)[]>>();
+
+function spinKey(variant: string, paintHex: string | null, i: number): string {
+  return `${variant}|${paintHex ?? 'default'}|spin|${i}`;
+}
+
+/** ضبط چندفریمی یک مدل از زوایای مساوی — مدل یک بار سوار می‌شود */
+function captureSpin(build: () => THREE.Group | null): (string | null)[] {
+  const empty: (string | null)[] = new Array(SPIN_STEPS).fill(null);
+  if (!sharedRenderer || !sharedScene || !sharedCamera) return empty;
+  if (currentCar) {
+    sharedScene.remove(currentCar);
+    currentCar = null;
+  }
+  const group = build();
+  if (!group) return empty;
+  sharedScene.add(group);
+  const out: (string | null)[] = [];
+  try {
+    for (let i = 0; i < SPIN_STEPS; i++) {
+      group.rotation.y = SPIN_START_YAW + (i / SPIN_STEPS) * Math.PI * 2;
+      sharedRenderer.render(sharedScene, sharedCamera);
+      out.push(sharedRenderer.domElement.toDataURL('image/png'));
+    }
+  } catch {
+    // نیمهٔ کامل هم قابل استفاده است — فریم‌های خالی بعداً پر می‌شوند
+  } finally {
+    sharedScene.remove(group);
+  }
+  return out;
+}
+
+/**
+ * فریم‌های چرخش خودرو — اول GLB واقعی، اگر نبود procedural.
+ * هر فریم در previewCache کش می‌شود؛ فراخوانی دوباره فقط فریم‌های خالی را پر می‌کند.
+ */
+export function renderCarPreviewSpin(variant: CarVariant, paintHex: string | null): Promise<(string | null)[]> {
+  const jobKey = `${variant}|${paintHex ?? 'default'}|spin`;
+  const cached = Array.from({ length: SPIN_STEPS }, (_, i) => previewCache.get(spinKey(variant, paintHex, i)));
+  if (cached.every(Boolean)) return Promise.resolve(cached as string[]);
+  const running = spinJobs.get(jobKey);
+  if (running) return running;
+  const job = (async (): Promise<(string | null)[]> => {
+    try {
+      if (!ensurePreviewStage()) return new Array(SPIN_STEPS).fill(null);
+      if (!previewGlb) previewGlb = new GlbLibrary('/assets/models');
+      // ---------- تلاش ۱: مدل واقعی GLB ----------
+      let frames: (string | null)[] | null = null;
+      try {
+        const scene = await previewGlb.loadCar(variant, false);
+        if (scene) {
+          frames = captureSpin(() => {
+            const model = assembleCarFromGLB(variant, scene, {
+              external: true,
+              bodyColor: paintHex ?? pickBodyColor(variant),
+            });
+            return model ? model.group : null;
+          });
+        }
+      } catch {
+        frames = null;
+      }
+      // ---------- تلاش ۲: مدل procedural ----------
+      if (!frames || !frames.some(Boolean)) {
+        frames = captureSpin(() => {
+          const model = buildCar3D(variant, 112, 196, paintHex ? { paint: paintHex } : {});
+          return model ? model.group : null;
+        });
+      }
+      if (frames) {
+        frames.forEach((url, i) => {
+          if (url) previewCache.set(spinKey(variant, paintHex, i), url);
+        });
+      }
+      return frames ?? new Array(SPIN_STEPS).fill(null);
+    } finally {
+      spinJobs.delete(jobKey);
+    }
+  })();
+  spinJobs.set(jobKey, job);
+  return job;
+}

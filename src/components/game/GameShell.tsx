@@ -31,24 +31,30 @@ import {
   Map,
   Megaphone,
   Mic,
+  MoveHorizontal,
   Music,
   Octagon,
   PartyPopper,
   Pause,
   Play,
   Radio,
+  RotateCw,
   Shield,
   Siren,
   Square,
+  Star,
   Target,
   Users,
+  Vibrate,
   Volume2,
   Wrench,
   X,
+  Hand,
 } from "lucide-react";
-import type { MissionCategory, UpgradeId } from "@/game";
+import type { MissionCategory, UpgradeId, UiPrefs } from "@/game";
 import type { CarVariant } from "@/game/render3d/CarFactory3D";
-import { renderCarPreview, renderCarPreviewAsync } from "@/game/render3d/CarPreview";
+import { renderCarPreview, renderCarPreviewAsync, renderCarPreviewSpin, SPIN_STEPS } from "@/game/render3d/CarPreview";
+import { LOADING_LINES } from "@/game/data/dialogues";
 import {
   createGame,
   GARAGE_FOOTER,
@@ -62,7 +68,7 @@ import {
   type MissionListItem,
   type MissionResultData,
 } from "@/game";
-import { HoldButton, TapButton } from "./touch-controls";
+import { HoldButton, TapButton, setHapticsEnabled } from "./touch-controls";
 
 /** تبدیل اعداد به فارسی */
 const FA = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
@@ -75,8 +81,36 @@ interface Settings {
   graphicsQuality: 'performance' | 'balanced' | 'quality';
 }
 
-/** پنل تنظیمات صدا (در منو و Pause استفاده می‌شود) */
-function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => void }) {
+/** 🔑 v0.2.43 — سوییچ دوتایی تنظیمات */
+function ToggleRow({ label, icon, value, onChange, hint }: { label: string; icon: React.ReactNode; value: boolean; onChange: (v: boolean) => void; hint?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={value}
+      className="flex w-full items-center gap-3 py-1 text-right"
+      onClick={() => onChange(!value)}
+    >
+      <span className="text-[#3a2e2a]">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-bold text-[#3a2e2a]">{label}</span>
+        {hint && <span className="block text-[10px] font-bold leading-4 text-[#3a2e2a]/55">{hint}</span>}
+      </span>
+      <span className={`relative h-7 w-12 shrink-0 rounded-full border-[3px] border-[#3a2e2a] transition-colors ${value ? "bg-[#8AC926]" : "bg-[#e2d7c0]"}`}>
+        <span className={`absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-[#3a2e2a] bg-white transition-all ${value ? "left-[3px]" : "right-[3px]"}`} />
+      </span>
+    </button>
+  );
+}
+
+/** پنل تنظیمات (منو و Pause) — v0.2.43: + تنظیم دکمه‌های لمسی */
+function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
+  game: GameInstance;
+  ui: UiPrefs;
+  onChangeUi: (p: Partial<UiPrefs>) => void;
+  onReplayTutorial?: () => void;
+  onClose?: () => void;
+}) {
   const [s, setS] = useState<Settings>(game.getSettings());
   const rows: Array<{ key: 'music' | 'sfx' | 'voice'; label: string; icon: React.ReactNode }> = [
     { key: "music", label: "موسیقی", icon: <Music className="h-5 w-5" /> },
@@ -126,6 +160,66 @@ function SettingsPanel({ game, onClose }: { game: GameInstance; onClose?: () => 
       <p className="text-xs leading-5 text-[#6b5b49]">
         تغییر کیفیت فوراً اعمال و ذخیره می‌شود؛ جزئیات جهان ثابت می‌ماند و فقط بودجهٔ وضوح رندر سه‌بعدی تغییر می‌کند.
       </p>
+      {/* ---------- 🔑 v0.2.43 — دکمه‌های رانندگی: اندازه/شفافیت/چپ‌دست/ویبره ---------- */}
+      <div className="rounded-2xl bg-[#FFF3D6] p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-[#3a2e2a]">
+          <MoveHorizontal className="h-4 w-4" />
+          دکمه‌های رانندگی — هر جور راحتی!
+        </p>
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-2">
+            <span className="w-[74px] shrink-0 text-[11px] font-bold text-[#3a2e2a]">اندازه</span>
+            <input
+              type="range"
+              className="fc-range flex-1"
+              min={0.8}
+              max={1.4}
+              step={0.05}
+              value={ui.controlsScale}
+              aria-label="اندازه دکمه‌های رانندگی"
+              onChange={(e) => onChangeUi({ controlsScale: Number(e.target.value) })}
+            />
+            <span className="w-10 text-center text-[11px] font-extrabold text-[#3a2e2a]">{fa(Math.round(ui.controlsScale * 100))}٪</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-[74px] shrink-0 text-[11px] font-bold text-[#3a2e2a]">شفافیت</span>
+            <input
+              type="range"
+              className="fc-range flex-1"
+              min={0.4}
+              max={1}
+              step={0.05}
+              value={ui.controlsOpacity}
+              aria-label="شفافیت دکمه‌های رانندگی"
+              onChange={(e) => onChangeUi({ controlsOpacity: Number(e.target.value) })}
+            />
+            <span className="w-10 text-center text-[11px] font-extrabold text-[#3a2e2a]">{fa(Math.round(ui.controlsOpacity * 100))}٪</span>
+          </div>
+          <ToggleRow
+            label="حالت چپ‌دست"
+            icon={<Hand className="h-5 w-5" />}
+            value={ui.leftHanded}
+            onChange={(v) => onChangeUi({ leftHanded: v })}
+            hint="فرمان می‌ره راست، گاز و ترمز می‌آن چپ"
+          />
+          <ToggleRow
+            label="ویبره لمس"
+            icon={<Vibrate className="h-5 w-5" />}
+            value={ui.vibration}
+            onChange={(v) => onChangeUi({ vibration: v })}
+            hint="با لمس دکمه‌ها تیک ملایم می‌کشه"
+          />
+        </div>
+        {onReplayTutorial && (
+          <button
+            type="button"
+            className="fc-btn mt-2.5 w-full rounded-xl bg-[#FFF9EC] py-2 text-[11px] font-extrabold text-[#3a2e2a]"
+            onClick={onReplayTutorial}
+          >
+            دیدن دوبارهٔ آموزش رانندگی
+          </button>
+        )}
+      </div>
       {onClose && (
         <button
           type="button"
@@ -167,6 +261,219 @@ function CarPreviewImg({ variant, paint, className }: { variant: string; paint: 
       style={{ background: `linear-gradient(135deg, ${fallbackPaint} 0%, ${fallbackPaint}bb 55%, #3a2e2a 135%)` }}
     >
       <Car className="h-10 w-10 text-white/85" />
+    </div>
+  );
+}
+
+// ==================== 🔑 v0.2.43 — سرعت‌سنج عقربه‌ای (SVG) ====================
+const GAUGE_MAX = 180;
+
+function gaugePolar(ang: number, rad: number): [number, number] {
+  const t = ((ang - 90) * Math.PI) / 180; // ۰ درجه = بالا
+  return [60 + rad * Math.cos(t), 62 + rad * Math.sin(t)];
+}
+function gaugeArc(a1: number, a2: number, rad: number): string {
+  const [x1, y1] = gaugePolar(a1, rad);
+  const [x2, y2] = gaugePolar(a2, rad);
+  const large = Math.abs(a2 - a1) > 180 ? 1 : 0;
+  return `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${rad} ${rad} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+}
+
+function SpeedGauge({ kmh }: { kmh: number }) {
+  const frac = Math.max(0, Math.min(1, kmh / GAUGE_MAX));
+  const ang = -120 + frac * 240;
+  return (
+    <div className="fc-panel bg-[#FFF9EC]/90 px-2.5 pb-1 pt-1" style={{ borderRadius: "999px" }}>
+      <svg width="118" height="64" viewBox="0 0 120 68" aria-hidden="true">
+        {/* قوس زمینه */}
+        <path d={gaugeArc(-120, 120, 46)} fill="none" stroke="#eadfc6" strokeWidth="9" strokeLinecap="round" />
+        {/* ناحیهٔ خطر: ۱۵۰ به بالا */}
+        <path d={gaugeArc(80, 120, 46)} fill="none" stroke="#e8b6b6" strokeWidth="9" strokeLinecap="round" />
+        {/* قوس سرعت فعلی */}
+        {frac > 0.005 && <path d={gaugeArc(-120, ang, 46)} fill="none" stroke="#2A9D8F" strokeWidth="9" strokeLinecap="round" />}
+        {/* تیک‌ها */}
+        {[-120, -60, 0, 60, 120].map((a) => {
+          const [x1, y1] = gaugePolar(a, 34);
+          const [x2, y2] = gaugePolar(a, 39);
+          return <line key={a} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#3a2e2a" strokeWidth="2" opacity="0.45" strokeLinecap="round" />;
+        })}
+        {/* عقربه — بین آپدیت‌های HUD نرم حرکت می‌کند */}
+        <g className="fc-needle" style={{ transform: `rotate(${ang}deg)`, transformOrigin: "60px 62px" }}>
+          <line x1="60" y1="68" x2="60" y2="24" stroke="#D64545" strokeWidth="4" strokeLinecap="round" />
+        </g>
+        <circle cx="60" cy="62" r="6" fill="#3a2e2a" />
+      </svg>
+      <div className="-mt-0.5 text-center text-[15px] font-black leading-4 text-[#3a2e2a]">{fa(kmh)}</div>
+      <div className="text-center text-[8px] font-bold leading-3 text-[#3a2e2a]/50">km/h</div>
+    </div>
+  );
+}
+
+// ==================== 🔑 v0.2.43 — کاغذرنگی موفقیت ====================
+function Confetti() {
+  const pieces = useMemo(() => {
+    const colors = ["#F2B705", "#8AC926", "#2A9D8F", "#D64545", "#5b8dd9", "#e07be0"];
+    return Array.from({ length: 26 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      delay: Math.random() * 0.9,
+      dur: 1.7 + Math.random() * 1.5,
+      color: colors[i % colors.length],
+      w: 6 + Math.random() * 6,
+    }));
+  }, []);
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+      {pieces.map((p) => (
+        <span
+          key={p.id}
+          className="fc-confetti-piece"
+          style={{ left: `${p.left}%`, backgroundColor: p.color, width: p.w, height: p.w * 1.6, animationDelay: `${p.delay}s`, animationDuration: `${p.dur}s` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ==================== 🔑 v0.2.43 — مدال چرخش سه‌بعدی خودرو ====================
+interface SpinCarData {
+  id: string;
+  variant: string;
+  name: string;
+  paint: string | null;
+  owned: boolean;
+  selected: boolean;
+  price: number;
+}
+
+function SpinModal({ car, coins, colors, onClose, onBuy, onChooseColor }: {
+  car: SpinCarData;
+  coins: number;
+  colors: string[];
+  onClose: () => void;
+  onBuy: () => void;
+  onChooseColor: (hex: string) => void;
+}) {
+  const [frames, setFrames] = useState<(string | null)[]>(() => new Array(SPIN_STEPS).fill(null));
+  const [yaw, setYaw] = useState(0);
+  const dragRef = useRef<{ x: number; yaw: number } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    renderCarPreviewSpin(car.variant as CarVariant, car.paint).then((f) => {
+      if (alive && f) setFrames(f);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [car.variant, car.paint]);
+
+  const idx = ((Math.round(yaw) % SPIN_STEPS) + SPIN_STEPS) % SPIN_STEPS;
+  const src = frames[idx] ?? frames[0] ?? null;
+  const affordable = coins >= car.price;
+  const ready = frames.some(Boolean);
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#201914]/88 px-5" onClick={onClose}>
+      <div className="fc-pop fc-panel w-full max-w-sm bg-[#FFF9EC] p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-lg font-extrabold text-[#3a2e2a]">{car.name}</span>
+          <TapButton ariaLabel="بستن پیش‌نمایش" className="h-9 w-9 bg-[#D64545] text-white" onTap={onClose}>
+            <X className="h-5 w-5" />
+          </TapButton>
+        </div>
+
+        {/* صحنهٔ چرخش — بکش تا بچرخه */}
+        <div
+          className="relative mx-auto flex h-44 w-full cursor-grab touch-none items-center justify-center overflow-hidden rounded-2xl border border-[#3a2e2a]/15 active:cursor-grabbing"
+          style={{ background: "radial-gradient(ellipse at 50% 62%, #f7efdc 0%, #eadfc4 55%, #d8c8a3 100%)" }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            try {
+              (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+            } catch {
+              /* اشاره‌گر synthestick/آزادشده — بی‌خطر */
+            }
+            dragRef.current = { x: e.clientX, yaw };
+          }}
+          onPointerMove={(e) => {
+            if (!dragRef.current) return;
+            const dx = e.clientX - dragRef.current.x;
+            setYaw(dragRef.current.yaw - dx * 0.045);
+          }}
+          onPointerUp={() => {
+            dragRef.current = null;
+          }}
+          onPointerCancel={() => {
+            dragRef.current = null;
+          }}
+        >
+          {src ? (
+            <img src={src} alt={`چرخش ${car.name}`} className="h-full w-auto max-w-full object-contain" draggable={false} />
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className={`h-7 w-7 text-[#2A9D8F] ${ready ? "" : "animate-spin"}`} />
+              <span className="text-[11px] font-bold text-[#3a2e2a]/60">
+                {ready ? "فریم بعدی داره میاد..." : "داریم ماشین رو میاریم تو نور..."}
+              </span>
+            </div>
+          )}
+          <span className="pointer-events-none absolute bottom-1.5 left-1/2 -translate-x-1/2 rounded-full bg-[#3a2e2a]/75 px-2.5 py-0.5 text-[9px] font-extrabold text-white">
+            انگشتت رو بکش تا بچرخه
+          </span>
+        </div>
+
+        {/* نشانگر فریم‌ها */}
+        <div className="mt-2 flex items-center justify-center gap-1">
+          {frames.map((f, i) => (
+            <span key={i} className={`h-1.5 w-1.5 rounded-full ${i === idx ? "bg-[#F2B705]" : f ? "bg-[#3a2e2a]/25" : "bg-[#3a2e2a]/10"}`} />
+          ))}
+        </div>
+
+        {/* رنگ‌های کارخانه‌ای — زنده روی مدل */}
+        {colors.length > 1 && (
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+            {colors.map((hex) => (
+              <button
+                key={hex}
+                type="button"
+                aria-label={`رنگ ${hex}`}
+                className={`h-7 w-7 rounded-full border-2 ${car.paint === hex ? "border-[#3a2e2a] ring-2 ring-[#F2B705]" : "border-[#3a2e2a]/25"}`}
+                style={{ backgroundColor: hex }}
+                onClick={() => onChooseColor(hex)}
+              />
+            ))}
+            <span className="text-[10px] font-bold text-[#3a2e2a]/55">رنگ بدنه</span>
+          </div>
+        )}
+
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            disabled={car.selected}
+            className={`fc-btn flex-1 rounded-2xl py-2.5 text-sm font-extrabold ${
+              car.selected
+                ? "bg-[#3a2e2a]/10 text-[#3a2e2a]/60"
+                : car.owned
+                  ? "bg-[#8AC926] text-[#3a2e2a]"
+                  : affordable
+                    ? "bg-[#F2B705] text-[#3a2e2a]"
+                    : "bg-[#FFF3D6] text-[#3a2e2a]/60"
+            }`}
+            onClick={() => {
+              if (!car.selected) onBuy();
+            }}
+          >
+            {car.selected ? "ماشین فعلی ✓" : car.owned ? "انتخاب این ماشین" : <><Coins className="h-4 w-4" /> {fa(car.price)} سکه — خرید</>}
+          </button>
+          <button type="button" className="fc-btn rounded-2xl bg-[#D64545] px-4 py-2.5 text-sm font-extrabold text-white" onClick={onClose}>
+            بستن
+          </button>
+        </div>
+        <p className="mt-1.5 text-center text-[10px] font-bold leading-4 text-[#3a2e2a]/55">
+          مدل واقعی سه‌بعدی — بچرخونش، رنگ عوض کن، بعد بخر!
+        </p>
+      </div>
     </div>
   );
 }
@@ -214,6 +521,9 @@ export default function GameShell() {
   const gameRef = useRef<GameInstance | null>(null);
   const steerRef = useRef({ left: false, right: false });
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 🔑 v0.2.43 — مقدار قبلی HUD برای افکت سکه/ضربه */
+  const prevCoinsRef = useRef<number | null>(null);
+  const prevHealthRef = useRef<number | null>(null);
 
   /** نمونه بازی در state برای رندر امن React (gameRef فقط در event handlerها استفاده می‌شود) */
   const [game, setGame] = useState<GameInstance | null>(null);
@@ -238,6 +548,19 @@ export default function GameShell() {
   const [previewHornId, setPreviewHornId] = useState<string | null>(null);
   /** 🔑 v0.2.41 — رنگ کارخانه‌ای انتخابی هر خودرو در نمایشگاه (id → hex) */
   const [chosenColors, setChosenColors] = useState<Record<string, string>>({});
+  /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) */
+  const [ui, setUi] = useState<UiPrefs>({ controlsScale: 1, controlsOpacity: 1, leftHanded: false, vibration: true });
+  /** v0.2.43 — تب فروشگاه: همه / مال من / خریدنی */
+  const [garageTab, setGarageTab] = useState<"all" | "owned" | "shop">("all");
+  /** v0.2.43 — مدال چرخش سه‌بعدی خودرو */
+  const [spinCar, setSpinCar] = useState<SpinCarData | null>(null);
+  /** v0.2.43 — آموزش سه‌قدمی: ۰=گاز، ۱=فرمان، ۲=بوق؛ null=خاموش */
+  const [tutStep, setTutStep] = useState<number | null>(null);
+  /** v0.2.43 — جملهٔ لودینگ طنز */
+  const [loadLineIdx, setLoadLineIdx] = useState(0);
+  /** v0.2.43 — افکت سکه پران و وینیت ضربه */
+  const [coinFx, setCoinFx] = useState<Array<{ id: number; delta: number }>>([]);
+  const [hitFxKey, setHitFxKey] = useState(0);
 
   /** باز کردن گاراژ + تازه‌سازی داده */
   const openGarage = useCallback(() => {
@@ -250,6 +573,48 @@ export default function GameShell() {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 1800);
+  }, []);
+
+  /** 🔑 v0.2.43 — تغییر تنظیمات کنترل لمسی + اعمال فوری + ذخیره در موتور */
+  const changeUi = useCallback((p: Partial<UiPrefs>) => {
+    setUi((prev) => {
+      const next = { ...prev, ...p };
+      setHapticsEnabled(next.vibration);
+      return next;
+    });
+    gameRef.current?.setUiPrefs(p);
+  }, []);
+
+  // ---------- v0.2.43 — آموزش سه‌قدمی ----------
+  const finishTutorial = useCallback(() => {
+    setTutStep(null);
+    try {
+      window.localStorage.setItem("fc_tutorial_done", "1");
+    } catch {
+      /* بی‌خطر */
+    }
+  }, []);
+  const replayTutorial = useCallback(() => {
+    try {
+      window.localStorage.removeItem("fc_tutorial_done");
+    } catch {
+      /* بی‌خطر */
+    }
+    setTutStep(0);
+  }, []);
+  const advanceTutorial = useCallback((step: number) => {
+    setTutStep((cur) => {
+      if (cur !== step) return cur;
+      if (cur >= 2) {
+        try {
+          window.localStorage.setItem("fc_tutorial_done", "1");
+        } catch {
+          /* بی‌خطر */
+        }
+        return null;
+      }
+      return cur + 1;
+    });
   }, []);
 
   /** خرید آپگرید/رنگ + تازه‌سازی گاراژ و toast طنز */
@@ -272,7 +637,31 @@ export default function GameShell() {
       canvas,
       {
         onStateChange: (s) => setPhase(s),
-        onHud: (h) => setHud(h),
+        // 🔑 v0.2.43 — افکت سکه پران + وینیت ضربه، همین‌جا کنار HUD (بدون setState در useEffect)
+        onHud: (h) => {
+          const pc = prevCoinsRef.current;
+          if (pc !== null && h.coins !== pc) {
+            const id = Date.now() + Math.random();
+            setCoinFx((l) => [...l.slice(-2), { id, delta: h.coins - pc }]);
+            setTimeout(() => setCoinFx((l) => l.filter((c) => c.id !== id)), 1100);
+          }
+          prevCoinsRef.current = h.coins;
+          const ph = prevHealthRef.current;
+          if (ph !== null && h.health < ph) {
+            setHitFxKey((k) => k + 1);
+            if (ph - h.health >= 6) {
+              const el = canvasRef.current;
+              if (el) {
+                el.classList.remove("fc-shake");
+                void el.offsetWidth;
+                el.classList.add("fc-shake");
+                setTimeout(() => el.classList.remove("fc-shake"), 400);
+              }
+            }
+          }
+          prevHealthRef.current = h.health;
+          setHud(h);
+        },
         onMissionEnd: (r) => setMissionResult(r),
       },
       (done, total) => setBootProgress(Math.round((done / total) * 100)),
@@ -283,6 +672,15 @@ export default function GameShell() {
       }
       gameRef.current = inst;
       setGame(inst);
+      // 🔑 v0.2.43 — بارگذاری تنظیمات کنترل لمسی + آموزش بار اول
+      const st = inst.getSettings();
+      setUi({ controlsScale: st.controlsScale, controlsOpacity: st.controlsOpacity, leftHanded: st.leftHanded, vibration: st.vibration });
+      setHapticsEnabled(st.vibration);
+      try {
+        setTutStep(window.localStorage.getItem("fc_tutorial_done") === "1" ? null : 0);
+      } catch {
+        setTutStep(0);
+      }
     }).catch((err: unknown) => {
       // لایهٔ محافظ UI: اگر boot به هر دلیل شکست خورد، صفحهٔ «تلاش دوباره» می‌آید —
       // کاربر دیگر در لودینگ گیر نمی‌کند (ادغام از شاخهٔ کاربر)
@@ -298,6 +696,26 @@ export default function GameShell() {
     };
   }, []);
 
+  // ---------- v0.2.43 — جمله‌های لودینگ طنز (فقط حین بوت) ----------
+  useEffect(() => {
+    if (phase !== "boot") return;
+    const t = setInterval(() => setLoadLineIdx((i) => i + 1), 2400);
+    return () => clearInterval(t);
+  }, [phase]);
+
+  // ---------- v0.2.43 — آموزش با کیبورد هم جلو برود (WASD/H) ----------
+  useEffect(() => {
+    if (tutStep === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (tutStep === 0 && (k === "w" || k === "arrowup")) advanceTutorial(0);
+      else if (tutStep === 1 && (k === "a" || k === "d" || k === "arrowleft" || k === "arrowright")) advanceTutorial(1);
+      else if (tutStep === 2 && k === "h") advanceTutorial(2);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tutStep, advanceTutorial]);
+
   // ---------- فرمان ترکیبی (چپ+راست هم‌زمان = مستقیم) ----------
   const applySteer = useCallback(() => {
     const { left, right } = steerRef.current;
@@ -307,20 +725,46 @@ export default function GameShell() {
     (down: boolean) => {
       steerRef.current.left = down;
       applySteer();
+      if (down) advanceTutorial(1); // v0.2.43 — آموزش قدم ۲
     },
-    [applySteer],
+    [applySteer, advanceTutorial],
   );
   const steerRight = useCallback(
     (down: boolean) => {
       steerRef.current.right = down;
       applySteer();
+      if (down) advanceTutorial(1); // v0.2.43 — آموزش قدم ۲
     },
-    [applySteer],
+    [applySteer, advanceTutorial],
   );
 
   const repColor = hud.reputation >= 70 ? "#8AC926" : hud.reputation >= 35 ? "#F2B705" : "#D64545";
   const healthColor = hud.health >= 60 ? "#8AC926" : hud.health >= 30 ? "#F2B705" : "#D64545";
   const towCostLabel = hud.coins >= 30 ? "−۳۰ سکه" : "رایگان — رفیق مکانیکی!";
+  /** 🔑 v0.2.43 — متغیر CSS ضریب اندازهٔ دکمه‌ها */
+  const csStyle = { ["--fcCs"]: String(ui.controlsScale) } as React.CSSProperties;
+  // ---------- v0.2.43 — هندسهٔ کنترل‌ها: اگر خوشه‌ها در عرض جا نشوند، چیدمان پله‌ای ----------
+  const [vp, setVp] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const upd = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    upd();
+    window.addEventListener("resize", upd);
+    return () => window.removeEventListener("resize", upd);
+  }, []);
+  const geom = (() => {
+    const W = vp?.w ?? 390;
+    const H = vp?.h ?? 844;
+    const cp = (min: number, frac: number, max: number) => Math.min(max, Math.max(min, H * frac));
+    const steer1 = cp(84, 0.19, 124);
+    const gas1 = cp(94, 0.21, 134);
+    const brake1 = cp(76, 0.17, 108);
+    const horn1 = cp(58, 0.13, 84);
+    const edge = Math.min(20, Math.max(10, W * 0.025));
+    const rowW = steer1 * 2 + 14 + brake1 + 12 + gas1 + edge * 2;
+    const stacked = rowW > W;
+    const pedalH = Math.max(gas1, horn1 + 10 + brake1);
+    return { stacked, steer1, pedalH };
+  })();
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#C9B98A] font-vazir" dir="rtl">
@@ -361,6 +805,10 @@ export default function GameShell() {
               <div className="h-full bg-[#8AC926] transition-all" style={{ width: `${bootProgress}%` }} />
             </div>
             <p className="text-sm font-bold text-[#3a2e2a]">٪{fa(bootProgress)}</p>
+            {/* v0.2.43 — جمله‌های لودینگ طنز */}
+            <p className="max-w-[250px] text-center text-[11px] font-bold leading-5 text-[#3a2e2a]/65">
+              «{LOADING_LINES[loadLineIdx % LOADING_LINES.length]}»
+            </p>
           </div>
         </div>
       )}
@@ -370,7 +818,7 @@ export default function GameShell() {
         <div className="absolute inset-0 z-30 flex flex-col overflow-y-auto overscroll-y-contain touch-pan-y bg-gradient-to-b from-[#3a2e2a]/10 via-transparent to-[#3a2e2a]/55">
           <div className="fc-pop mx-auto flex min-h-full w-full max-w-md shrink-0 flex-col items-center justify-start gap-5 px-6 py-8 sm:justify-center">
             {/* لوگو */}
-            <div className="flex flex-col items-center gap-2">
+            <div className="fc-rise flex flex-col items-center gap-2">
               <div className="fc-btn flex h-20 w-20 items-center justify-center rounded-3xl bg-[#F2B705]">
                 <Car className="h-11 w-11 text-[#3a2e2a]" strokeWidth={2.4} />
               </div>
@@ -381,7 +829,7 @@ export default function GameShell() {
             </div>
 
             {/* آمار بازیکن */}
-            <div className="flex items-center gap-3">
+            <div className="fc-rise flex items-center gap-3" style={{ animationDelay: "60ms" }}>
               <div className="fc-panel flex items-center gap-2 bg-[#FFF9EC] px-4 py-2">
                 <Coins className="h-5 w-5 text-[#B8801A]" />
                 <span className="font-extrabold text-[#3a2e2a]">{fa(hud.coins)}</span>
@@ -395,7 +843,8 @@ export default function GameShell() {
             {/* دکمه اصلی */}
             <button
               type="button"
-              className="fc-btn w-full max-w-xs rounded-3xl bg-[#8AC926] py-4 text-2xl font-extrabold text-[#3a2e2a]"
+              className="fc-btn fc-rise w-full max-w-xs rounded-3xl bg-[#8AC926] py-4 text-2xl font-extrabold text-[#3a2e2a]"
+              style={{ animationDelay: "120ms" }}
               onClick={() => {
                 gameRef.current?.startGameplay();
               }}
@@ -407,7 +856,8 @@ export default function GameShell() {
             {/* v0.2.40 — دسترسی سریع: یک ضربه، مأموریت بعدی */}
             <button
               type="button"
-              className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#DDF5B4] py-3 text-lg font-extrabold text-[#3a2e2a] shadow-[0_0_0_2px_rgba(58,46,42,0.15)]"
+              className="fc-btn fc-rise flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#DDF5B4] py-3 text-lg font-extrabold text-[#3a2e2a] shadow-[0_0_0_2px_rgba(58,46,42,0.15)]"
+              style={{ animationDelay: "170ms" }}
               onClick={() => {
                 const nid = gameRef.current?.nextMissionId();
                 if (nid) gameRef.current?.startMission(nid);
@@ -417,7 +867,7 @@ export default function GameShell() {
               مأموریت بعدی
               <ChevronRight className="h-5 w-5" />
             </button>
-            <div className="grid w-full max-w-xs grid-cols-2 gap-3">
+            <div className="fc-rise grid w-full max-w-xs grid-cols-2 gap-3" style={{ animationDelay: "220ms" }}>
               {([
                 { cat: "story" as MissionCategory, icon: <Map className="h-6 w-6" />, label: "مأموریت‌ها" },
                 { cat: "park" as MissionCategory, icon: <Target className="h-6 w-6" />, label: "پارک دوبل" },
@@ -443,7 +893,8 @@ export default function GameShell() {
             {/* v0.2.40 — مأموریت‌های بی‌پایان: همیشه تازه، هیچ‌وقت تموم نمی‌شن */}
             <button
               type="button"
-              className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#2A9D8F] py-3 text-lg font-extrabold text-white"
+              className="fc-btn fc-rise flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#2A9D8F] py-3 text-lg font-extrabold text-white"
+              style={{ animationDelay: "270ms" }}
               onClick={() => {
                 setMissionFilter("endless");
                 setMissions(gameRef.current?.listMissions("endless") ?? []);
@@ -458,7 +909,8 @@ export default function GameShell() {
             {/* گاراژ عمو نقی (فاز ۶) */}
             <button
               type="button"
-              className="fc-btn flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#F2B705] py-3 text-lg font-extrabold text-[#3a2e2a]"
+              className="fc-btn fc-rise flex w-full max-w-xs items-center justify-center gap-2 rounded-2xl bg-[#F2B705] py-3 text-lg font-extrabold text-[#3a2e2a]"
+              style={{ animationDelay: "320ms" }}
               onClick={() => {
                 openGarage();
               }}
@@ -501,7 +953,7 @@ export default function GameShell() {
                     <X className="h-5 w-5" />
                   </TapButton>
                 </div>
-                {game && <SettingsPanel game={game} />}
+                {game && <SettingsPanel game={game} ui={ui} onChangeUi={changeUi} onReplayTutorial={replayTutorial} />}
               </div>
             ) : (
               <button
@@ -637,17 +1089,69 @@ export default function GameShell() {
             <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-white/85">
               <Car className="h-4 w-4 text-[#F2B705]" /> نمایشگاه ماشین‌ها — با سکه بخر و هر وقت خواستی عوض کن:
             </p>
+            {/* 🔑 v0.2.43 — تب‌های فروشگاه: همه / مال من / خریدنی */}
+            <div className="flex items-center gap-1.5">
+              {(["all", "owned", "shop"] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={`fc-btn flex-1 rounded-xl py-1.5 text-[11px] font-extrabold ${
+                    garageTab === k ? "bg-[#F2B705] text-[#3a2e2a]" : "bg-[#FFF9EC] text-[#3a2e2a]/70"
+                  }`}
+                  onClick={() => setGarageTab(k)}
+                >
+                  {k === "all" ? "همه" : k === "owned" ? "مال من" : "خریدنی"}
+                </button>
+              ))}
+            </div>
+            {(() => {
+              const visible = garage.vehicles.filter((v) =>
+                garageTab === "all" ? true : garageTab === "owned" ? v.owned : !v.owned,
+              );
+              if (visible.length > 0) return null;
+              return (
+                <p className="fc-panel bg-[#FFF9EC] p-4 text-center text-xs font-bold leading-5 text-[#3a2e2a]/60">
+                  {garageTab === "owned"
+                    ? "هنوز ماشینی نخریدی! برو تو تب «خریدنی» یه گزینه بزن."
+                    : "همه ماشین‌ها مال تو شدن — آفرین قهرمان!"}
+                </p>
+              );
+  })()}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {garage.vehicles.map((v) => {
+              {garage.vehicles
+                .filter((v) => (garageTab === "all" ? true : garageTab === "owned" ? v.owned : !v.owned))
+                .map((v) => {
                 const affordable = garage.coins >= v.price;
                 const palette = v.colors ?? ['#f4f4f0'];
                 return (
                   <div key={v.id} className={`fc-panel p-3 ${v.selected ? "bg-[#DDF5B4]" : "bg-[#FFF9EC]"}`}>
-                    <CarPreviewImg
-                      variant={v.variant}
-                      paint={chosenColors[v.id] ?? (v.selected ? (garage.paints.find((p) => p.selected)?.hex ?? null) : null)}
-                      className="h-24 w-full rounded-xl border border-[#3a2e2a]/10 object-cover"
-                    />
+                    {/* 🔑 v0.2.43 — دکمه چرخش سه‌بعدی روی پیش‌نمایش */}
+                    <div className="relative">
+                      <CarPreviewImg
+                        variant={v.variant}
+                        paint={chosenColors[v.id] ?? (v.selected ? (garage.paints.find((p) => p.selected)?.hex ?? null) : null)}
+                        className="h-24 w-full rounded-xl border border-[#3a2e2a]/10 object-cover"
+                      />
+                      <button
+                        type="button"
+                        aria-label={`چرخاندن ${v.name}`}
+                        className="fc-btn absolute bottom-1.5 left-1.5 flex h-8 w-8 items-center justify-center rounded-full bg-[#3a2e2a]/85 text-white"
+                        style={{ borderWidth: 3 }}
+                        onClick={() =>
+                          setSpinCar({
+                            id: v.id,
+                            variant: v.variant,
+                            name: v.name,
+                            paint: chosenColors[v.id] ?? (v.selected ? (garage.paints.find((p) => p.selected)?.hex ?? null) : null),
+                            owned: v.owned,
+                            selected: v.selected,
+                            price: v.price,
+                          })
+                        }
+                      >
+                        <RotateCw className="h-4 w-4" />
+                      </button>
+                    </div>
                     {/* 🔑 v0.2.41 — رنگ‌های کارخانه‌ای: خریدار رنگ بدنه را انتخاب می‌کند */}
                     {palette.length > 1 && (
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -960,6 +1464,16 @@ export default function GameShell() {
                         : "تاکسیه عصبانیه! فرار کن!"}
                     </span>
                   </div>
+                  {/* 🔑 v0.2.43 — ستاره‌های تعقیب (سبک GTA) */}
+                  <div className="flex items-center gap-0.5" aria-label={`${hud.chase?.stars ?? 0} ستاره تعقیب`}>
+                    {[1, 2, 3].map((s) => (
+                      <Star
+                        key={s}
+                        className={`h-3.5 w-3.5 ${s <= (hud.chase?.stars ?? 0) ? "fill-[#F2B705] text-[#B8801A]" : "text-[#3a2e2a]/25"}`}
+                        strokeWidth={2.4}
+                      />
+                    ))}
+                  </div>
                   <div className="flex items-center justify-between text-[9px] font-bold text-[#3a2e2a]/80">
                     <span>{fa(hud.chase.dist)} متر تا گمش کنی</span>
                     {hud.chase.kind === "police" && hud.chase.bust > 0.05 && (
@@ -1007,14 +1521,29 @@ export default function GameShell() {
                   {hud.mission.timeLeft < 0 && (
                     <div className="mt-1 text-[9px] font-bold text-[#3a2e2a]/80">{fa(hud.mission.distM)} متر تا هدف</div>
                   )}
+                  {/* 🔑 v0.2.43 — نوار پیشرفت مسیر */}
+                  {hud.mission.progress !== null && (
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full border border-[#3a2e2a]/35 bg-white">
+                      <div className="h-full bg-[#2A9D8F] transition-all" style={{ width: `${Math.round(hud.mission.progress * 100)}%` }} />
+                    </div>
+                  )}
                   {hud.mission.extra && (
                     <div className="mt-1 rounded-full bg-[#FFF3D6] px-2 py-0.5 text-center text-[9px] font-bold text-[#3a2e2a]">{hud.mission.extra}</div>
                   )}
                 </div>
               )}
-              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
+              <div className="fc-panel relative flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
                 <Coins className="h-4 w-4 text-[#B8801A]" />
-                <span className="text-[11px] font-bold text-[#3a2e2a]">{fa(hud.coins)}</span>
+                <span key={hud.coins} className="fc-pop text-[11px] font-bold text-[#3a2e2a]">{fa(hud.coins)}</span>
+                {/* 🔑 v0.2.43 — سکه پران +۱۲ / −۸ */}
+                {coinFx.map((c) => (
+                  <span
+                    key={c.id}
+                    className={`fc-coin-fly absolute -top-1 left-1/2 -translate-x-1/2 text-[12px] font-black ${c.delta > 0 ? "text-[#5c9e1f]" : "text-[#D64545]"}`}
+                  >
+                    {c.delta > 0 ? `+${fa(c.delta)}` : `−${fa(-c.delta)}`}
+                  </span>
+                ))}
               </div>
               <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
                 <Coffee className="h-4 w-4 text-[#D64545]" />
@@ -1029,10 +1558,6 @@ export default function GameShell() {
                   <div className="h-full transition-all" style={{ width: `${hud.health}%`, backgroundColor: healthColor }} />
                 </div>
               </div>
-              <div className="fc-panel flex items-center gap-1.5 bg-[#FFF9EC]/95 px-2 py-1">
-                <Gauge className="h-4 w-4 text-[#2A9D8F]" />
-                <span className="text-[11px] font-bold text-[#3a2e2a]">{fa(hud.speedKmh)} km/h</span>
-              </div>
               {hud.showFps && (
                 <div className="fc-panel bg-[#3a2e2a]/85 px-2 py-0.5">
                   <span className="text-[10px] font-bold text-white">FPS: {fa(hud.fps)}</span>
@@ -1041,49 +1566,158 @@ export default function GameShell() {
             </div>
           </div>
 
-          {/* کنترل‌ها: فرمان پایین-چپ، گاز/ترمز پایین-راست — dir ltr تا RTL دکمه‌ها را برعکس نچیند */}
-          <div className="pointer-events-none absolute inset-0 z-20">
-            <div className="pointer-events-auto absolute items-end" style={{ left: "clamp(10px, 2.5vw, 20px)", bottom: "clamp(10px, 4vh, 28px)", display: "flex", gap: "clamp(8px, 1.8vw, 14px)", direction: "ltr" }}>
-              <HoldButton
-                ariaLabel="فرمان چپ"
-                onHold={steerLeft}
-                className="h-[clamp(84px,19vh,124px)] w-[clamp(84px,19vh,124px)] bg-[#FFF3D6] text-[#3a2e2a]"
+          {/* 🔑 v0.2.43 — سرعت‌سنج عقربه‌ای + فلش GPS (مرکز، بالای بلندترین خوشه) */}
+          <div
+            className="pointer-events-none absolute inset-x-0 z-20 flex flex-col items-center gap-1.5"
+            style={{
+              bottom: geom.stacked
+                ? `calc(clamp(10px, 4vh, 28px) + (${geom.pedalH}px + ${geom.steer1}px) * ${ui.controlsScale} + 26px)`
+                : `calc(max(clamp(94px, 21vh, 134px), clamp(58px, 13vh, 84px) + clamp(8px, 1.6vh, 12px) + clamp(76px, 17vh, 108px)) * ${ui.controlsScale} + 18px)`,
+            }}
+          >
+            <SpeedGauge kmh={hud.speedKmh} />
+            {hud.mission && hud.mission.dirDeg !== null && hud.mission.distM > 12 && (
+              <div
+                className="fc-panel flex items-center gap-1.5 bg-[#2A9D8F]/95 px-2 py-0.5 text-white shadow-lg"
+                style={{ borderRadius: "999px", borderWidth: 3 }}
               >
-                <ChevronLeft className="h-[clamp(44px,10vh,64px)] w-[clamp(44px,10vh,64px)]" strokeWidth={3} />
-              </HoldButton>
-              <HoldButton
-                ariaLabel="فرمان راست"
-                onHold={steerRight}
-                className="h-[clamp(84px,19vh,124px)] w-[clamp(84px,19vh,124px)] bg-[#FFF3D6] text-[#3a2e2a]"
-              >
-                <ChevronRight className="h-[clamp(44px,10vh,64px)] w-[clamp(44px,10vh,64px)]" strokeWidth={3} />
-              </HoldButton>
-            </div>
-            <div className="pointer-events-auto absolute flex items-end gap-3" style={{ right: "clamp(10px, 2.5vw, 20px)", bottom: "clamp(10px, 4vh, 28px)", direction: "ltr", gap: "clamp(8px, 1.8vw, 12px)" }}>
-              <div className="flex flex-col items-center gap-3">
-                <TapButton
-                  ariaLabel="بوق"
-                  onTap={() => gameRef.current?.pressHorn()}
-                  className="h-[clamp(58px,13vh,84px)] w-[clamp(58px,13vh,84px)] bg-[#F2B705] text-[#3a2e2a]"
-                >
-                  <Megaphone className="h-[clamp(28px,6.5vh,42px)] w-[clamp(28px,6.5vh,42px)]" />
-                </TapButton>
-                <HoldButton
-                  ariaLabel="ترمز"
-                  onHold={(d) => gameRef.current?.setVirtualBrake(d)}
-                  className="h-[clamp(76px,17vh,108px)] w-[clamp(76px,17vh,108px)] bg-[#D64545] text-white"
-                >
-                  <Square className="h-[clamp(36px,8vh,52px)] w-[clamp(36px,8vh,52px)]" strokeWidth={2.8} />
-                </HoldButton>
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white">
+                  <svg
+                    className="fc-gps-arrow"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    style={{ transform: `rotate(${hud.mission.dirDeg}deg)` }}
+                    aria-hidden="true"
+                  >
+                    <path d="M12 2 L19 21 L12 16 L5 21 Z" fill="#2A9D8F" stroke="#3a2e2a" strokeWidth="1.8" strokeLinejoin="round" />
+                  </svg>
+                </span>
+                <span className="text-[10px] font-extrabold">{fa(hud.mission.distM)} متر</span>
               </div>
-              <HoldButton
-                ariaLabel="گاز"
-                onHold={(d) => gameRef.current?.setVirtualGas(d)}
-                className="h-[clamp(94px,21vh,134px)] w-[clamp(94px,21vh,134px)] bg-[#8AC926] text-[#3a2e2a]"
-              >
-                <ArrowUp className="h-[clamp(48px,11vh,70px)] w-[clamp(48px,11vh,70px)]" strokeWidth={3} />
-              </HoldButton>
+            )}
+          </div>
+
+          {/* 🔑 v0.2.43 — وینیت قرمز ضربه */}
+          {hitFxKey > 0 && <div key={hitFxKey} className="fc-vignette absolute inset-0 z-30" />}
+
+          {/* 🔑 v0.2.43 — آموزش سه‌قدمی */}
+          {tutStep !== null && (
+            <div className="pointer-events-none absolute inset-x-0 top-[132px] z-30 flex justify-center px-4">
+              <div className="fc-panel pointer-events-auto flex items-center gap-2.5 bg-[#3a2e2a] px-4 py-2.5 text-white">
+                {tutStep === 0 ? (
+                  <ArrowUp className="h-6 w-6 shrink-0 text-[#8AC926]" />
+                ) : tutStep === 1 ? (
+                  <MoveHorizontal className="h-6 w-6 shrink-0 text-[#F2B705]" />
+                ) : (
+                  <Megaphone className="h-6 w-6 shrink-0 text-[#e07be0]" />
+                )}
+                <p className="text-[12px] font-extrabold leading-5">
+                  {tutStep === 0
+                    ? "قدم ۱ از ۳ — دکمهٔ سبزِ گاز رو نگه دار تا راه بیفتی!"
+                    : tutStep === 1
+                      ? "قدم ۲ از ۳ — حالا با فرمان چپ/راست بپیچون!"
+                      : "قدم ۳ از ۳ — بوق بزن تا همه بفهمن اینجایی!"}
+                </p>
+                <button
+                  type="button"
+                  className="fc-btn shrink-0 rounded-xl bg-[#FFF9EC] px-2.5 py-1 text-[10px] font-extrabold text-[#3a2e2a]"
+                  onClick={finishTutorial}
+                >
+                  رد کردن
+                </button>
+              </div>
             </div>
+          )}
+
+          {/* کنترل‌ها — v0.2.43: اندازه/شفافیت قابل‌تنظیم + حالت چپ‌دست + چیدمان پله‌ای هوشمند
+              (اگر خوشه‌ها در عرض صفحه جا نشوند، فرمان بالا می‌رود تا هرگز هم‌پوشان نشوند) */}
+          <div className="pointer-events-none absolute inset-0 z-20" style={csStyle}>
+            {(() => {
+              const edge = "clamp(10px, 2.5vw, 20px)";
+              const bottom = "clamp(10px, 4vh, 28px)";
+              // v0.2.43 — چیدمان پله‌ای: اگر خوشه‌ها در عرض جا نشوند، فرمان بالاتر از پدال‌ها
+              const steerBottom = geom.stacked
+                ? `calc(${bottom} + ${geom.pedalH}px * var(--fcCs, 1) + 12px)`
+                : bottom;
+              const steerPos: React.CSSProperties = ui.leftHanded
+                ? { right: edge, bottom: steerBottom }
+                : { left: edge, bottom: steerBottom };
+              const pedalPos: React.CSSProperties = ui.leftHanded
+                ? { left: edge, bottom }
+                : { right: edge, bottom };
+              const sz = (base: string) => `calc(${base} * var(--fcCs, 1))`;
+              const steerBtn = sz("clamp(84px, 19vh, 124px)");
+              const steerIcon = sz("clamp(44px, 10vh, 64px)");
+              const gasBtn = sz("clamp(94px, 21vh, 134px)");
+              const gasIcon = sz("clamp(48px, 11vh, 70px)");
+              const brakeBtn = sz("clamp(76px, 17vh, 108px)");
+              const brakeIcon = sz("clamp(36px, 8vh, 52px)");
+              const hornBtn = sz("clamp(58px, 13vh, 84px)");
+              const hornIcon = sz("clamp(28px, 6.5vh, 42px)");
+              return (
+                <>
+                  <div
+                    className="pointer-events-auto absolute flex items-end"
+                    style={{ ...steerPos, display: "flex", gap: "clamp(8px, 1.8vw, 14px)", direction: "ltr", opacity: ui.controlsOpacity }}
+                  >
+                    <HoldButton
+                      ariaLabel="فرمان چپ"
+                      onHold={steerLeft}
+                      className={`bg-[#FFF3D6] text-[#3a2e2a] ${tutStep === 1 ? "fc-tut-target" : ""}`}
+                      style={{ width: steerBtn, height: steerBtn }}
+                    >
+                      <ChevronLeft style={{ width: steerIcon, height: steerIcon }} strokeWidth={3} />
+                    </HoldButton>
+                    <HoldButton
+                      ariaLabel="فرمان راست"
+                      onHold={steerRight}
+                      className={`bg-[#FFF3D6] text-[#3a2e2a] ${tutStep === 1 ? "fc-tut-target" : ""}`}
+                      style={{ width: steerBtn, height: steerBtn }}
+                    >
+                      <ChevronRight style={{ width: steerIcon, height: steerIcon }} strokeWidth={3} />
+                    </HoldButton>
+                  </div>
+                  <div
+                    className="pointer-events-auto absolute flex items-end"
+                    style={{ ...pedalPos, display: "flex", direction: "ltr", gap: "clamp(8px, 1.8vw, 12px)", opacity: ui.controlsOpacity }}
+                  >
+                    <div className="flex flex-col items-center" style={{ gap: "clamp(8px, 1.6vh, 12px)" }}>
+                      <TapButton
+                        ariaLabel="بوق"
+                        onTap={() => {
+                          advanceTutorial(2); // v0.2.43 — آموزش قدم ۳
+                          gameRef.current?.pressHorn();
+                        }}
+                        className={`bg-[#F2B705] text-[#3a2e2a] ${tutStep === 2 ? "fc-tut-target" : ""}`}
+                        style={{ width: hornBtn, height: hornBtn }}
+                      >
+                        <Megaphone style={{ width: hornIcon, height: hornIcon }} />
+                      </TapButton>
+                      <HoldButton
+                        ariaLabel="ترمز"
+                        onHold={(d) => gameRef.current?.setVirtualBrake(d)}
+                        className="bg-[#D64545] text-white"
+                        style={{ width: brakeBtn, height: brakeBtn }}
+                      >
+                        <Square style={{ width: brakeIcon, height: brakeIcon }} strokeWidth={2.8} />
+                      </HoldButton>
+                    </div>
+                    <HoldButton
+                      ariaLabel="گاز"
+                      onHold={(d) => {
+                        if (d) advanceTutorial(0); // v0.2.43 — آموزش قدم ۱
+                        gameRef.current?.setVirtualGas(d);
+                      }}
+                      className={`bg-[#8AC926] text-[#3a2e2a] ${tutStep === 0 ? "fc-tut-target" : ""}`}
+                      style={{ width: gasBtn, height: gasBtn }}
+                    >
+                      <ArrowUp style={{ width: gasIcon, height: gasIcon }} strokeWidth={3} />
+                    </HoldButton>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </>
       )}
@@ -1128,7 +1762,7 @@ export default function GameShell() {
             </div>
             {showSettings && game && (
               <div className="rounded-2xl bg-[#FFF3D6] p-3">
-                <SettingsPanel game={game} />
+                <SettingsPanel game={game} ui={ui} onChangeUi={changeUi} onReplayTutorial={replayTutorial} />
               </div>
             )}
           </div>
@@ -1139,10 +1773,12 @@ export default function GameShell() {
       {phase === "playing" && missionResult && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#3a2e2a]/45 px-6 backdrop-blur-[2px]">
           <div
-            className={`fc-panel fc-pop w-full max-w-sm p-6 text-center ${
+            className={`fc-panel fc-pop relative w-full max-w-sm overflow-hidden p-6 text-center ${
               missionResult.success ? "bg-[#FFF9EC]" : "bg-[#F4E7DA]"
             }`}
           >
+            {/* 🔑 v0.2.43 — کاغذرنگی موفقیت */}
+            {missionResult.success && <Confetti />}
             <div
               className={`mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-3xl ${
                 missionResult.success ? "bg-[#8AC926]" : "bg-[#D64545]"
@@ -1286,6 +1922,34 @@ export default function GameShell() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 🔑 v0.2.43 — مدال چرخش سه‌بعدی خودرو */}
+      {spinCar && garage && (
+        <SpinModal
+          car={spinCar}
+          coins={garage.coins}
+          colors={garage.vehicles.find((v) => v.id === spinCar.id)?.colors ?? ["#f4f4f0"]}
+          onClose={() => setSpinCar(null)}
+          onChooseColor={(hex) => {
+            setChosenColors((m) => ({ ...m, [spinCar.id]: hex }));
+            setSpinCar((s) => (s ? { ...s, paint: hex } : s));
+          }}
+          onBuy={() => {
+            const c = spinCar;
+            purchase(() =>
+              c.owned
+                ? gameRef.current!.selectVehicle(c.id)
+                : gameRef.current!.buyVehicle(c.id, c.paint ?? undefined),
+            );
+            const g = gameRef.current?.listGarage();
+            if (g) {
+              setGarage(g);
+              const cur = g.vehicles.find((v) => v.id === c.id);
+              setSpinCar((s) => (s && cur ? { ...s, owned: cur.owned, selected: cur.selected, price: cur.price } : s));
+            }
+          }}
+        />
       )}
 
       {/* ============ Toast ============ */}

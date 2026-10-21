@@ -9,7 +9,7 @@
 import { AssetManager } from './AssetManager';
 import { InputManager } from './InputManager';
 import { Camera } from './Camera';
-import { SaveManager } from './SaveManager';
+import { SaveManager, type GameSettings } from './SaveManager';
 import { AudioManager } from '../managers/AudioManager';
 import { VoiceManager } from '../managers/VoiceManager';
 import { TrafficManager } from '../managers/TrafficManager';
@@ -60,7 +60,7 @@ export interface HudData {
   /** موتور خاموش است؟ (اورلی اسکران) */
   engineDead: boolean;
   /** v0.2.42 — تعقیب فعال (پلیس/تاکسی عصبانی)؛ null = آرامش */
-  chase: { kind: 'police' | 'taxi'; dist: number; bust: number } | null;
+  chase: { kind: 'police' | 'taxi'; dist: number; bust: number; /** v0.2.43 — ستاره‌های تعقیب ۱..۳ */ stars: number } | null;
 }
 
 /** نتیجه مأموریت برای پوسته React (فاز 4) */
@@ -215,6 +215,8 @@ export class GameManager {
   private chaseCooldown = 0;
   /** سردشدن حباب طنز حین تعقیب */
   private chaseBubbleCd = 0;
+  /** v0.2.43 — مدت تعقیب جاری (ثانیه) — برای ستاره‌های تعقیب */
+  private chaseElapsed = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -601,6 +603,9 @@ export class GameManager {
     this.audio.ensure();
     this.audio.startEngine();
     this.audio.setVolumes(this.save.get().settings);
+    // 🔑 v0.2.43 — فیکس: بعد از Pause→منو→مأموریت، کیبورد خاموش می‌ماند
+    // (setEnabled(false) در pause، دوباره روشن نمی‌شد — لمس سالم بود، دسکتاپ می‌شکست)
+    this.input.setEnabled(true);
     this.setState('playing');
     this.voice.trigger('game_start', performance.now());
   }
@@ -677,6 +682,20 @@ export class GameManager {
   }
   getSettings() { return this.save.get().settings; }
   getSave() { return this.save.get(); }
+
+  /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) — clamp و ذخیره */
+  setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration'>>): void {
+    this.save.mutate((d) => {
+      if (typeof p.controlsScale === 'number' && Number.isFinite(p.controlsScale)) {
+        d.settings.controlsScale = Math.min(1.5, Math.max(0.8, p.controlsScale));
+      }
+      if (typeof p.controlsOpacity === 'number' && Number.isFinite(p.controlsOpacity)) {
+        d.settings.controlsOpacity = Math.min(1, Math.max(0.4, p.controlsOpacity));
+      }
+      if (typeof p.leftHanded === 'boolean') d.settings.leftHanded = p.leftHanded;
+      if (typeof p.vibration === 'boolean') d.settings.vibration = p.vibration;
+    });
+  }
 
   toggleDebugFps(): void {
     this.showFps = !this.showFps;
@@ -947,6 +966,7 @@ export class GameManager {
       c.decided = false; // ناوبری حریص از همین گره فعال شود
       this.chaseCar = c;
       this.chaseKind = 'police';
+      this.chaseElapsed = 0;
       this.chaseBust = 0;
       this.chaseTimer = CHASE.giveUpSec;
       this.chaseCooldown = CHASE.retriggerCooldown;
@@ -964,6 +984,7 @@ export class GameManager {
       c.decided = false;
       this.chaseCar = c;
       this.chaseKind = 'taxi';
+      this.chaseElapsed = 0;
       this.chaseBust = 0;
       this.chaseTimer = 0;
       this.chaseCooldown = CHASE.retriggerCooldown;
@@ -979,6 +1000,7 @@ export class GameManager {
     this.chaseCooldown = Math.max(0, this.chaseCooldown - dt);
     const c = this.chaseCar;
     if (!c || !this.chaseKind) return;
+    this.chaseElapsed += dt;
     const nowMs = performance.now();
     const d = Math.hypot(c.x - this.vehicle.x, c.y - this.vehicle.y);
     const police = this.chaseKind === 'police';
@@ -1038,6 +1060,7 @@ export class GameManager {
     this.chaseBust = 0;
     this.chaseTimer = 0;
     this.chaseBubbleCd = 0;
+    this.chaseElapsed = 0;
     this.audio.sirenStop();
     const nowMs = performance.now();
     if (c) this.traffic.demote(c);
@@ -1717,6 +1740,10 @@ export class GameManager {
             kind: this.chaseKind,
             dist: Math.round(Math.hypot(this.chaseCar.x - this.vehicle.x, this.chaseCar.y - this.vehicle.y) / MISSIONS.pxPerMeter),
             bust: this.chaseKind === 'police' ? Math.min(1, this.chaseBust / CHASE.arrestHoldSec) : 0,
+            // v0.2.43 — ستاره‌ها: ۱ شروع، ۲ بعد از ۷ ثانیه، ۳ وقتی دستگیری نزدیک است
+            stars: this.chaseKind === 'police'
+              ? (this.chaseElapsed > 7 ? (this.chaseBust > 0.5 ? 3 : 2) : 1)
+              : 1,
           }
         : null,
     });
