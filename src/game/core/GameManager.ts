@@ -28,6 +28,7 @@ import type { CarVariant } from '../render3d/CarFactory3D';
 import { RENDER, VEHICLE_PHYSICS, REPUTATION, IDLE_EVENTS, CAMERA as CAM, COLLISION, TRAFFIC, DRIFT, MISSIONS, RENDER3D, DAMAGE, BREAKABLE, PEDESTRIANS, PARKED_HIT, TRAFFIC_LIGHTS, DEBRIS, CHASE, FUEL, RESPAWN_DROP } from '../data/balance';
 import { UPGRADES, PAINTS, nextUpgradePrice, upgradeTuning, upgradeById, paintById, NEUTRAL_TUNING, type UpgradeId, type VehicleTuning } from '../data/garage';
 import { HORN_LIST, HORN_REACT, HORN_OWNER_EVENT, HORN_FLAVOR, hornById, type HornId } from '../data/horns';
+import { speech } from './SpeechService';
 import { MISSION_LIST } from '../data/missions';
 import { nextEndlessId } from '../data/missionGen';
 import { PLAYER_VEHICLES, vehicleById, VEHICLE_FACTORY_COLORS } from '../data/vehicles';
@@ -301,13 +302,14 @@ export class GameManager {
       onFail: (def, reason) => this.finishMission(false, def.id, 0, 0, reason, null),
       // فاز ۵: مسافر سوار شد — حباب مسافر + جمله
       onTaxiPickup: (x, y) => {
-        this.fx.pushBubble(this.pickLine('taxi_pickup'), x, y, 'char_pass_m_01_idle', 2.8);
-        this.voice.trigger('taxi_pickup', performance.now());
+        // v0.2.45 — حباب = جملهٔ خوانده‌شده (info?.line) تا صدا و متن یکی باشند
+        const info = this.voice.trigger('taxi_pickup', performance.now());
+        this.fx.pushBubble(info?.line ?? this.pickLine('taxi_pickup'), x, y, 'char_pass_m_01_idle', 2.8);
         this.fx.spawnBurst(x, y, '#8AC926', 10, 120);
       },
       // فاز ۵: چک‌پوینت رد شد
       onCheckpoint: (x, y, i) => {
-        this.audio.coin();
+        this.audio.checkpoint(); // v0.2.45 — چایم متمایز (قبلاً صدای سکه بود)
         this.fx.spawnBurst(x, y, '#F2B705', 12, 140);
         this.fx.pushBubble(`چک‌پوینت ${faNum(i)}!`, x, y, 'char_driver_01_idle', 1.6);
       },
@@ -318,6 +320,14 @@ export class GameManager {
     this.voice.setAudioHook({
       playVoiceFile: (eventKey, index) => this.audio.playVoiceFile(eventKey, index),
     });
+    // v0.2.45 — خواندن بلند جملات فارسی: پل اندروید (TTS گوگل) یا speechSynthesis مرورگر
+    this.voice.setSpeechHook({
+      speak: (line, speaker, priority) => speech.speak(line, speaker, priority),
+    });
+    speech.detectBridge();
+    speech.warmup(); // لیست صدای fa مرورگر async می‌آید — زودتر گرم می‌شود
+    speech.setVolume(this.save.get().settings.voice);
+    speech.setEnabled(this.save.get().settings.voice > 0.05);
 
     this.input.attach();
 
@@ -617,6 +627,7 @@ export class GameManager {
   startGameplay(): void {
     this.audio.ensure();
     this.audio.startEngine();
+    this.audio.engineStart(); // v0.2.45 — «ورووووم» شروع
     this.audio.setVolumes(this.save.get().settings);
     // 🔑 v0.2.43 — فیکس: بعد از Pause→منو→مأموریت، کیبورد خاموش می‌ماند
     // (setEnabled(false) در pause، دوباره روشن نمی‌شد — لمس سالم بود، دسکتاپ می‌شکست)
@@ -628,6 +639,7 @@ export class GameManager {
   pause(): void {
     if (this.state !== 'playing') return;
     this.audio.setEngineSpeed(0);
+    speech.stop(); // v0.2.45 — جملهٔ نیمه‌خوانده قطع شود
     this.voice.clear();
     this.input.setEnabled(false);
     this.save.flush();
@@ -683,16 +695,23 @@ export class GameManager {
       this.voice.trigger('passenger_horn', performance.now());
     }
     // واکنش ترافیک: جواب بوق + حباب طنز روی ماشینِ جواب‌دهنده — متن متناسب با بوق (فاز ۷)
+    // v0.2.45 — جوابِ NPC حالا بلند هم خوانده می‌شود (همان جملهٔ حباب)
     const reacted = this.traffic.onPlayerHorn(this.vehicle.x, this.vehicle.y);
     if (reacted.length > 0) {
       const car = reacted[0];
       const ev = HORN_REACT[hornId] ?? 'traffic_honk';
-      this.fx.pushBubble(this.pickLine(ev), car.x, car.y, 'char_driver_01_idle', 2.6);
+      const info = this.voice.trigger(ev, performance.now());
+      this.fx.pushBubble(info?.line ?? this.pickLine(ev), car.x, car.y, 'char_driver_01_idle', 2.6);
     }
   }
   setSetting<K extends 'music' | 'sfx' | 'voice'>(k: K, v: number): void {
     this.save.mutate((d) => { d.settings[k] = v; });
     this.audio.setVolumes(this.save.get().settings);
+    // v0.2.45 — اسلایدر «جملات طنز» همزمان صدای خواندن فارسی را هم کنترل می‌کند
+    if (k === 'voice') {
+      speech.setVolume(v);
+      speech.setEnabled(v > 0.05);
+    }
   }
   setGraphicsQuality(quality: 'performance' | 'balanced' | 'quality'): void {
     this.save.mutate((d) => { d.settings.graphicsQuality = quality; });
@@ -701,6 +720,11 @@ export class GameManager {
   }
   getSettings() { return this.save.get().settings; }
   getSave() { return this.save.get(); }
+
+  /** v0.2.45 — وضعیت گفتار برای QA (window.__funnycar.speechDebug) */
+  get speechDebug(): Record<string, unknown> {
+    return speech.debugState();
+  }
 
   /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) — clamp و ذخیره */
   setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode'>>): void {
@@ -830,7 +854,8 @@ export class GameManager {
       });
     }
 
-    this.audio.coin();
+    if (success) this.audio.success();
+    else this.audio.fail();
     if (success) this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 16, 150);
     // فاز ۵: حباب پایانی مخصوص هر حالت
     if (success && def?.kind === 'taxi_fare') {
@@ -863,9 +888,24 @@ export class GameManager {
     return ev.lines[Math.floor(Math.random() * ev.lines.length)];
   }
 
+  /** v0.2.45 — گیت سراسری بوق AI: کل شهر حداکثر هر honkGlobalSec یک بوق، فقط نزدیک بازیکن */
+  private lastAiHonkAt = 0;
+  /** v0.2.45 — throttle صدای آچارباد حین ترمیم */
+  private lastRepairSfxAt = 0;
+
   /** بوق ماشین ترافیک (گیر افتاده یا جواب بوق) — فقط صدا؛ حباب جدا داده می‌شود */
   private onTrafficHonk(_car: unknown): void {
     if (this.state !== 'playing') return;
+    // فاصله: بوق دور از بازیکن شنیده نمی‌شود (ضد «بوق ممتد الکی از دور»)
+    const c = _car as { x?: number; y?: number } | null;
+    if (c && typeof c.x === 'number' && typeof c.y === 'number') {
+      const d = Math.hypot(c.x - this.vehicle.x, c.y - this.vehicle.y);
+      if (d > TRAFFIC.honkMaxDist) return;
+    }
+    // throttle سراسری: هر ۳.۵ ثانیه حداکثر یک بوق AI — صفحه بوق‌خانه نمی‌شود
+    const now = performance.now();
+    if (now - this.lastAiHonkAt < TRAFFIC.honkGlobalSec * 1000) return;
+    this.lastAiHonkAt = now;
     this.audio.horn(Math.floor(Math.random() * 3));
   }
 
@@ -880,8 +920,9 @@ export class GameManager {
     } else if (kind === 'taxi') {
       const taxi = this.randomEvents.nearestTaxi(this.traffic.cars, x, y);
       if (taxi) {
-        this.audio.horn(Math.floor(Math.random() * 3));
-        this.fx.pushBubble(this.pickLine('traffic_honk'), taxi.x, taxi.y, 'char_driver_01_idle', 2.6);
+        this.onTrafficHonk(taxi);
+        const info = this.voice.trigger('traffic_honk', nowMs);
+        this.fx.pushBubble(info?.line ?? this.pickLine('traffic_honk'), taxi.x, taxi.y, 'char_driver_01_idle', 2.6);
       }
     }
   }
@@ -997,8 +1038,9 @@ export class GameManager {
       this.chaseBubbleCd = 3.0;
       this.audio.sirenStart();
       this.audio.hornById('police');
-      this.voice.trigger('police_stop', nowMs);
-      this.fx.pushBubble(this.pickLine('police_stop'), c.x, c.y, SPEAKER_PORTRAIT.police, 3.0);
+      // v0.2.45 — حباب و گفتار از یک جمله می‌آیند
+      const info = this.voice.trigger('police_stop', nowMs);
+      this.fx.pushBubble(info?.line ?? this.pickLine('police_stop'), c.x, c.y, SPEAKER_PORTRAIT.police, 3.0);
       this.fx.spawnBurst(c.x, c.y, '#5b8dd9', 12, 160);
       this.camera.addShake(CAM.maxShake * 0.35);
     } else if (isTaxi && c.mode === 'normal' && impact > CHASE.taxiTriggerImpact) {
@@ -1013,9 +1055,9 @@ export class GameManager {
       this.chaseTimer = 0;
       this.chaseCooldown = CHASE.retriggerCooldown;
       this.chaseBubbleCd = 2.2;
-      this.voice.trigger('taxi_rage', nowMs);
-      this.fx.pushBubble(this.pickLine('taxi_rage'), c.x, c.y, 'char_driver_01_idle', 2.8);
-      this.audio.horn(Math.floor(Math.random() * 3));
+      const info = this.voice.trigger('taxi_rage', nowMs);
+      this.fx.pushBubble(info?.line ?? this.pickLine('taxi_rage'), c.x, c.y, 'char_driver_01_idle', 2.8);
+      this.onTrafficHonk(c);
     }
   }
 
@@ -1070,8 +1112,9 @@ export class GameManager {
     if (this.chaseBubbleCd <= 0 && d < 950) {
       this.chaseBubbleCd = 3.2 + Math.random() * 2.0;
       const ev = police ? 'police_chase' : 'taxi_rage';
-      this.fx.pushBubble(this.pickLine(ev as keyof typeof DIALOGUES), c.x, c.y, police ? SPEAKER_PORTRAIT.police : 'char_driver_01_idle', 2.4);
-      if (police) this.voice.trigger('police_chase', nowMs);
+      // v0.2.45 — هر دو حالت بلند خوانده می‌شوند؛ حباب همان جمله است
+      const info = this.voice.trigger(ev, nowMs);
+      this.fx.pushBubble(info?.line ?? this.pickLine(ev as keyof typeof DIALOGUES), c.x, c.y, police ? SPEAKER_PORTRAIT.police : 'char_driver_01_idle', 2.4);
     }
   }
 
@@ -1333,6 +1376,11 @@ export class GameManager {
       }
 
       v.health = Math.min(DAMAGE.maxHealth, v.health + DAMAGE.repairRate * dt);
+      // v0.2.45 — صدای آچارباد حین ترمیم (هر ۱.۷ ثانیه یک بار)
+      if (nowMs - this.lastRepairSfxAt > 1700) {
+        this.lastRepairSfxAt = nowMs;
+        this.audio.repair();
+      }
       if (Math.random() < 0.25) {
         this.fx.spawnBurst(v.x + (Math.random() - 0.5) * 60, v.y + (Math.random() - 0.5) * 60, '#2A9D8F', 2, 90);
       }

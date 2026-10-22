@@ -321,10 +321,12 @@ export class TrafficManager {
       this.curbGuard(car);
 
       // بوق اعصاب وقتی گیر است — پشت چراغ صبر می‌کند (ایرانی‌ها پشت مانع بوق می‌زنند!)
+      // v0.2.45 — + cooldown فردی: بعد از بوق، این ماشین ۱۴ ثانیه ساکت است
       if (desired === 0 && car.speed < 25 && !car.atLight) {
         car.blockedSec += dt;
-        if (car.blockedSec > TRAFFIC.honkAfterBlockedSec && !car.honkedThisBlock) {
+        if (car.blockedSec > TRAFFIC.honkAfterBlockedSec && !car.honkedThisBlock && car.honkCooldown <= 0) {
           car.honkedThisBlock = true;
+          car.honkCooldown = TRAFFIC.honkRepeatSec;
           this.callbacks.onHonk?.(car);
         }
       } else {

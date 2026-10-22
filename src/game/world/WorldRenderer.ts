@@ -626,11 +626,12 @@ export class WorldRenderer {
   ): void {
     ctx.save();
     ctx.direction = 'rtl';
-    ctx.font = '700 24px Vazirmatn, Tahoma, sans-serif';
+    // v0.2.45 — حباب‌های ریز (هماهنگ با نسخه سه‌بعدی)
+    ctx.font = '700 14px Vazirmatn, Tahoma, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
 
-    const maxTextW = 260;
+    const maxTextW = 150;
     const words = text.split(' ');
     const lines: string[] = [];
     let current = '';
@@ -643,10 +644,10 @@ export class WorldRenderer {
     }
     if (current) lines.push(current);
 
-    const lineH = 32;
-    const portraitR = 26;
-    const bubbleW = Math.min(maxTextW + portraitR * 2 + 40, 360);
-    const bubbleH = Math.max(72, lines.length * lineH + 34);
+    const lineH = 19;
+    const portraitR = 15;
+    const bubbleW = Math.min(maxTextW + portraitR * 2 + 24, 200);
+    const bubbleH = Math.max(42, lines.length * lineH + 20);
 
     const viewTop = this.camera.y - this.camera.halfH;
     const viewBottom = this.camera.y + this.camera.halfH;

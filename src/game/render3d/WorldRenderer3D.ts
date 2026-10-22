@@ -3922,12 +3922,12 @@ export class WorldRenderer3D {
   ): void {
     ctx.save();
     ctx.direction = 'rtl';
-    // فاز APK-FIX: متن کوچک‌تر برای موبایل (قبلاً ۲۴px خیلی درشت بود)
-    ctx.font = '700 16px Vazirmatn, Tahoma, sans-serif';
+    // v0.2.45 — حباب‌های NPC ریز شدند (درخواست کاربر: «آلرتشون ریز باشه، صفحه اصلی رو نگیره»)
+    ctx.font = '700 13px Vazirmatn, Tahoma, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
 
-    const maxTextW = 190;
+    const maxTextW = 148;
     const words = text.split(' ');
     const lines: string[] = [];
     let current = '';
@@ -3940,10 +3940,10 @@ export class WorldRenderer3D {
     }
     if (current) lines.push(current);
 
-    const lineH = 22;
-    const portraitR = 19;
-    const bubbleW = Math.min(maxTextW + portraitR * 2 + 30, 268);
-    const bubbleH = Math.max(52, lines.length * lineH + 26);
+    const lineH = 18;
+    const portraitR = 14;
+    const bubbleW = Math.min(maxTextW + portraitR * 2 + 24, 198);
+    const bubbleH = Math.max(40, lines.length * lineH + 20);
 
     let bx = anchorX - bubbleW / 2;
     let by = anchorY - anchorH / 2 - bubbleH - 18;
@@ -3976,19 +3976,19 @@ export class WorldRenderer3D {
     }
 
     // دم — همیشه داخل بدنه بماند (وقتی حباب کنار نقشه می‌رود، دم از لبه بیرون نزند)
-    const tailX = Math.min(Math.max(anchorX, bx + 24), bx + bubbleW - 24);
+    const tailX = Math.min(Math.max(anchorX, bx + 20), bx + bubbleW - 20);
     ctx.fillStyle = '#FFF9EC';
     ctx.strokeStyle = '#3A2E2A';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     if (tailBelow) {
-      ctx.moveTo(tailX - 10, by + 2);
-      ctx.lineTo(tailX, by - 15);
-      ctx.lineTo(tailX + 10, by + 2);
+      ctx.moveTo(tailX - 8, by + 2);
+      ctx.lineTo(tailX, by - 11);
+      ctx.lineTo(tailX + 8, by + 2);
     } else {
-      ctx.moveTo(tailX - 10, by + bubbleH - 2);
-      ctx.lineTo(tailX, by + bubbleH + 15);
-      ctx.lineTo(tailX + 10, by + bubbleH - 2);
+      ctx.moveTo(tailX - 8, by + bubbleH - 2);
+      ctx.lineTo(tailX, by + bubbleH + 11);
+      ctx.lineTo(tailX + 8, by + bubbleH - 2);
     }
     ctx.closePath();
     ctx.fill();
@@ -3996,7 +3996,7 @@ export class WorldRenderer3D {
 
     // بدنه
     ctx.beginPath();
-    const r = 14;
+    const r = 11;
     ctx.moveTo(bx + r, by);
     ctx.arcTo(bx + bubbleW, by, bx + bubbleW, by + bubbleH, r);
     ctx.arcTo(bx + bubbleW, by + bubbleH, bx, by + bubbleH, r);
@@ -4008,7 +4008,7 @@ export class WorldRenderer3D {
 
     // پرتره دایره‌ای
     const pid = portraitId ?? 'char_driver_01_idle';
-    const pcx = bx + bubbleW - portraitR - 14;
+    const pcx = bx + bubbleW - portraitR - 10;
     const pcy = by + bubbleH / 2;
     const asset = this.assets.get(pid);
     const img = asset instanceof AudioBuffer ? undefined : asset;
@@ -4026,14 +4026,14 @@ export class WorldRenderer3D {
       ctx.fill();
     }
     ctx.strokeStyle = '#3A2E2A';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(pcx, pcy, portraitR, 0, Math.PI * 2);
     ctx.stroke();
 
     // متن
     ctx.fillStyle = '#3A2E2A';
-    const textAreaCenter = bx + (bubbleW - portraitR * 2 - 18) / 2;
+    const textAreaCenter = bx + (bubbleW - portraitR * 2 - 14) / 2;
     lines.forEach((ln, i) => {
       ctx.fillText(ln, textAreaCenter, by + bubbleH / 2 + (i - (lines.length - 1) / 2) * lineH);
     });

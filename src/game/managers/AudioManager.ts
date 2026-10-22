@@ -87,6 +87,7 @@ export class AudioManager {
   // ---------- موتور ماشین (Loop پیوسته) ----------
   startEngine(): void {
     if (!this.ctx || !this.gains || this.engineRunning) return;
+    this.startWind(); // v0.2.45 — ویند همراه موتور روشن/خاموش می‌شود
     // ---------- اولویت: فایل واقعی (فاز 7) ----------
     const buf = this.buffer('sfx_engine_loop');
     if (buf) {
@@ -135,6 +136,7 @@ export class AudioManager {
 
   stopEngine(): void {
     if (!this.engineRunning) return;
+    this.stopWind(); // v0.2.45
     try {
       this.engOsc1?.stop();
       this.engOsc2?.stop();
@@ -206,6 +208,7 @@ export class AudioManager {
   setEngineSpeed(ratio: number): void {
     if (!this.ctx || !this.engineRunning) return;
     const r = Math.max(0, Math.min(1, ratio));
+    this.setWind(r); // v0.2.45 — ویند با سرعت
     const t = this.ctx.currentTime;
     if (this.engSrc && this.engFileGain) {
       // فایل: سرعت پخش + بلندی
@@ -219,7 +222,92 @@ export class AudioManager {
     this.engGain.gain.setTargetAtTime(0.028 + r * 0.05, t, 0.1);
   }
 
+  // ---------- v0.2.45 — ویند سرعت (نویز پیوسته با بلندی وابسته به سرعت) ----------
+  private windSrc: AudioBufferSourceNode | null = null;
+  private windGain: GainNode | null = null;
+
+  private startWind(): void {
+    if (!this.ctx || !this.gains || this.windSrc) return;
+    try {
+      // نویز لوپ ۲ ثانیه‌ای — فیلتر lowpass تا «باد» شود نه «خرش»
+      const dur = 2;
+      const len = Math.floor(this.ctx.sampleRate * dur);
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      let acc = 0;
+      for (let i = 0; i < len; i++) {
+        acc += (Math.random() * 2 - 1 - acc) * 0.045; // lowpass یک‌قطبی
+        d[i] = acc * 2.4;
+      }
+      // حلقه بی‌درز: کراس‌فید لبه‌ها
+      const xf = Math.floor(0.05 * this.ctx.sampleRate);
+      for (let i = 0; i < xf; i++) {
+        const f = i / xf;
+        d[i] = d[i] * f + d[len - xf + i] * (1 - f);
+      }
+      this.windSrc = this.ctx.createBufferSource();
+      this.windSrc.buffer = buf;
+      this.windSrc.loop = true;
+      this.windGain = this.ctx.createGain();
+      this.windGain.gain.value = 0;
+      this.windSrc.connect(this.windGain);
+      this.windGain.connect(this.gains.sfx);
+      this.windSrc.start();
+    } catch { /* بی‌خطر */ }
+  }
+
+  private stopWind(): void {
+    try {
+      this.windSrc?.stop();
+    } catch { /* بی‌خطر */ }
+    this.windSrc = null;
+    this.windGain = null;
+  }
+
+  /** نسبت سرعت 0..1 → بلندی ویند (فقط بالای ۴۵٪ سرعت شنیده می‌شود) */
+  private setWind(ratio: number): void {
+    if (!this.windGain || !this.ctx) return;
+    const r = Math.max(0, Math.min(1, ratio));
+    const w = Math.max(0, (r - 0.45) / 0.55); // ۰ تا ۴۵٪ = ساکت
+    this.windGain.gain.setTargetAtTime(w * 0.055, this.ctx.currentTime, 0.25);
+  }
+
+  /** v0.2.45 — «ورووووم» شروع رانندگی (سینتی کوتاه، بعد از startEngine) */
+  engineStart(): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      const t = this.now();
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 700;
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(42, t);
+      osc.frequency.exponentialRampToValueAtTime(130, t + 0.28); // گاز دادن
+      osc.frequency.exponentialRampToValueAtTime(64, t + 0.62);  // آرام گرفتن به دور آرام
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.2, t + 0.1);
+      g.gain.setValueAtTime(0.16, t + 0.4);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+      osc.connect(f);
+      f.connect(g);
+      g.connect(this.gains.sfx);
+      osc.start(t);
+      osc.stop(t + 0.8);
+      this.noise(0.18, 0.05, 900, 'bandpass'); // استارتر
+    } catch { /* بی‌خطر */ }
+  }
+
   // ---------- افکت‌های تک‌شوت ----------
+  /** v0.2.45 — پخش فایل SFX با fallback سینتی؛ هر خطا بی‌خطر */
+  private sfxFile(id: string, vol: number, rate = 1): boolean {
+    const buf = this.buffer(id);
+    if (!buf) return false;
+    this.playBuffer(buf, 'sfx', vol, rate);
+    return true;
+  }
+
   private blip(freq: number, dur: number, type: OscillatorType, vol: number, channel: AudioChannel, freqEnd?: number): void {
     if (!this.ctx || !this.gains) return;
     try {
@@ -403,8 +491,36 @@ export class AudioManager {
   }
 
   coin(): void {
+    // v0.2.45 — سکه براق فایل واقعی؛ fallback سینتی قبلی
+    if (this.sfxFile('sfx_coin_01', 0.5, 0.94 + Math.random() * 0.12)) return;
     this.blip(990, 0.07, 'sine', 0.18, 'sfx');
     window.setTimeout(() => this.blip(1320, 0.1, 'sine', 0.16, 'sfx'), 70);
+  }
+
+  /** v0.2.45 — چایم زنگی چک‌پوینت (متمایز از سکه) */
+  checkpoint(): void {
+    if (this.sfxFile('sfx_checkpoint_01', 0.7)) return;
+    this.blip(880, 0.3, 'sine', 0.14, 'sfx');
+    window.setTimeout(() => this.blip(1175, 0.34, 'sine', 0.16, 'sfx'), 110);
+  }
+
+  /** v0.2.45 — ژینگل شاد مأموریت موفق */
+  success(): void {
+    if (this.sfxFile('sfx_success_01', 0.85)) return;
+    const notes = [523, 659, 784, 1047];
+    notes.forEach((n, i) => window.setTimeout(() => this.blip(n, 0.16, 'triangle', 0.16, 'sfx'), i * 130));
+  }
+
+  /** v0.2.45 — ترومبون غمگین مأموریت شکست */
+  fail(): void {
+    if (this.sfxFile('sfx_fail_01', 0.7)) return;
+    const notes = [233, 220, 208, 196];
+    notes.forEach((n, i) => window.setTimeout(() => this.blip(n, i === 3 ? 0.5 : 0.2, 'sawtooth', 0.1, 'sfx'), i * 260));
+  }
+
+  /** v0.2.45 — آچارباد تعمیرگاه (حین ترمیم در زون) */
+  repair(): void {
+    this.sfxFile('sfx_repair_01', 0.45, 0.92 + Math.random() * 0.16);
   }
 
   brake(): void {

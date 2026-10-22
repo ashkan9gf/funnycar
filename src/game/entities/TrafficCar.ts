@@ -64,6 +64,8 @@ export class TrafficCar {
   blockedSec = 0;
   /** در همینepisode گیر، بوق زده؟ */
   honkedThisBlock = false;
+  /** v0.2.45 — ثانیه‌های مانده تا بوق بعدی این ماشین (ضد «هی بوق بی‌خودی») */
+  honkCooldown = 0;
   /** پشت چراغ قرمز ایستاده؟ (فاز GRAPHICS_OVERHAUL — بوق اعصاب ندارد) */
   atLight = false;
   /** 🔕 v0.2.42 — بلافاصله بعد از پیچ: بازگشت لاین موقتاً تیزتر (پیچ تمیز و راننده‌وار) */
@@ -137,6 +139,7 @@ export class TrafficCar {
     const pa0 = this.angle;
     if (this.knockedSec > 0) this.knockedSec -= dt;
     if (this.turnBlend > 0) this.turnBlend -= dt;
+    if (this.honkCooldown > 0) this.honkCooldown -= dt;
 
     // ---------- چرخش بدنه بر اثر ضربه (قبل از نرم‌سازی AI تا با هم نجنگند) ----------
     if (Math.abs(this.spinVel) > 0.02) {

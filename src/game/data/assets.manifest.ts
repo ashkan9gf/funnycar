@@ -152,6 +152,28 @@ export const ASSETS_MANIFEST: Record<string, AssetEntry> = {
     placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
     voice: { event: 'car_crash', index: 0 },
   },
+
+  // ============ v0.2.45 — بازتولید کامل صداها (بوق واقعی‌تر/تصادف چندلایه/ژینگل‌ها) ============
+  sfx_coin_01: {
+    src: 'assets/audio/sfx/sfx_coin_01.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
+  sfx_success_01: {
+    src: 'assets/audio/sfx/sfx_success_01.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
+  sfx_fail_01: {
+    src: 'assets/audio/sfx/sfx_fail_01.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
+  sfx_checkpoint_01: {
+    src: 'assets/audio/sfx/sfx_checkpoint_01.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
+  sfx_repair_01: {
+    src: 'assets/audio/sfx/sfx_repair_01.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
 };
 
 /** پرتره پیش‌فرض هر گوینده (برای حباب دیالوگ) */

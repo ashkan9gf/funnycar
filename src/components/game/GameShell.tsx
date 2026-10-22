@@ -201,7 +201,7 @@ function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
   const rows: Array<{ key: 'music' | 'sfx' | 'voice'; label: string; icon: React.ReactNode }> = [
     { key: "music", label: "موسیقی", icon: <Music className="h-5 w-5" /> },
     { key: "sfx", label: "افکت‌ها", icon: <Volume2 className="h-5 w-5" /> },
-    { key: "voice", label: "جملات طنز", icon: <Mic className="h-5 w-5" /> },
+    { key: "voice", label: "گفتار طنز (فارسی)", icon: <Mic className="h-5 w-5" /> },
   ];
   return (
     <div className="w-full space-y-3">

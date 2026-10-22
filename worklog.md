@@ -1218,3 +1218,31 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.46-test.apk
 - لینک: https://uploadkon.ir/uploads/005821_26FunnyCarIR-v0-2-46-test.zip
 - درس: قبل از implement باید git fetch و diff با ریموت — جلسه موازی همان نسخه را ساخته بود؛ ارزش کار این جلسه = ریشه‌یابی شکایت‌های کاربر روی بیلد جدید و فیکس‌های فیزیک حس رانندگی که در نسخه ریموت غایب بود
+
+---
+Task ID: 61
+Agent: main (Z.ai)
+Task: اورهال صدا — گفتار فارسی بازی + بوق واقعی + بهبود همه صداها + بوق به‌جای AI + حباب‌های ریز (v0.2.47 — روی بیس چلنجر+فیکس رانندگی)
+
+Work Log:
+- درخواست کاربر: «صداهای وسط بازی فارسی و خوانده شوند، آلرت‌ها را بخواند، بوق اول خیلی زشت است، صداها کلا بهبود یابد، بوق ممتد الکی حذف شود، خودروها صحبت خنده‌دار با آلرت ریز»
+- کشف: جلسه موازی v0.2.45 (چلنجر) و v0.2.46 (فیکس رانندگی/اسکرول) را push کرده بود → کار صوتی rebase شد روی آن بیس و نسخه v0.2.47 شد
+- TTS ابری با فارسی غیرقابل‌اعتماد بود (تست سیستماتیک ۵ صدا × جمله فارسی → مدت‌های نامعتبر ۱.۰s تا ۱۹.۲s برای ۴۴ کاراکتر!) → تصمیم معماری: TTS بومی اندروید
+- NativeTTS.java جدید (پل JavascriptInterface): TextToSpeech با fa-IR→fa→پیش‌فرض دستگاه، speak(text,pitch,rate,volume,interrupt)، گارد Throwable همه‌جا، انتخاب زبان lazy در اولین speak (رفع race condition onInit)، stop در onPause، shutdown در onDestroy؛ MainActivity: addJavascriptInterface(nativeTTS, "AndroidTTS")
+- زنجیره جاوا از نو: javac در محیط نبود → ECJ 3.36.0 (scripts/ecj.jar، از Maven) با -source 8 -bootclasspath android.jar → d8 → dex — مرحله [4/8] در build_apk_v0245.sh
+- SpeechService.ts جدید: detectBridge (window.AndroidTTS) → fallback speechSynthesis با صدای fa → ساکت؛ SPEECH_VOICES per گوینده (پلیس بم ۰.۷، مسافر زیر ۱.۴، گربه ۱.۹، مکانیک ۰.۷۵، رادیو ۱.۲)؛ limiter (اولویت≥۴: ۶۵۰ms، بقیه ۲۲۰۰ms)؛ همگام با اسلایدر «گفتار طنز» (صفر=خاموش)؛ probe: __funnycar.speechDebug
+- VoiceManager: +setSpeechHook — جملهٔ انتخاب‌شده (همان خط حباب/توست) با TTS خوانده می‌شود؛ ۷ نقطه GameManager هم‌ترازی حباب=گفتار (taxi_pickup/horn react/taxi event/police_stop/taxi_rage/chase bubble)
+- ۸ صدای سینت بازتولید (scripts/gen_audio_v0245.py — numpy+ffmpeg): بوق دوگل واقعی ۴۲۰+۵۰۰Hz+هارمونیک+saturation، موتور نرم با حلقه بی‌درز، تصادف چندلایه (تد+کوبش سویپ+رینگ فلزی+debris)، سکه براق، ژینگل موفقیت، ترومبون غمگین، چایم چک‌پوینت، آچارباد تعمیرگاه — manifest += ۵ شناسه
+- AudioManager: sfxFile با fallback سینتی؛ +checkpoint/success/fail/repair؛ +engineStart («ورووووم»)؛ +ویند سرعت (نویز لوپ، فقط بالای ۴۵٪ سرعت)؛ سیم‌کشی: چک‌پوینت→چایم، پایان مأموریت→success/fail، زون ترمیم→آچارباد، شروع→engineStart
+- بوق فقط به‌جا (ادامه مسیر v0.2.46): honkAfterBlockedSec 4.5→5.0، honkBackChance 0.3→0.2، +honkRepeatSec 14 (فردی)، +honkGlobalSec 3.5 (گیت سراسری onTrafficHonk)، +honkMaxDist 1000 (فاصله) — E2E: ۱۲ pressHorn پشت‌هم → فقط ۱ بوق NPC
+- حباب‌های NPC ریز (3D+2D): فونت ۱۶→۱۳، عرض ۲۶۸→۱۹۸، ارتفاع ۵۲→۴۰، پرتره ۱۹→۱۴
+- pause → speech.stop()
+- E2E (prod export :8899 روی بیس جدید): spoken=8 با جملات واقعی (game_start/horn_joke/drift/car_crash)، توست هماهنگ TTS، voice=0 → ساکت، حباب «وای مامانم!» ریز، هر ۸ AudioBuffer OK، کنسول صفر خطا؛ رگرسیون رانندگی v0.2.46 لمس نشد (فایل‌های Vehicle/GameShell آن دست‌نخورده — فقط برچسب تنظیمات)
+- APK v0.2.47/VCODE=47 از scripts/build_apk_v0247.sh (SIGN OK) → push → uploadkon HEAD 200
+
+Stage Summary:
+- main = <بعد از push>
+- APK: download/FunnyCarIR-v0.2.47-test.apk
+- لینک: <بعد از آپلود>
+- معماری گفتار: پل بومی (TTS گوگل فارسی گوشی کاربر) + fallback مرورگر؛ دسکتاپ بدون صدای فارسی ساکت (متن هست)
+- درس: خروجی TTS ابری را با معیار مدت/کاراکتر بسنجید — فارسی بعضی جمله‌ها را می‌کِشد یا می‌پراند؛ TTS بومی اندروید برای فارسی راه حرفه‌ای است

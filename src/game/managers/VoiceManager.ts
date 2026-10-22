@@ -27,6 +27,11 @@ export interface VoiceAudioHook {
   playVoiceFile?: (eventKey: string, index: number) => void;
 }
 
+/** v0.2.45 — قلاب گفتار فارسی: جملهٔ انتخاب‌شده با TTS بلند خوانده می‌شود */
+export interface SpeechHook {
+  speak?: (line: string, speaker: SpeakerId, priority: number) => void;
+}
+
 export class VoiceManager {
   private lastEventAt = new Map<string, number>();
   private lastSpeakerAt = new Map<SpeakerId, number>();
@@ -34,11 +39,17 @@ export class VoiceManager {
   private lastIndex = new Map<string, number>(); // جمله آخر هر رویداد (جلوگیری از تکرار)
   private active: SpeakInfo | null = null;
   private elapsed = 0;
+  private speechHook?: SpeechHook;
 
   constructor(private audioHook?: VoiceAudioHook) {}
 
   setAudioHook(hook?: VoiceAudioHook): void {
     this.audioHook = hook;
+  }
+
+  /** v0.2.45 — اتصال SpeechService؛ هر جملهٔ تریگرشده با صدای فارسی خوانده می‌شود */
+  setSpeechHook(hook?: SpeechHook): void {
+    this.speechHook = hook;
   }
 
   /**
@@ -88,6 +99,8 @@ export class VoiceManager {
 
     // اگر فایل صوتی موجود باشد پخش می‌شود (فعلاً فقط متن)
     this.audioHook?.playVoiceFile?.(key, idx);
+    // v0.2.45 — خواندن بلند جملهٔ فارسی (همان خطی که حباب/توست نشان می‌دهد)
+    this.speechHook?.speak?.(info.line, ev.speaker, ev.priority);
     return info;
   }
 

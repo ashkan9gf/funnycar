@@ -37,6 +37,8 @@ public class MainActivity extends Activity {
     private static final String START_URL = "https://" + HOST + "/index.html";
 
     private WebView webView;
+    /** v0.2.45 — پل گفتار فارسی (TTS بومی دستگاه) */
+    private NativeTTS nativeTTS;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -61,6 +63,10 @@ public class MainActivity extends Activity {
 
         // برای دیباگ با chrome://inspect
         WebView.setWebContentsDebuggingEnabled(true);
+
+        // v0.2.45 — پل گفتار فارسی: جاوااسکریپت از window.AndroidTTS استفاده می‌کند
+        nativeTTS = new NativeTTS(this);
+        webView.addJavascriptInterface(nativeTTS, "AndroidTTS");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -181,6 +187,8 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (webView != null) webView.onPause();
+        // اپ مینیمایز شد → گفتار قطع (نصفه‌کاره گیر نکند)
+        if (nativeTTS != null) nativeTTS.stop();
     }
 
     @Override
@@ -192,6 +200,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (nativeTTS != null) nativeTTS.shutdown();
         if (webView != null) webView.destroy();
         super.onDestroy();
     }
