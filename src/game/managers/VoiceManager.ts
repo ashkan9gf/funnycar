@@ -36,7 +36,9 @@ export class VoiceManager {
   private lastEventAt = new Map<string, number>();
   private lastSpeakerAt = new Map<SpeakerId, number>();
   private lastGlobalAt = 0;
-  private lastIndex = new Map<string, number>(); // جمله آخر هر رویداد (جلوگیری از تکرار)
+  /** 🔑 v0.2.48 — کیسهٔ بُر هر رویداد: همهٔ جمله‌ها به‌ترتیب تصادفی مصرف می‌شوند
+   *  و وقتی استخر خالی شد دوباره بُر می‌خورد — هیچ جمله‌ای پشت‌سرهم تکرار نمی‌شود */
+  private bags = new Map<string, number[]>();
   private active: SpeakInfo | null = null;
   private elapsed = 0;
   private speechHook?: SpeechHook;
@@ -50,6 +52,23 @@ export class VoiceManager {
   /** v0.2.45 — اتصال SpeechService؛ هر جملهٔ تریگرشده با صدای فارسی خوانده می‌شود */
   setSpeechHook(hook?: SpeechHook): void {
     this.speechHook = hook;
+  }
+
+  /** 🔑 v0.2.48 — انتخاب جمله از کیسهٔ بُر (بدون تکرار تا تمام‌شدن استخر) */
+  private pickIndex(key: string, n: number): number {
+    if (n <= 1) return 0;
+    let bag = this.bags.get(key);
+    if (!bag || bag.length === 0) {
+      bag = Array.from({ length: n }, (_, i) => i);
+      // بُر فیشر-ییتس
+      for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+      }
+    }
+    const idx = bag.pop() as number;
+    this.bags.set(key, bag);
+    return idx;
   }
 
   /**
@@ -76,12 +95,8 @@ export class VoiceManager {
     // ---------- Cooldown جهانی ----------
     if (nowMs - this.lastGlobalAt < 700 && ev.priority < 4) return null;
 
-    // ---------- انتخاب تصادفی بدون تکرار ----------
-    const n = ev.lines.length;
-    const prev = this.lastIndex.get(key) ?? -1;
-    let idx = Math.floor(Math.random() * n);
-    if (n > 1 && idx === prev) idx = (idx + 1) % n;
-    this.lastIndex.set(key, idx);
+    // ---------- 🔑 v0.2.48 — انتخاب از کیسهٔ بُر (بدون تکرار) ----------
+    const idx = this.pickIndex(key, ev.lines.length);
 
     const info: SpeakInfo = {
       key,

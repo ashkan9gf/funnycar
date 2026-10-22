@@ -212,6 +212,10 @@ export class GameManager {
   private zoneActive: 'fuel' | 'repair' | null = null;
   private engineDeadShown = false;
   private brakeSoundLatch = false;
+  /** 🔑 v0.2.48 — صدای دنده/استریک سکه */
+  private prevSpeedForGear = 0;
+  private gearSoundCd = 0;
+  private coinTimes: number[] = [];
   private skidSoundTimer = 0;
   private smokeTimer = 0;
   private hudThrottle = 0;
@@ -629,6 +633,8 @@ export class GameManager {
     this.audio.startEngine();
     this.audio.engineStart(); // v0.2.45 — «ورووووم» شروع
     this.audio.setVolumes(this.save.get().settings);
+    // 🔑 v0.2.48 — رادیو ماشین (اگر در تنظیمات روشن باشد)
+    if (this.save.get().settings.radio) this.audio.radioStart();
     // 🔑 v0.2.43 — فیکس: بعد از Pause→منو→مأموریت، کیبورد خاموش می‌ماند
     // (setEnabled(false) در pause، دوباره روشن نمی‌شد — لمس سالم بود، دسکتاپ می‌شکست)
     this.input.setEnabled(true);
@@ -639,6 +645,7 @@ export class GameManager {
   pause(): void {
     if (this.state !== 'playing') return;
     this.audio.setEngineSpeed(0);
+    this.audio.radioStop(); // v0.2.48 — رادیو هم با توقف خاموش
     speech.stop(); // v0.2.45 — جملهٔ نیمه‌خوانده قطع شود
     this.voice.clear();
     this.input.setEnabled(false);
@@ -649,12 +656,15 @@ export class GameManager {
   resume(): void {
     if (this.state !== 'paused') return;
     this.input.setEnabled(true);
+    // 🔑 v0.2.48 — رادیو بعد از ادامهٔ بازی دوباره روشن شود (اگر در تنظیمات فعال باشد)
+    if (this.save.get().settings.radio) this.audio.radioStart();
     this.lastFrame = performance.now();
     this.setState('playing');
   }
 
   backToMenu(): void {
     this.audio.setEngineSpeed(0);
+    this.audio.radioStop(); // 🔑 v0.2.48
     this.save.flush();
     this.mission.abort();
     const spawn = this.world.playerSpawn();
@@ -713,6 +723,15 @@ export class GameManager {
       speech.setEnabled(v > 0.05);
     }
   }
+  /** 🔑 v0.2.48 — سوییچ رادیو ماشین از تنظیمات */
+  setRadioEnabled(on: boolean): void {
+    this.save.mutate((d) => { d.settings.radio = on; });
+    if (on) {
+      if (this.state === 'playing') this.audio.radioStart();
+    } else {
+      this.audio.radioStop();
+    }
+  }
   setGraphicsQuality(quality: 'performance' | 'balanced' | 'quality'): void {
     this.save.mutate((d) => { d.settings.graphicsQuality = quality; });
     this.renderer3d?.setGraphicsQuality(quality);
@@ -727,7 +746,7 @@ export class GameManager {
   }
 
   /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) — clamp و ذخیره */
-  setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode'>>): void {
+  setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode' | 'radio'>>): void {
     this.save.mutate((d) => {
       if (typeof p.controlsScale === 'number' && Number.isFinite(p.controlsScale)) {
         d.settings.controlsScale = Math.min(1.5, Math.max(0.8, p.controlsScale));
@@ -737,6 +756,15 @@ export class GameManager {
       }
       if (typeof p.leftHanded === 'boolean') d.settings.leftHanded = p.leftHanded;
       if (typeof p.vibration === 'boolean') d.settings.vibration = p.vibration;
+      // 🔑 v0.2.48 — رادیو ماشین
+      if (typeof p.radio === 'boolean' && p.radio !== d.settings.radio) {
+        d.settings.radio = p.radio;
+        if (p.radio) {
+          if (this.state === 'playing') this.audio.radioStart();
+        } else {
+          this.audio.radioStop();
+        }
+      }
       // 🔑 v0.2.45 — مود رانندگی + خروج امن از حالت آنالوگ
       if (p.controlMode === 'buttons' || p.controlMode === 'wheel' || p.controlMode === 'tilt') {
         d.settings.controlMode = p.controlMode;
@@ -861,7 +889,13 @@ export class GameManager {
     if (success && def?.kind === 'taxi_fare') {
       this.fx.pushBubble(this.pickLine('taxi_dropoff'), def.target.x, def.target.y, 'char_pass_m_01_idle', 2.8);
     } else if (success && def?.kind === 'parallel_park') {
-      this.fx.pushBubble(this.pickLine('parking_good'), this.vehicle.x, this.vehicle.y, 'char_driver_01_idle', 2.4);
+      // 🔑 v0.2.48 — سه‌ستاره = پارک عالی (رویداد و جملهٔ مخصوص خودش)
+      if (stars === 3) {
+        this.voice.trigger('parking_perfect', performance.now());
+        this.fx.pushBubble(this.pickLine('parking_perfect'), this.vehicle.x, this.vehicle.y, 'char_driver_01_idle', 2.4);
+      } else {
+        this.fx.pushBubble(this.pickLine('parking_good'), this.vehicle.x, this.vehicle.y, 'char_driver_01_idle', 2.4);
+      }
     }
     this.voice.trigger(success ? 'mission_success' : 'mission_fail', performance.now());
 
@@ -1135,6 +1169,7 @@ export class GameManager {
 
     if (busted && kind === 'police') {
       // ---------- دستگیر شدی! ----------
+      this.audio.cashOut(false); // 🔑 v0.2.48 — صدای «کشیدن پول» جریمه
       this.save.mutate((d) => {
         d.coins = Math.max(0, d.coins - CHASE.fineCoins);
         d.reputation = Math.max(REPUTATION.min, d.reputation - CHASE.fineRep);
@@ -1148,6 +1183,7 @@ export class GameManager {
 
     if (reason === 'escape' && kind === 'police') {
       // ---------- فرار موفق از پلیس ----------
+      this.audio.cashOut(true); // 🔑 v0.2.48 — جایزهٔ فرار = کشیدن پول شاد
       this.save.mutate((d) => {
         d.coins += CHASE.escapeCoins;
         d.reputation = Math.min(REPUTATION.max, d.reputation + CHASE.escapeRep);
@@ -1575,11 +1611,30 @@ export class GameManager {
     if (input.brake && Math.abs(this.vehicle.speed) > 160) {
       if (!this.brakeSoundLatch) {
         this.audio.brake();
+        this.audio.tireScreech(Math.min(1, Math.abs(this.vehicle.speed) / VEHICLE_PHYSICS.maxSpeed)); // 🔑 v0.2.48 — لایی لاستیک
         this.brakeSoundLatch = true;
         this.voice.trigger('hard_brake', nowMs);
       }
     } else if (!input.brake) {
       this.brakeSoundLatch = false;
+    }
+
+    // ---------- 🔑 v0.2.48 — صدای دنده: توقف کامل (پارک) و دندهٔ عقب ----------
+    {
+      const sp = this.vehicle.speed;
+      const prev = this.prevSpeedForGear;
+      this.prevSpeedForGear = sp;
+      this.gearSoundCd = Math.max(0, this.gearSoundCd - dt);
+      // توقف کامل بعد از حرکت سریع → «تقِ» دنده
+      if (this.gearSoundCd <= 0 && Math.abs(sp) < 8 && Math.abs(prev) >= 30) {
+        this.audio.gearClunk();
+        this.gearSoundCd = 1.6;
+      }
+      // دندهٔ عقب گذاشتن (سرعت منفی شد بعد از توقف)
+      if (this.gearSoundCd <= 0 && sp < -6 && prev >= -6) {
+        this.audio.gearWhine();
+        this.gearSoundCd = 1.2;
+      }
     }
 
     // ---------- درفت ملایم (فاز 2): رد لاستیک + صدای سایش + دود ----------
@@ -1711,6 +1766,13 @@ export class GameManager {
       this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 10, 120);
       this.save.mutate((d) => { d.coins += got; });
       this.voice.trigger('coin_pickup', nowMs);
+      // 🔑 v0.2.48 — استریک سکه: ۳+ سکه در ۴.۵ ثانیه → رویداد مخصوص
+      this.coinTimes.push(nowMs);
+      while (this.coinTimes.length > 0 && nowMs - this.coinTimes[0] > 4500) this.coinTimes.shift();
+      if (this.coinTimes.length >= 3) {
+        this.coinTimes.length = 0; // تا بعد از استریک بعدی
+        this.voice.trigger('coin_streak', nowMs);
+      }
       // فاز ۵: گزارش سکه به مأموریت (چالش شکار سکه)
       this.mission.onCoinCollected(got);
     }
@@ -1988,6 +2050,7 @@ export class GameManager {
     if (GameManager.live === this) GameManager.live = null;
     cancelAnimationFrame(this.raf);
     this.audio.stopEngine();
+    this.audio.radioStop(); // 🔑 v0.2.48
     this.audio.sirenStop();
     this.input.detach();
     this.renderer3d?.dispose(); // حذف اورلی + آزادسازی کانتکست GPU

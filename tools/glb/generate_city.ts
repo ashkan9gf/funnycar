@@ -1,42 +1,43 @@
 /**
- * generate_city.ts — تولید GLB ساختمان‌های تهران (فاز GRAPHICS_OVERHAUL)
+ * generate_city.ts — تولید GLB ساختمان‌های تهران (فاز GRAPHICS_OVERHAUL → v0.2.48 FACADE-TEX)
  * اجرا: bun tools/glb/generate_city.ts
- * خروجی: public/assets/models/buildings/{apartment,shop,home,garage}.glb
- * هر فایل ۳ واریانس seed دارد تا ۳۶ بلوک تکراری به نظر نرسد.
+ * خروجی: public/assets/models/buildings/{type}_{0..5}.glb — ۴ نوع × ۶ واریانس = ۲۴ فایل
+ * هر واریانس: ارتفاع متمایز + الگوی نمای متمایز (پنجره/پالت/نور داخلی از textures3d.getBuildingFacade)
+ * GLB = دو entry: «walls» (باکس UV → متریال facade) + «props» (بام ایرانی، vertex-color)
  */
 
 import { writeGLB } from './glbwriter.mjs';
-import { buildBuildingGeometry, type BuildingType } from '../../src/game/render3d/cityGeometry';
-import { linA } from '../../src/game/render3d/vehicleGeometry';
+import {
+  buildBuildingGeometry,
+  BUILDING_VARIANTS,
+  BUILDING_VARIANTS_PER_TYPE,
+  type BuildingType,
+} from '../../src/game/render3d/cityGeometry';
 
 const OUT = 'public/assets/models/buildings';
-const HEIGHTS: Record<BuildingType, number> = {
-  apartment: 560,
-  shop: 300,
-  home: 400,
-  garage: 235,
-};
 
 const MATERIALS = [
-  { name: 'building', baseColor: linA('#ffffff'), metallic: 0.0, roughness: 0.9 },
+  // 0 — facade: سفید؛ رنگ از تکسچر نما می‌آید (runtime: map + emissiveMap نور داخلی)
+  { name: 'facade', baseColor: [1, 1, 1, 1], metallic: 0.0, roughness: 0.9 },
+  // 1 — props: سفید + COLOR_0 (vertexColors) — کولر/منبع آب/لبه بام
+  { name: 'props', baseColor: [1, 1, 1, 1], metallic: 0.0, roughness: 0.9 },
 ];
 
 async function main() {
-  console.log('=== GLB Buildings Generated ===');
+  console.log('=== GLB Buildings Generated (v0.2.48 facade-texture architecture) ===');
   for (const type of ['apartment', 'shop', 'home', 'garage'] as BuildingType[]) {
-    for (let v = 0; v < 3; v++) {
-      const geo = buildBuildingGeometry(type, HEIGHTS[type], seedOf(type, v));
-      const r = await writeGLB(`${OUT}/${type}_${v}.glb`, [
-        { name: 'building', geometry: geo, material: 0 },
+    for (let v = 0; v < BUILDING_VARIANTS_PER_TYPE; v++) {
+      const h = BUILDING_VARIANTS[type][v % BUILDING_VARIANTS[type].length];
+      const seed = type.charCodeAt(0) * 31 + v * 17;
+      const { walls, props } = buildBuildingGeometry(type, h, seed);
+      const file = `${OUT}/${type}_${v}.glb`;
+      const r = await writeGLB(file, [
+        { name: 'walls', geometry: walls, material: 0 },
+        { name: 'props', geometry: props, material: 1 },
       ], MATERIALS);
-      console.log(`${type}_${v}  ${String(r.kb).padStart(4)}KB  ${String(r.tris).padStart(6)}tris`);
+      console.log(`${type}_${v}  h=${h}  ${String(r.kb).padStart(4)}KB  ${String(r.tris).padStart(6)}tris`);
     }
   }
-}
-
-function seedOf(type: BuildingType, v: number): number {
-  const base: Record<BuildingType, number> = { apartment: 11, shop: 23, home: 37, garage: 53 };
-  return base[type] + v * 17;
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

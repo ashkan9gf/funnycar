@@ -154,6 +154,10 @@ export class AudioManager {
   private sirenLfo: OscillatorNode | null = null;
   private sirenGain: GainNode | null = null;
   private sirenOn = false;
+  private sirenFilter: BiquadFilterNode | null = null;
+  private sirenAmGain: GainNode | null = null;
+  private sirenAmDepth: GainNode | null = null;
+  private sirenAmLfo: OscillatorNode | null = null;
 
   /** آژیر دو‌تُنهٔ پیوسته — تا پایان تعقیب روشن می‌ماند؛ حجم با فاصله تنظیم می‌شود */
   sirenStart(): void {
@@ -176,20 +180,47 @@ export class AudioManager {
       const tone = ctx.createBiquadFilter();
       tone.type = 'lowpass';
       tone.frequency.value = 1600;
+      this.sirenFilter = tone;
       this.sirenOsc.connect(tone);
-      tone.connect(this.sirenGain);
+      // 🔑 v0.2.48 — لایهٔ «از داخل ماشین»: AM (تیک‌تیک برق‌گردان/روله) + فیلتر متغیر
+      this.sirenAmGain = ctx.createGain();
+      this.sirenAmGain.gain.value = 1;
+      this.sirenAmDepth = ctx.createGain();
+      this.sirenAmDepth.gain.value = 0; // عمق با نزدیکی پلیس پر می‌شود
+      this.sirenAmLfo = ctx.createOscillator();
+      this.sirenAmLfo.type = 'sine';
+      this.sirenAmLfo.frequency.value = 5.2;
+      this.sirenAmLfo.connect(this.sirenAmDepth);
+      this.sirenAmDepth.connect(this.sirenAmGain.gain);
+      tone.connect(this.sirenAmGain);
+      this.sirenAmGain.connect(this.sirenGain);
       this.sirenGain.connect(this.gains.sfx);
       this.sirenOsc.start();
       this.sirenLfo.start();
+      this.sirenAmLfo.start();
       this.sirenOn = true;
     } catch { /* بی‌خطر */ }
   }
 
-  /** فاصلهٔ پلیس/تاکسی تا بازیکن → بلندی آژیر (۰ = دور/خاموش) */
+  /** فاصلهٔ پلیس/تاکسی تا بازیکن → بلندی آژیر (۰ = دور/خاموش)
+   *  🔑 v0.2.48 — پلیسِ نزدیک = آژیر «از داخل ماشین»: بم‌تر + تیک برق‌گردان */
   setSirenProximity(dist: number): void {
     if (!this.sirenGain || !this.ctx) return;
     const p = Math.max(0, Math.min(1, 1 - dist / 2900));
     this.sirenGain.gain.setTargetAtTime(0.028 + p * 0.075, this.ctx.currentTime, 0.12);
+    if (this.sirenFilter) {
+      // دور = آژیر خیابانی (۱٬۶۰۰Hz باز)؛ نزدیک = پشت شیشه (۵۵۰Hz مافول)
+      const cutoff = 1600 - p * 1050; // 1600 → 550
+      this.sirenFilter.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 0.25);
+    }
+    if (this.sirenAmLfo) {
+      // تیک‌تیک چراغ‌گردان فقط وقتی نزدیک است شنیده می‌شود
+      this.sirenAmLfo.frequency.setTargetAtTime(4.4 + p * 1.4, this.ctx.currentTime, 0.3);
+    }
+    if (this.sirenAmDepth) {
+      // عمق AM: پلیس چسبیده = صدا مثل از داخل بدنه/شیشه می‌آید
+      this.sirenAmDepth.gain.setTargetAtTime(p * 0.38, this.ctx.currentTime, 0.3);
+    }
   }
 
   sirenStop(): void {
@@ -197,10 +228,15 @@ export class AudioManager {
     try {
       this.sirenOsc?.stop();
       this.sirenLfo?.stop();
+      this.sirenAmLfo?.stop();
     } catch { /* بی‌خطر */ }
     this.sirenOsc = null;
     this.sirenLfo = null;
+    this.sirenAmLfo = null;
     this.sirenGain = null;
+    this.sirenFilter = null;
+    this.sirenAmGain = null;
+    this.sirenAmDepth = null;
     this.sirenOn = false;
   }
 
@@ -536,6 +572,187 @@ export class AudioManager {
 
   click(): void {
     this.blip(700, 0.05, 'square', 0.08, 'ui');
+  }
+
+  // ==================== 🔑 v0.2.48 — صداهای درخواستی کاربر ====================
+
+  /** لایی لاستیک موقع ترمز شدید/پارک — کشیده‌تر و واقعی‌تر از skid درفت */
+  tireScreech(intensity = 1): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      const v = Math.max(0.3, Math.min(1, intensity));
+      const t = this.now();
+      // نویز باندپس با سوییپ نزولی (لایی واقعی لاستیک)
+      const len = Math.floor(this.ctx.sampleRate * 0.55);
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.Q.value = 9;
+      f.frequency.setValueAtTime(2100, t);
+      f.frequency.exponentialRampToValueAtTime(880, t + 0.5);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.16 * v, t + 0.06);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+      src.connect(f); f.connect(g); g.connect(this.gains.sfx);
+      src.start(t); src.stop(t + 0.6);
+      // زیرلایه ساییدگی
+      this.blip(1450, 0.3, 'sawtooth', 0.05 * v, 'sfx', 820);
+    } catch { /* بی‌خطر */ }
+  }
+
+  /** صدای دنده — موقع توقف کامل (پارک) یا عقب */
+  gearClunk(): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      // تق مکانیکی کوتاه
+      this.noise(0.05, 0.14, 900, 'bandpass');
+      this.blip(120, 0.09, 'square', 0.12, 'sfx', 70);
+      window.setTimeout(() => this.blip(95, 0.07, 'square', 0.09, 'sfx', 60), 90);
+    } catch { /* بی‌خطر */ }
+  }
+
+  /** صدای دندهٔ جلو/عقب — وییز کوتاه گیربکس */
+  gearWhine(): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      this.blip(340, 0.18, 'triangle', 0.05, 'sfx', 520);
+      this.noise(0.08, 0.06, 1600, 'bandpass');
+    } catch { /* بی‌خطر */ }
+  }
+
+  /** 🔑 v0.2.48 — «کشیدن پول»: جریمهٔ پلیس (good=false) یا جایزه (good=true) */
+  cashOut(good: boolean): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      const t = this.now();
+      if (good) {
+        // ka-ching شاد: دو زنگ + وییز پول
+        this.blip(1244, 0.14, 'sine', 0.14, 'sfx');
+        window.setTimeout(() => this.blip(1864, 0.22, 'sine', 0.12, 'sfx'), 90);
+        this.noise(0.25, 0.07, 3200, 'highpass');
+      } else {
+        // کشیدن برگه/پول جریمه: وییز نزولی + تق دفترچه + زنگ حقوق‌سالاری
+        this.blip(880, 0.3, 'triangle', 0.09, 'sfx', 220);
+        window.setTimeout(() => this.noise(0.12, 0.1, 1100, 'bandpass'), 140);
+        window.setTimeout(() => {
+          this.blip(660, 0.1, 'square', 0.07, 'sfx');
+          this.blip(440, 0.16, 'square', 0.06, 'sfx');
+        }, 260);
+      }
+      void t;
+    } catch { /* بی‌خطر */ }
+  }
+
+  // ---------- 🔑 v0.2.48 — رادیو ماشین (آهنگ کوتاه شاد پشت‌زمینه) ----------
+  private radioTimer: number | null = null;
+  private radioStep = 0;
+  private radioNextT = 0;
+  private radioOn = false;
+
+  /** شروع رادیو — لوپ شاد ۸ میزانه با زمان‌بند WebAudio (بم + ملودی + هی‌هت + کیک) */
+  radioStart(): void {
+    if (!this.ctx || !this.gains || this.radioOn) return;
+    this.radioOn = true;
+    this.radioStep = 0;
+    this.radioNextT = this.now() + 0.1;
+    const tick = (): void => {
+      if (!this.radioOn || !this.ctx) return;
+      const ahead = this.now() + 0.55;
+      while (this.radioNextT < ahead) {
+        this.radioNote(this.radioStep, this.radioNextT);
+        this.radioStep++;
+        this.radioNextT += 0.19; // ~۳۱۶ BPM شانزدهم
+      }
+      this.radioTimer = window.setTimeout(tick, 160);
+    };
+    tick();
+  }
+
+  radioStop(): void {
+    this.radioOn = false;
+    if (this.radioTimer !== null) {
+      window.clearTimeout(this.radioTimer);
+      this.radioTimer = null;
+    }
+  }
+
+  get radioPlaying(): boolean {
+    return this.radioOn;
+  }
+
+  /** یک نُت رادیو در زمان t — الگوی محور اِمینور شاد (رنگ‌وبوی ایرانی) */
+  private radioNote(step: number, t: number): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      const s = step % 64; // ۴ میزان × ۱۶ شانزدهم
+      const bar = Math.floor(s / 16);
+      // پیش‌روی آکورد: Am - F - C - G
+      const roots = [220.0, 174.6, 130.8, 196.0];
+      const root = roots[bar];
+      // باس — روی ۴م و ۱۲م شانزدهم
+      if (s % 8 === 0 || s % 16 === 11) {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = root / 2;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.085, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+        o.connect(g); g.connect(this.gains.music);
+        o.start(t); o.stop(t + 0.2);
+      }
+      // ملودی پلاکی — آرپژ پنتاتونیک
+      const mel = [0, 7, 12, 7, 3, 7, 10, 7, 0, 7, 12, 15, 12, 7, 3, 0];
+      if (s % 2 === 0) {
+        const semi = mel[(s / 2) % 16];
+        const freq = root * Math.pow(2, semi / 12);
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'square';
+        o.frequency.value = freq * 2;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.032, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+        const f = this.ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = 2600;
+        o.connect(f); f.connect(g); g.connect(this.gains.music);
+        o.start(t); o.stop(t + 0.15);
+      }
+      // کیک — بیت‌های ۰/۸
+      if (s % 8 === 0) {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(150, t);
+        o.frequency.exponentialRampToValueAtTime(46, t + 0.1);
+        g.gain.setValueAtTime(0.1, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+        o.connect(g); g.connect(this.gains.music);
+        o.start(t); o.stop(t + 0.14);
+      }
+      // هی‌هت — شانزدهم‌های زوج ضعیف
+      if (s % 4 === 2) {
+        const len = Math.floor(this.ctx.sampleRate * 0.035);
+        const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const f = this.ctx.createBiquadFilter();
+        f.type = 'highpass';
+        f.frequency.value = 6500;
+        const g = this.ctx.createGain();
+        g.gain.value = 0.045;
+        src.connect(f); f.connect(g); g.connect(this.gains.music);
+        src.start(t);
+      }
+    } catch { /* بی‌خطر */ }
   }
 
   /** موسیقی موقت منو: آرپژ ساده شاد (تا فایل موسیقی فاز 9 بیاید) */

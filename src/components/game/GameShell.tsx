@@ -282,6 +282,16 @@ function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
               : "همون دکمه‌های همیشگی: فرمان چپ/راست + گاز و ترمز."}
         </p>
       </div>
+      {/* ---------- 🔑 v0.2.48 — رادیو ماشین ---------- */}
+      <div className="rounded-2xl bg-[#FFF3D6] p-3">
+        <ToggleRow
+          label="رادیو ماشین"
+          icon={<Music className="h-5 w-5" />}
+          hint="آهنگ شاد پشت‌زمینه حین رانندگی — صدا از اسلایدر «موسیقی»"
+          value={ui.radio}
+          onChange={(v) => onChangeUi({ radio: v })}
+        />
+      </div>
       {/* ---------- 🔑 v0.2.43 — دکمه‌های رانندگی: اندازه/شفافیت/چپ‌دست/ویبره ---------- */}
       <div className="rounded-2xl bg-[#FFF3D6] p-3">
         <p className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-[#3a2e2a]">
@@ -697,7 +707,7 @@ export default function GameShell() {
   /** 🔑 v0.2.41 — رنگ کارخانه‌ای انتخابی هر خودرو در نمایشگاه (id → hex) */
   const [chosenColors, setChosenColors] = useState<Record<string, string>>({});
   /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) + v0.2.45 مود رانندگی */
-  const [ui, setUi] = useState<UiPrefs>({ controlsScale: 1, controlsOpacity: 1, leftHanded: false, vibration: true, controlMode: "buttons" });
+  const [ui, setUi] = useState<UiPrefs>({ controlsScale: 1, controlsOpacity: 1, leftHanded: false, vibration: true, controlMode: "buttons", radio: true });
   /** v0.2.43 — تب فروشگاه: همه / مال من / خریدنی */
   const [garageTab, setGarageTab] = useState<"all" | "owned" | "shop">("all");
   /** v0.2.43 — مدال چرخش سه‌بعدی خودرو */
@@ -823,7 +833,7 @@ export default function GameShell() {
       setGame(inst);
       // 🔑 v0.2.43 — بارگذاری تنظیمات کنترل لمسی + آموزش بار اول
       const st = inst.getSettings();
-      setUi({ controlsScale: st.controlsScale, controlsOpacity: st.controlsOpacity, leftHanded: st.leftHanded, vibration: st.vibration, controlMode: st.controlMode });
+      setUi({ controlsScale: st.controlsScale, controlsOpacity: st.controlsOpacity, leftHanded: st.leftHanded, vibration: st.vibration, controlMode: st.controlMode, radio: st.radio !== false });
       setHapticsEnabled(st.vibration);
       try {
         setTutStep(window.localStorage.getItem("fc_tutorial_done") === "1" ? null : 0);

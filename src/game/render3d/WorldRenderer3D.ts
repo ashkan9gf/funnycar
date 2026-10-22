@@ -41,8 +41,9 @@ import {
 import {
   getRoadStraightTexture, getSidewalkTexture, getGrassTexture, getFacadeTextures,
   getCrossroadTexture, getSkyTexture, getSkyDomeTexture, getCloudTexture, getAwningTexture,
-  getBillboardTexture, getRoadMicroMaps, getTerrainTexture,
+  getBillboardTexture, getRoadMicroMaps, getTerrainTexture, getBuildingFacade,
 } from './textures3d';
+import { BUILDING_FLOORS } from './cityGeometry';
 
 // ---------- فاز CITY-FULL — پالت اشباع ایرانی برای نماها (رنگی‌تر!) ----------
 const BUILDING_TINTS = [
@@ -101,10 +102,6 @@ function parseColor(c: string): { color: THREE.Color; alpha: number } {
 // Shared low-cost rooftop props: Iranian water tanks and condenser units.
 // Shared geometry/materials avoid per-building GPU-resource churn in the endless city.
 // Shared façade materials; details are merged into three meshes per building.
-const FACADE_FRAME_MAT = new THREE.MeshStandardMaterial({ color: '#e7dfce', roughness: 0.78, metalness: 0.04 });
-const FACADE_GLASS_MAT = new THREE.MeshStandardMaterial({ color: '#426d82', roughness: 0.26, metalness: 0.16, envMapIntensity: 0.72 });
-// Selective warm apartment windows add urban life without spawning expensive point lights.
-const FACADE_LIT_WINDOW_MAT = new THREE.MeshStandardMaterial({ color: '#f4bd70', emissive: '#ff9e3d', emissiveIntensity: 0.52, roughness: 0.42, metalness: 0.02 });
 // Day/night palette constants are shared to avoid allocating colors in the render loop.
 const SKY_DAY = new THREE.Color('#eaf2f8');
 const SKY_NIGHT = new THREE.Color('#18243d');
@@ -125,59 +122,6 @@ const MOTO_COLORS = [
   new THREE.Color('#2e6da4'),
   new THREE.Color('#3a3a3a'),
 ] as const;
-const FACADE_RAIL_MAT = new THREE.MeshStandardMaterial({ color: '#41484a', roughness: 0.42, metalness: 0.62 });
-
-function addIranianFacadeDetails(g: THREE.Group, bounds: THREE.Box3, variance: number, apartment: boolean): THREE.BufferGeometry[] {
-  const size = bounds.getSize(new THREE.Vector3());
-  const w = Math.max(1, size.x), h = Math.max(1, size.y), d = Math.max(1, size.z);
-  const columns = 2 + (variance % 3);
-  const floors = Math.max(2, Math.min(5, Math.round(h / Math.max(w, d) * 2.8)));
-  const winW = Math.min(w / (columns * 2.8), w * 0.19);
-  const winH = Math.min(h / (floors * 3.0), h * 0.17);
-  const depth = Math.max(0.8, Math.min(w, d) * 0.012);
-  const frontZ = bounds.max.z + depth * 0.55, sideX = bounds.max.x + depth * 0.55;
-  const startY = bounds.min.y + h * 0.13, floorGap = h * 0.72 / floors;
-  const buckets: THREE.BufferGeometry[][] = [[], [], [], []];
-  const temp = new THREE.Object3D();
-  const addBox = (bucket: number, sx: number, sy: number, sz: number, x: number, y: number, z: number) => {
-    temp.position.set(x, y, z); temp.rotation.set(0, 0, 0); temp.scale.set(sx, sy, sz); temp.updateMatrix();
-    const geo = ROOFTOP_BOX_GEO.clone(); geo.applyMatrix4(temp.matrix); buckets[bucket].push(geo);
-  };
-  for (let floor = 0; floor < floors; floor++) {
-    const y = startY + floor * floorGap + floorGap * 0.52;
-    for (let col = 0; col < columns; col++) {
-      const x = bounds.min.x + w * ((col + 0.5) / columns);
-      addBox(0, winW * 1.16, winH * 1.16, depth, x, y, frontZ);
-      const litWindow = (floor * 7 + col * 3 + variance) % 5 === 0;
-      addBox(litWindow ? 3 : 1, winW, winH, depth * 0.45, x, y, frontZ + depth * 0.32);
-      if (apartment && (floor + col + variance) % 3 === 0) {
-        const bw = winW * 1.48, by = y - winH * 0.66;
-        addBox(0, bw, Math.max(1, winH * 0.1), depth * 2.4, x, by, frontZ + depth * 1.5);
-        addBox(2, bw, winH * 0.32, Math.max(1, depth * 0.22), x, by + winH * 0.2, frontZ + depth * 2.5);
-        addBox(2, Math.max(1, depth * 0.18), winH * 0.34, Math.max(1, depth * 0.22), x - bw * 0.48, by + winH * 0.18, frontZ + depth * 2.5);
-        addBox(2, Math.max(1, depth * 0.18), winH * 0.34, Math.max(1, depth * 0.22), x + bw * 0.48, by + winH * 0.18, frontZ + depth * 2.5);
-      }
-    }
-    const sideColumns = Math.max(2, Math.min(3, columns));
-    for (let col = 0; col < sideColumns; col++) {
-      const z = bounds.min.z + d * ((col + 0.5) / sideColumns), sw = Math.min(winW, d / (sideColumns * 2.6));
-      addBox(0, depth, winH * 1.16, sw * 1.16, sideX, y, z);
-      const litSideWindow = (floor * 5 + col * 2 + variance) % 6 === 0;
-      addBox(litSideWindow ? 3 : 1, depth * 0.45, winH, sw, sideX + depth * 0.32, y, z);
-    }
-  }
-  const materials = [FACADE_FRAME_MAT, FACADE_GLASS_MAT, FACADE_RAIL_MAT, FACADE_LIT_WINDOW_MAT];
-  const owned: THREE.BufferGeometry[] = [];
-  for (let i = 0; i < buckets.length; i++) {
-    if (!buckets[i].length) continue;
-    const merged = mergeGeometries(buckets[i], false);
-    for (const geo of buckets[i]) geo.dispose();
-    if (!merged) continue;
-    owned.push(merged);
-    const mesh = new THREE.Mesh(merged, materials[i]); mesh.castShadow = i !== 1; mesh.receiveShadow = true; g.add(mesh);
-  }
-  return owned;
-}
 const ROOFTOP_BOX_GEO = new THREE.BoxGeometry(1, 1, 1);
 const ROOFTOP_TANK_GEO = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
 const ROOFTOP_BASE_MAT = new THREE.MeshStandardMaterial({ color: '#777b7c', metalness: 0.58, roughness: 0.62 });
@@ -1971,21 +1915,22 @@ export class WorldRenderer3D {
     }
 
     const hBase = RENDER3D.buildingHeights[p.assetId as keyof typeof RENDER3D.buildingHeights] ?? 340;
-    // فاز CITY-BEAUTY: تنوع ارتفاع واقعی (آسمان‌خط بهتر)
+    // 🔑 v0.2.48 — تنوع ارتفاع از خود ۶ واریانس GLB می‌آید (هیچ کشیدگی تکسچر نما)
+    // یک jitter خیلی کوچک فقط برای شکستن یکنواختی بلوک‌های هم‌واریانس
     const hash = Math.abs(Math.round(cx * 7 + cz * 13));
-    const hVar = 0.85 + ((hash >> 2) % 5) * 0.14; // 0.85..1.41
+    const hVar = 0.96 + ((hash >> 2) % 4) * 0.026; // 0.96..1.038
     const h = hBase * hVar;
     const type = p.assetId?.includes('apartment') ? 'apartment'
       : p.assetId?.includes('shop') ? 'shop'
         : p.assetId?.includes('garage') ? 'garage' : 'home';
     const variance = Math.abs(Math.round(cx * 7 + cz * 13));
 
-    // ---------- فاز GLB-ONLY (خواستهٔ کاربر): ساختمان فقط «یک» ظاهر دارد — نسخهٔ سینمایی GLB ----------
-    // هر ۱۲ GLB حین لودینگ پیش‌بار می‌شوند؛ پس در ساخت قطعه معمولاً همین‌جا هم‌گام ساخته می‌شود
-    // و نسخهٔ قدیمی «نمای بافتیِ رنگی» (پازلی) برای همیشه از بازی حذف شد.
+    // ---------- فاز GLB-ONLY → v0.2.48 FACADE-TEX ----------
+    // هر ۲۴ GLB (۴ نوع × ۶ واریانس) حین لودینگ پیش‌بار می‌شوند؛ هر واریانس ارتفاع +
+    // پالت + الگوی پنجره + نور داخلی متمایز دارد — «همه شبیه هم» نیستند.
     const cached = this.glb.getLoadedSync(this.glb.buildingFile(type, variance));
     if (cached) {
-      const g = this.addGlbBuilding(cached, p, cx, cz, type, variance, h);
+      const g = this.addGlbBuilding(cached, p, cx, cz, type, variance);
       this.regVis(g); // هندسه/متریال مشترک GLB — در تخلیهٔ قطعه dispose نمی‌شوند
       return;
     }
@@ -2014,7 +1959,7 @@ export class WorldRenderer3D {
         boxMat.dispose();
         return;
       }
-      const g = this.addGlbBuilding(scene, p, cx, cz, type, variance, h);
+      const g = this.addGlbBuilding(scene, p, cx, cz, type, variance);
       this.scene.remove(box);
       // 🔑 منابع اختصاصی placeholder آزاد + از لیست قطعه خارج (dispose دوباره نشود)
       boxGeo.dispose();
@@ -2035,7 +1980,7 @@ export class WorldRenderer3D {
   private addGlbBuilding(
     scene: THREE.Group,
     p: { x: number; y: number; w: number; h: number; assetId?: string; landmark?: boolean; label?: string },
-    cx: number, cz: number, type: string, variance: number, h: number,
+    cx: number, cz: number, type: string, variance: number,
   ): THREE.Group {
     const g = scene.clone(true);
     const tintGlb = BUILDING_TINTS[variance % BUILDING_TINTS.length];
@@ -2052,16 +1997,26 @@ export class WorldRenderer3D {
     }
     const gs = gb.getSize(new THREE.Vector3());
     const fit = Math.min(p.w / Math.max(gs.x, 1), p.h / Math.max(gs.z, 1));
-    const sy = h / Math.max(gs.y, 1); // ارتفاع هدف از buildingHeights × hVar
+    // 🔑 v0.2.48 — ارتفاع = ارتفاع خود GLB (sy=1) تا تکسچر نما هیچ کشیدگی نگیرد؛
+    // تنوع آسمان‌خط از ۶ واریانس با ارتفاع‌های متمایز می‌آید
+    const sy = 1;
     g.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       m.castShadow = true; m.receiveShadow = true;
-      // رنگ نما per building — کلون متریال تا ساختمان‌ها رنگ‌های متفاوت بگیرند
-      // 🔑🔑 فیکس «بلوک‌های خالی + برخورد نامرئی» (فاز VIS-BUILDING):
-      // متریال تکی باید تکی بماند (متریال آرایه‌ای بدون geometry.groups = نامرئی!)
+      // 🔑 v0.2.48 — دو مسیر متریال:
+      //  «walls» → متریال facade مشترک (تکسچر نما + emissiveMap نور داخلی) — بدون تینت
+      //  «props» → متریال تینت‌شده (کولر/منبع آب/لبه بام)
       const srcMats = m.material;
+      const isWalls = m.name === 'walls';
       const convert = (mm: THREE.Material): THREE.Material => {
+        if (isWalls) {
+          const v = ((variance % 6) + 6) % 6;
+          const floors = BUILDING_FLOORS[type as keyof typeof BUILDING_FLOORS]?.[v] ?? 4;
+          return getBuildingFacade(
+            type as 'apartment' | 'shop' | 'home' | 'garage', variance, floors,
+          ).material;
+        }
         // فاز PERF-2: کش متریال تینت‌شده — کلون به‌ازای هر ساختمان حذف شد
         const ck = `${mm.uuid}|${tintGlb}`;
         const hit = this.bldMatCache.get(ck);
@@ -2069,7 +2024,6 @@ export class WorldRenderer3D {
         const c = mm.clone();
         const std = c as THREE.MeshStandardMaterial;
         if (std.isMeshStandardMaterial) {
-          // نمای ساختمان مات می‌ماند، اما کاملاً گچی و تخت دیده نمی‌شود (ادغام از شاخهٔ کاربر)
           std.metalness = Math.min(std.metalness, 0.12);
           std.roughness = Math.min(0.92, Math.max(0.48, std.roughness));
           std.envMapIntensity = 0.55;
@@ -2089,12 +2043,8 @@ export class WorldRenderer3D {
     // GLB: مرکز پلن + پایه روی زمین + بدون چرخش (پلن مستطیلی تراز می‌ماند)
     g.position.set(cx, -gb.min.y * sy, cz);
     g.scale.set(fit, sy, fit);
-    // فاز IR-FACADES: قاب پنجره، شیشهٔ آبی کم‌انعکاس و بالکن‌های پراکنده روی نماهای ایرانی.
-    // تزئینات پیش از تبدیل مختصات به مقیاس نهایی ساخته می‌شوند تا با GLB هم‌مقیاس بمانند.
-    if (type === 'home' || type === 'apartment') {
-      const facadeGeometries = addIranianFacadeDetails(g, gb, variance, type === 'apartment');
-      if (this.visCollector) this.visCollector.geos.push(...facadeGeometries);
-    }
+    // 🔑 v0.2.48 — قاب/بالکن سه‌بعدی قدیمی حذف شد: نمای تکسچری خودش قاب + نور داخلی دارد
+    // (هم‌پوشانی قاب سه‌بعدی روی پنجرهٔ نقاشی‌شده = ظاهر شلوغ و «پازلی»)
     // فاز IR-ROOFTOPS: مخزن آب و کندانسور کولرهای رایج در بام ساختمان‌های ایرانی.
     // فقط برای خانه/آپارتمان و با پراکندگی قطعی؛ جزئیات سبک‌اند و از منابع مشترک استفاده می‌کنند.
     if ((type === 'home' || type === 'apartment') && variance % 3 !== 1) {

@@ -28,6 +28,8 @@ export interface GameSettings {
   leftHanded: boolean;
   /** 🔑 v0.2.45 — مود رانندگی: دکمه‌ای / فرمان و پدال / ژیروسکوپ */
   controlMode: ControlMode;
+  /** 🔑 v0.2.48 — رادیو ماشین: آهنگ شاد پشت‌زمینه با قابلیت خاموش‌کردن */
+  radio: boolean;
 }
 
 export interface SaveData {
@@ -61,7 +63,7 @@ function defaultSave(): SaveData {
     unlockedVehicles: ['veh_player_01'],
     selectedVehicle: 'veh_player_01',
     completedMissions: [],
-    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true, graphicsQuality: 'balanced', controlsScale: 1, controlsOpacity: 1, leftHanded: false, controlMode: 'buttons' },
+    settings: { music: 0.7, sfx: 0.9, voice: 1.0, vibration: true, graphicsQuality: 'balanced', controlsScale: 1, controlsOpacity: 1, leftHanded: false, controlMode: 'buttons', radio: true },
     progress: { tutorialDone: false, firstRunDone: false },
     upgrades: defaultUpgrades(),
     ownedPaints: [DEFAULT_PAINT_ID],
@@ -173,6 +175,8 @@ function migrateSettings(raw: unknown, base: GameSettings): GameSettings {
     controlMode: value.controlMode === 'wheel' || value.controlMode === 'tilt'
       ? value.controlMode
       : 'buttons',
+    // v0.2.48 — رادیو ماشین (سیوهای قدیمی → روشن)
+    radio: typeof value.radio === 'boolean' ? value.radio : base.radio,
   };
 }
 

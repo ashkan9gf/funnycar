@@ -5,6 +5,7 @@
  */
 
 import { VoiceManager } from '../src/game/managers/VoiceManager';
+import { DIALOGUES } from '../src/game/data/dialogues';
 
 let pass = 0;
 let fail = 0;
@@ -26,9 +27,31 @@ for (let i = 0; i < 30; i++) {
   if (info) lines.add(info.line);
 }
 check('POOL: بیش از یک جمله متفاوت پخش شد', lines.size > 1, `تعداد متن‌های دیده‌شده: ${lines.size}`);
-check('POOL: همه جمله‌ها از Pool رسمی‌اند', [...lines].every((l) =>
-  ['داداش چیزی نشد!', 'ماشین فقط یه کم ناراحت شد.', 'این دیگه ماشین نیست، خاطره‌ست!', 'بیمه داری؟ 😅', 'جدول حق داشت وایسه، ولی این‌قدر نه!'].includes(l),
-));
+// 🔑 v0.2.48 — استخرها بزرگ شدند؛ اعتبارسنجی پویا برابر Pool رسمی + تست کیسهٔ بُر
+check('POOL: همه جمله‌ها از Pool رسمی‌اند', [...lines].every((l) => DIALOGUES.car_crash.lines.includes(l)));
+// کیسهٔ بُر: با N×3 تریگر (فاصله > cooldown) باید «همهٔ» جمله‌ها حداقل یک‌بار پخش شوند
+{
+  const vmBag = new VoiceManager();
+  const seen = new Set<string>();
+  const n = DIALOGUES.car_crash.lines.length;
+  for (let i = 0; i < n * 3; i++) {
+    const info = vmBag.trigger('car_crash', i * 5000);
+    if (info) seen.add(info.line);
+  }
+  check('BAG: کیسهٔ بُر همهٔ جمله‌ها را پخش کرد (صفر تکرار زودهنگام)', seen.size === n, `دیده‌شده ${seen.size}/${n}`);
+  // هیچ دو تریگر متوالی همان جمله را نمی‌دهد
+  const vmSeq = new VoiceManager();
+  let repeatAdjacent = 0;
+  let prevLine: string | null = null;
+  for (let i = 0; i < 40; i++) {
+    const info = vmSeq.trigger('drift', i * 20000);
+    if (info) {
+      if (info.line === prevLine) repeatAdjacent++;
+      prevLine = info.line;
+    }
+  }
+  check('BAG: هیچ جمله‌ای پشت‌سرهم تکرار نمی‌شود', repeatAdjacent === 0, `تکرار متوالی: ${repeatAdjacent}`);
+}
 
 // ---------- TEST-VOICE-002: Cooldown رویداد ----------
 const vm2 = new VoiceManager();
