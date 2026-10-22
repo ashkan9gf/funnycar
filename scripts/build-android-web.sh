@@ -47,9 +47,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "export",
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // TypeScript is validated in CI and must also block the Android web export.
   reactStrictMode: false,
 };
 
