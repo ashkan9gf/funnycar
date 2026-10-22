@@ -69,6 +69,8 @@ export interface HudData {
   fuel: number;
   /** 🔑 v0.2.45 — زون کاربردی فعال (سوخت‌گیری/ترمیم) — null = هیچ */
   zone: 'fuel' | 'repair' | null;
+  /** 🔑 v0.2.49 — هوای فعلی (باران صوتی/تصویری) */
+  weather: 'clear' | 'rain';
 }
 
 /** نتیجه مأموریت برای پوسته React (فاز 4) */
@@ -634,7 +636,10 @@ export class GameManager {
     this.audio.engineStart(); // v0.2.45 — «ورووووم» شروع
     this.audio.setVolumes(this.save.get().settings);
     // 🔑 v0.2.48 — رادیو ماشین (اگر در تنظیمات روشن باشد)
-    if (this.save.get().settings.radio) this.audio.radioStart();
+    if (this.save.get().settings.radio) this.audio.radioStart(this.save.get().settings.radioStation);
+    // 🔑 v0.2.49 — آمبرینس صبحگاهی (پرنده/شهر) + ازسرگیری باران اگر هوا بارانی است
+    this.audio.ambienceStart();
+    if (this.weather === 'rain') this.audio.rainStart();
     // 🔑 v0.2.43 — فیکس: بعد از Pause→منو→مأموریت، کیبورد خاموش می‌ماند
     // (setEnabled(false) در pause، دوباره روشن نمی‌شد — لمس سالم بود، دسکتاپ می‌شکست)
     this.input.setEnabled(true);
@@ -646,6 +651,8 @@ export class GameManager {
     if (this.state !== 'playing') return;
     this.audio.setEngineSpeed(0);
     this.audio.radioStop(); // v0.2.48 — رادیو هم با توقف خاموش
+    this.audio.rainStop(); // 🔑 v0.2.49 — باران و پرنده در توقف قطع
+    this.audio.ambienceStop();
     speech.stop(); // v0.2.45 — جملهٔ نیمه‌خوانده قطع شود
     this.voice.clear();
     this.input.setEnabled(false);
@@ -657,7 +664,10 @@ export class GameManager {
     if (this.state !== 'paused') return;
     this.input.setEnabled(true);
     // 🔑 v0.2.48 — رادیو بعد از ادامهٔ بازی دوباره روشن شود (اگر در تنظیمات فعال باشد)
-    if (this.save.get().settings.radio) this.audio.radioStart();
+    if (this.save.get().settings.radio) this.audio.radioStart(this.save.get().settings.radioStation);
+    // 🔑 v0.2.49 — آمبرینس + باران دوباره وصل شود
+    this.audio.ambienceStart();
+    if (this.weather === 'rain') this.audio.rainStart();
     this.lastFrame = performance.now();
     this.setState('playing');
   }
@@ -665,6 +675,8 @@ export class GameManager {
   backToMenu(): void {
     this.audio.setEngineSpeed(0);
     this.audio.radioStop(); // 🔑 v0.2.48
+    this.audio.rainStop(); // 🔑 v0.2.49
+    this.audio.ambienceStop();
     this.save.flush();
     this.mission.abort();
     const spawn = this.world.playerSpawn();
@@ -732,6 +744,13 @@ export class GameManager {
       this.audio.radioStop();
     }
   }
+  /** 🔑 v0.2.49 — تعویض ایستگاه رادیو از تنظیمات (ذخیره + خش‌خش + ری‌استارت حین پخش) */
+  setRadioStation(station: 1 | 2): void {
+    if (station !== 1 && station !== 2) return;
+    this.save.mutate((d) => { d.settings.radioStation = station; });
+    this.audio.setRadioStation(station);
+  }
+
   setGraphicsQuality(quality: 'performance' | 'balanced' | 'quality'): void {
     this.save.mutate((d) => { d.settings.graphicsQuality = quality; });
     this.renderer3d?.setGraphicsQuality(quality);
@@ -746,7 +765,7 @@ export class GameManager {
   }
 
   /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) — clamp و ذخیره */
-  setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode' | 'radio'>>): void {
+  setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode' | 'radio' | 'radioStation'>>): void {
     this.save.mutate((d) => {
       if (typeof p.controlsScale === 'number' && Number.isFinite(p.controlsScale)) {
         d.settings.controlsScale = Math.min(1.5, Math.max(0.8, p.controlsScale));
@@ -760,10 +779,15 @@ export class GameManager {
       if (typeof p.radio === 'boolean' && p.radio !== d.settings.radio) {
         d.settings.radio = p.radio;
         if (p.radio) {
-          if (this.state === 'playing') this.audio.radioStart();
+          if (this.state === 'playing') this.audio.radioStart(d.settings.radioStation);
         } else {
           this.audio.radioStop();
         }
+      }
+      // 🔑 v0.2.49 — ایستگاه رادیو (حین پخش: خش‌خش + تعویض فوری)
+      if ((p.radioStation === 1 || p.radioStation === 2) && p.radioStation !== d.settings.radioStation) {
+        d.settings.radioStation = p.radioStation;
+        this.audio.setRadioStation(p.radioStation);
       }
       // 🔑 v0.2.45 — مود رانندگی + خروج امن از حالت آنالوگ
       if (p.controlMode === 'buttons' || p.controlMode === 'wheel' || p.controlMode === 'tilt') {
@@ -887,7 +911,10 @@ export class GameManager {
     if (success) this.fx.spawnBurst(this.vehicle.x, this.vehicle.y - 30, '#F2B705', 16, 150);
     // فاز ۵: حباب پایانی مخصوص هر حالت
     if (success && def?.kind === 'taxi_fare') {
-      this.fx.pushBubble(this.pickLine('taxi_dropoff'), def.target.x, def.target.y, 'char_pass_m_01_idle', 2.8);
+      // 🔑 v0.2.49 — دم‌گذار مسافر: صدای در + همان جملهٔ حباب با صدای فارسی خوانده می‌شود
+      this.audio.dropoffDoor();
+      const dropInfo = this.voice.trigger('taxi_dropoff', performance.now());
+      this.fx.pushBubble(dropInfo?.line ?? this.pickLine('taxi_dropoff'), def.target.x, def.target.y, 'char_pass_m_01_idle', 2.8);
     } else if (success && def?.kind === 'parallel_park') {
       // 🔑 v0.2.48 — سه‌ستاره = پارک عالی (رویداد و جملهٔ مخصوص خودش)
       if (stars === 3) {
@@ -897,7 +924,9 @@ export class GameManager {
         this.fx.pushBubble(this.pickLine('parking_good'), this.vehicle.x, this.vehicle.y, 'char_driver_01_idle', 2.4);
       }
     }
-    this.voice.trigger(success ? 'mission_success' : 'mission_fail', performance.now());
+    this.voice.trigger(success && def?.kind === 'taxi_fare'
+      ? 'taxi_tip' // 🔑 v0.2.49 — تاکسی: جملهٔ مسافر خودش خوانده شد؛ فقط انعام طنز راننده
+      : (success ? 'mission_success' : 'mission_fail'), performance.now());
 
     // فاز ۷: زنجیره عمو نقی — جمله تبریک مکانیکی جای جمله معمولی
     const isChain = success && def?.chain === 'naghi';
@@ -926,6 +955,12 @@ export class GameManager {
   private lastAiHonkAt = 0;
   /** v0.2.45 — throttle صدای آچارباد حین ترمیم */
   private lastRepairSfxAt = 0;
+  /** 🔑 v0.2.49 — throttle آچارخوردن (راچت) حین ترمیم */
+  private lastRatchetSfxAt = 0;
+  /** 🔑 v0.2.49 — هوای بازی: صاف/بارانی با چرخهٔ تصادفی */
+  private weather: 'clear' | 'rain' = 'clear';
+  /** تا شروع/پایان بعدی وضعیت هوا (ثانیه) */
+  private weatherTimerSec = 30 + Math.random() * 60;
 
   /** بوق ماشین ترافیک (گیر افتاده یا جواب بوق) — فقط صدا؛ حباب جدا داده می‌شود */
   private onTrafficHonk(_car: unknown): void {
@@ -1417,6 +1452,11 @@ export class GameManager {
         this.lastRepairSfxAt = nowMs;
         this.audio.repair();
       }
+      // 🔑 v0.2.49 — آچارخوردن (راچت) بین آچاربادها — صدای «لحظهٔ تعمیر»
+      if (nowMs - this.lastRatchetSfxAt > 850) {
+        this.lastRatchetSfxAt = nowMs;
+        this.audio.ratchet();
+      }
       if (Math.random() < 0.25) {
         this.fx.spawnBurst(v.x + (Math.random() - 0.5) * 60, v.y + (Math.random() - 0.5) * 60, '#2A9D8F', 2, 90);
       }
@@ -1718,6 +1758,8 @@ export class GameManager {
     }
 
     // ---------- زون‌های تعمیرگاه و پمپ بنزین (فاز BIG-IR + v0.2.45) ----------
+    // 🔑 v0.2.49 — چرخهٔ هوا (باران تصادفی با صدای شیشه و آسمان تار)
+    this.updateWeather(dt, nowMs);
     this.updateRepairZones(dt, nowMs);
     this.updateFuelZones(dt, nowMs);
     // 🔑 v0.2.45 — مصرف بنزین + هشدارها (خالی = موتور بی‌نفس، نه خاموشی)
@@ -1799,8 +1841,47 @@ export class GameManager {
     this.camera.update(dt, this.vehicle.x, this.vehicle.y, this.vehicle.vx, this.vehicle.vy);
   }
 
-  // ============ چراغ قرمز بازیکن (فاز OVERHAUL) ============
+  // ============ 🔑 v0.2.49 — چرخهٔ هوا (باران) ============
 
+  /** چرخهٔ تصادفی باران: صاف ۴۵-۱۲۰ ثانیه → باران ۲۲-۵۰ ثانیه → ...
+   *  صدا: حلقهٔ باران روی شیشه | تصویر: رگه‌های باران + قطرهٔ اورلی + آسمان تار */
+  private updateWeather(dt: number, nowMs: number): void {
+    this.weatherTimerSec -= dt;
+    if (this.weatherTimerSec > 0) return;
+    if (this.weather === 'clear') {
+      this.setWeather('rain');
+      // باران ۲۲ تا ۵۰ ثانیه می‌بارد
+      this.weatherTimerSec = 22 + Math.random() * 28;
+    } else {
+      this.setWeather('clear');
+      // آسمان ۴۵ تا ۱۲۰ ثانیه صاف می‌ماند
+      this.weatherTimerSec = 45 + Math.random() * 75;
+    }
+    void nowMs;
+  }
+
+  /** تغییر وضعیت هوا — صدا + تصویر + جملهٔ طنز فارسی */
+  setWeather(w: 'clear' | 'rain'): void {
+    if (this.weather === w) return;
+    this.weather = w;
+    if (w === 'rain') {
+      if (this.state === 'playing') this.audio.rainStart();
+      this.renderer3d?.setRain(true);
+      this.voice.trigger('rain_start', performance.now());
+    } else {
+      this.audio.rainStop();
+      this.renderer3d?.setRain(false);
+      this.voice.trigger('rain_stop', performance.now());
+    }
+  }
+
+  /** دیباگ/QA — اجبار هوا از کنسول یا تست E2E */
+  forceWeather(w: 'clear' | 'rain'): void {
+    this.setWeather(w);
+    this.weatherTimerSec = w === 'rain' ? 60 : 90; // در تست طولانی بماند
+  }
+
+  // ============ چراغ قرمز بازیکن (فاز OVERHAUL) ============
   /** اگر بازیکن با سرعت از تقاطع با چراغ قرمز رد شود — دیالوگ طنز (بدون جریمه) */
   private checkRedLightRunner(dt: number): void {
     this.redRunnerCooldown = Math.max(0, this.redRunnerCooldown - dt);
@@ -1961,6 +2042,8 @@ export class GameManager {
       // 🔑 v0.2.45 — باک بنزین + زون کاربردی فعال
       fuel: Math.round(this.vehicle.fuel),
       zone: this.zoneActive,
+      // 🔑 v0.2.49 — هوای فعلی
+      weather: this.weather,
     });
   }
 
@@ -2051,6 +2134,8 @@ export class GameManager {
     cancelAnimationFrame(this.raf);
     this.audio.stopEngine();
     this.audio.radioStop(); // 🔑 v0.2.48
+    this.audio.rainStop(); // 🔑 v0.2.49
+    this.audio.ambienceStop(); // 🔑 v0.2.49
     this.audio.sirenStop();
     this.input.detach();
     this.renderer3d?.dispose(); // حذف اورلی + آزادسازی کانتکست GPU

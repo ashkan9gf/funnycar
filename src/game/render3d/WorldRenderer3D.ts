@@ -2445,6 +2445,17 @@ export class WorldRenderer3D {
   private moon: THREE.Mesh | null = null;
   private moonGlow: THREE.Sprite | null = null;
   private vignette: HTMLCanvasElement | null = null;
+  /** dt آخرین فریم رندر — برای انیمیشن اورلی باران (v0.2.49) */
+  private lastFrameDt = 1 / 60;
+
+  // ---------- 🔑 v0.2.49 — باران (رگه سه‌بعدی + قطرهٔ شیشه + آسمان تار) ----------
+  private rainOn = false;
+  private rainFactor = 0; // 0..1 نرم‌شده برای گذار ملایم
+  private rainMesh: THREE.LineSegments | null = null;
+  private rainPos: Float32Array | null = null;
+  private rainVel: Float32Array | null = null;
+  private rainDrops: Array<{ x: number; y: number; r: number; vy: number; wob: number }> = [];
+  private readonly RAIN_GRAY = new THREE.Color('#9fa4a2'); // مِه بارانی خاکستری
 
   /** Smooth 6-minute day/night cycle. Updates existing lights/materials only (no per-lamp lights). */
   private updateDayNight(t: number): void {
@@ -2534,6 +2545,155 @@ export class WorldRenderer3D {
 
     this.scene.environmentIntensity = 0.48 + easedDay * 0.34;
     this.r3.toneMappingExposure = 0.82 + easedDay * 0.38;
+
+    // 🔑 v0.2.49 — تاریِ باران روی همهٔ نورها (بعد از محاسبات شب/روز)
+    if (this.rainFactor > 0.002) {
+      const rf = this.rainFactor;
+      this.hemi.intensity *= 1 - 0.3 * rf;
+      this.sun.intensity *= 1 - 0.58 * rf;
+      const fog = this.scene.fog;
+      if (fog instanceof THREE.Fog) {
+        fog.color.lerp(this.RAIN_GRAY, 0.52 * rf);
+        fog.near = Math.max(220, fog.near - 620 * rf);
+        fog.far = fog.far - 900 * rf;
+      }
+      if (this.skyDome) {
+        const mat = this.skyDome.material;
+        if (mat instanceof THREE.MeshBasicMaterial) mat.color.lerp(this.RAIN_GRAY, 0.55 * rf);
+      }
+      for (const cloud of this.clouds) {
+        cloud.material.opacity = Math.min(0.95, cloud.material.opacity + 0.34 * rf);
+        cloud.material.color.lerp(this.RAIN_GRAY, 0.6 * rf);
+      }
+      this.r3.toneMappingExposure *= 1 - 0.13 * rf;
+    }
+  }
+
+  // ============ 🔑 v0.2.49 — باران: API عمومی + رگه‌های سه‌بعدی + قطرهٔ شیشه ============
+
+  /** روشن/خاموش باران — GameManager از step صدا می‌زند؛ گذار ۲.۵ ثانیه‌ای نرم */
+  setRain(on: boolean): void {
+    this.rainOn = on;
+    if (on && !this.rainMesh) this.buildRainMesh();
+    if (on && this.rainDrops.length === 0) {
+      // قطره‌های روی شیشه (اورلی ۲بعدی) — ۲۴ قطره با اندازه/سرعت متفاوت
+      for (let i = 0; i < 24; i++) {
+        this.rainDrops.push({
+          x: Math.random(), y: Math.random(),
+          r: 1.6 + Math.random() * 3.4,
+          vy: 22 + Math.random() * 46,
+          wob: Math.random() * 6.28,
+        });
+      }
+    }
+  }
+
+  /** هندسهٔ رگه‌های باران — ۳۲۰ خط کوتاه عمودی در جعبهٔ ۳۰۰×۲۷۰×۳۰۰ دور دوربین */
+  private buildRainMesh(): void {
+    try {
+      const N = 320;
+      const pos = new Float32Array(N * 2 * 3);
+      const vel = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const x = (Math.random() - 0.5) * 300;
+        const y = Math.random() * 270;
+        const z = (Math.random() - 0.5) * 300;
+        const len = 14 + Math.random() * 18;
+        pos[i * 6 + 0] = x; pos[i * 6 + 1] = y; pos[i * 6 + 2] = z;
+        pos[i * 6 + 3] = x + 3; pos[i * 6 + 4] = y + len; pos[i * 6 + 5] = z;
+        vel[i] = 380 + Math.random() * 220;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.LineBasicMaterial({
+        color: '#b8cfe0', transparent: true, opacity: 0.36,
+        fog: false, depthWrite: false,
+      });
+      this.rainMesh = new THREE.LineSegments(geo, mat);
+      this.rainMesh.frustumCulled = false;
+      this.rainMesh.visible = false;
+      this.rainPos = pos;
+      this.rainVel = vel;
+      this.scene.add(this.rainMesh);
+    } catch { /* بی‌خطر */ }
+  }
+
+  /** به‌روزرسانی هر فریم باران — سقوط + بازپیچ + دنبال دوربین + فید */
+  private updateRain(dt: number): void {
+    // فید نرم ورود/خروج
+    const target = this.rainOn ? 1 : 0;
+    const speed = this.rainOn ? 1 / 2.5 : 1 / 2.2;
+    this.rainFactor += Math.sign(target - this.rainFactor) * Math.min(Math.abs(target - this.rainFactor), speed * dt);
+    if (this.rainFactor < 0.001 && !this.rainOn) {
+      if (this.rainMesh) this.rainMesh.visible = false;
+      return;
+    }
+    const mesh = this.rainMesh;
+    if (!mesh || !this.rainPos || !this.rainVel) return;
+    mesh.visible = true;
+    const mat = mesh.material as THREE.LineBasicMaterial;
+    mat.opacity = 0.38 * this.rainFactor;
+    // دنبال دوربین (فقط x/z — ارتفاع نسبت به مبدأ می‌ماند)
+    mesh.position.set(this.cam3.position.x, 0, this.cam3.position.z);
+    const pos = this.rainPos;
+    const dtc = Math.min(dt, 1 / 20);
+    for (let i = 0; i < this.rainVel.length; i++) {
+      const o = i * 6;
+      const fall = this.rainVel[i] * dtc;
+      pos[o + 1] -= fall;
+      pos[o + 4] -= fall;
+      // باد ملایم به راست
+      pos[o] += 26 * dtc;
+      pos[o + 3] += 26 * dtc;
+      if (pos[o + 1] < -6) {
+        // بازپیچ از بالا — جای جدید داخل جعبه
+        const x = (Math.random() - 0.5) * 300;
+        const z = (Math.random() - 0.5) * 300;
+        const len = pos[o + 4] - pos[o + 1];
+        pos[o] = x; pos[o + 1] = 264; pos[o + 2] = z;
+        pos[o + 3] = x + 3; pos[o + 4] = 264 + len; pos[o + 5] = z;
+        this.rainVel[i] = 380 + Math.random() * 220;
+      }
+    }
+    (mesh.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  /** قطره‌های روی شیشه روی اورلی ۲بعدی — ریز، نیمه‌شفاف، سرخورنده آرام */
+  private drawRainOverlay(ctx: CanvasRenderingContext2D, dt: number): void {
+    const rf = this.rainFactor;
+    if (rf < 0.02) return;
+    const w = this.overlayW;
+    const h = this.overlayH;
+    const dtc = Math.min(dt, 1 / 20);
+    ctx.save();
+    for (const d of this.rainDrops) {
+      // سقوط آرام با تلوتلو
+      d.wob += dtc * 2.1;
+      d.y += (d.vy * dtc) / h;
+      d.x += Math.sin(d.wob) * 0.00022;
+      if (d.y > 1.02) {
+        d.y = -0.03;
+        d.x = Math.random();
+      }
+      const px = d.x * w;
+      const py = d.y * h;
+      const r = d.r;
+      ctx.globalAlpha = 0.15 * rf;
+      ctx.fillStyle = '#eaf3fb';
+      ctx.beginPath();
+      ctx.ellipse(px, py, r * 0.72, r, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // هایلایت قطره
+      ctx.globalAlpha = 0.24 * rf;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(px - r * 0.22, py - r * 0.3, r * 0.26, 0, Math.PI * 2);
+      ctx.fill();
+      // دنبالهٔ خیس کوتاه
+      ctx.globalAlpha = 0.07 * rf;
+      ctx.fillRect(px - r * 0.1, py + r, r * 0.2, r * 4.5);
+    }
+    ctx.restore();
   }
 
   /** گنبد آسمان گرادیانی — دنبال دوربین، بدون مه
@@ -3007,8 +3167,11 @@ export class WorldRenderer3D {
   draw3D(opts: Draw3DOptions): void {
     const t = performance.now() / 1000;
     const frameDt = this.drawDt();
+    this.lastFrameDt = frameDt;
     const car = opts.car;
     this.updateDayNight(t);
+    // 🔑 v0.2.49 — باران: رگه‌ها + قطره‌ها (بعد از شب/روز تا تاری هوا اعمال شده باشد)
+    if (this.rainOn || this.rainFactor > 0.002) this.updateRain(frameDt);
 
     // Emit physical brake/drift marks at a bounded cadence, not once per render frame.
     // Coordinates target the rear axle; marks appear only under meaningful load/speed.
@@ -3610,6 +3773,9 @@ export class WorldRenderer3D {
     // فاز CINEMATIC: وینیت ملایم لبه‌ها (زیر HUD — خوانایی حفظ می‌شود)
     const vg = this.ensureVignette();
     ctx.drawImage(vg, 0, 0, this.overlayW, this.overlayH);
+
+    // 🔑 v0.2.49 — قطره‌های باران روی شیشه (زیر همهٔ HUDها، خیلی ملایم)
+    this.drawRainOverlay(ctx, this.lastFrameDt);
 
     // سرعت بالا حس حرکت را تقویت می‌کند، بدون post-processing یا draw call سه‌بعدی.
     // خطوط فقط در حاشیه‌ها ظاهر می‌شوند و مینی‌مپ/HUD که بعداً رسم می‌شوند روی آن‌ها قرار می‌گیرند.

@@ -282,7 +282,7 @@ function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
               : "همون دکمه‌های همیشگی: فرمان چپ/راست + گاز و ترمز."}
         </p>
       </div>
-      {/* ---------- 🔑 v0.2.48 — رادیو ماشین ---------- */}
+      {/* ---------- 🔑 v0.2.48 + v0.2.49 — رادیو ماشین با دو ایستگاه ---------- */}
       <div className="rounded-2xl bg-[#FFF3D6] p-3">
         <ToggleRow
           label="رادیو ماشین"
@@ -291,6 +291,28 @@ function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
           value={ui.radio}
           onChange={(v) => onChangeUi({ radio: v })}
         />
+        {ui.radio && (
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            {([
+              { key: 1 as const, label: "ایستگاه ۱ — شاد پاپ", hint: "آهنگ پلاکی زنده" },
+              { key: 2 as const, label: "ایستگاه ۲ — سنتی ۶/۸", hint: "تنبک و نِی" },
+            ]).map((st) => (
+              <button
+                key={st.key}
+                type="button"
+                aria-label={`رادیو ${st.label}`}
+                aria-pressed={ui.radioStation === st.key}
+                className={`fc-btn rounded-xl px-1 py-2 text-[11px] font-extrabold ${
+                  ui.radioStation === st.key ? "bg-[#8AC926] text-[#3a2e2a]" : "bg-[#FFF9EC] text-[#3a2e2a]/65"
+                }`}
+                onClick={() => onChangeUi({ radioStation: st.key })}
+              >
+                {st.label}
+                <span className="block text-[8.5px] font-bold leading-3 opacity-70">{st.hint}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {/* ---------- 🔑 v0.2.43 — دکمه‌های رانندگی: اندازه/شفافیت/چپ‌دست/ویبره ---------- */}
       <div className="rounded-2xl bg-[#FFF3D6] p-3">
@@ -690,7 +712,7 @@ export default function GameShell() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootProgress, setBootProgress] = useState(0);
   const isAndroidBuild = process.env.NEXT_PUBLIC_ANDROID_BUILD === "1";
-  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false, chase: null, say: null, fuel: 100, zone: null });
+  const [hud, setHud] = useState<HudData>({ speedKmh: 0, coins: 0, reputation: 50, fps: 60, showFps: false, placeholders: 0, mission: null, health: 100, engineDead: false, chase: null, say: null, fuel: 100, zone: null, weather: "clear" });
   const [toast, setToast] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showMissions, setShowMissions] = useState(false);
@@ -706,8 +728,8 @@ export default function GameShell() {
   const [previewHornId, setPreviewHornId] = useState<string | null>(null);
   /** 🔑 v0.2.41 — رنگ کارخانه‌ای انتخابی هر خودرو در نمایشگاه (id → hex) */
   const [chosenColors, setChosenColors] = useState<Record<string, string>>({});
-  /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) + v0.2.45 مود رانندگی */
-  const [ui, setUi] = useState<UiPrefs>({ controlsScale: 1, controlsOpacity: 1, leftHanded: false, vibration: true, controlMode: "buttons", radio: true });
+  /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) + v0.2.45 مود رانندگی + v0.2.49 ایستگاه رادیو */
+  const [ui, setUi] = useState<UiPrefs>({ controlsScale: 1, controlsOpacity: 1, leftHanded: false, vibration: true, controlMode: "buttons", radio: true, radioStation: 1 });
   /** v0.2.43 — تب فروشگاه: همه / مال من / خریدنی */
   const [garageTab, setGarageTab] = useState<"all" | "owned" | "shop">("all");
   /** v0.2.43 — مدال چرخش سه‌بعدی خودرو */
@@ -833,7 +855,7 @@ export default function GameShell() {
       setGame(inst);
       // 🔑 v0.2.43 — بارگذاری تنظیمات کنترل لمسی + آموزش بار اول
       const st = inst.getSettings();
-      setUi({ controlsScale: st.controlsScale, controlsOpacity: st.controlsOpacity, leftHanded: st.leftHanded, vibration: st.vibration, controlMode: st.controlMode, radio: st.radio !== false });
+      setUi({ controlsScale: st.controlsScale, controlsOpacity: st.controlsOpacity, leftHanded: st.leftHanded, vibration: st.vibration, controlMode: st.controlMode, radio: st.radio !== false, radioStation: st.radioStation === 2 ? 2 : 1 });
       setHapticsEnabled(st.vibration);
       try {
         setTutStep(window.localStorage.getItem("fc_tutorial_done") === "1" ? null : 0);

@@ -174,6 +174,24 @@ export const ASSETS_MANIFEST: Record<string, AssetEntry> = {
     src: 'assets/audio/sfx/sfx_repair_01.ogg',
     placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
   },
+
+  // ============ v0.2.49 — صداهای نو (دم‌گذار/راچت/باران/پرنده) ============
+  sfx_door_01: {
+    src: 'assets/audio/sfx/sfx_door_01.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
+  sfx_ratchet_01: {
+    src: 'assets/audio/sfx/sfx_ratchet_01.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
+  sfx_rain_loop: {
+    src: 'assets/audio/sfx/sfx_rain_loop.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
+  sfx_birds_loop: {
+    src: 'assets/audio/sfx/sfx_birds_loop.ogg',
+    placeholder: { type: 'effect', w: 128, h: 128, label: 'PLACEHOLDER_AUDIO' },
+  },
 };
 
 /** پرتره پیش‌فرض هر گوینده (برای حباب دیالوگ) */

@@ -559,6 +559,166 @@ export class AudioManager {
     this.sfxFile('sfx_repair_01', 0.45, 0.92 + Math.random() * 0.16);
   }
 
+  /** 🔑 v0.2.49 — دم‌گذار مسافر موقع رسیدن: کوبش در + لچ + دینگ خوشامد */
+  dropoffDoor(): void {
+    if (this.sfxFile('sfx_door_01', 0.8, 0.95 + Math.random() * 0.1)) return;
+    // fallback سینتی: کوبش + تق لچ
+    this.blip(95, 0.2, 'sine', 0.3, 'sfx', 40);
+    this.noise(0.05, 0.16, 1800, 'bandpass');
+    window.setTimeout(() => this.blip(1568, 0.3, 'sine', 0.08, 'sfx'), 150);
+  }
+
+  /** 🔑 v0.2.49 — آچارخوردن (راچت) لحظه‌ای هنگام تعمیر — «تخت‌تخت‌تخت» */
+  ratchet(): void {
+    if (this.sfxFile('sfx_ratchet_01', 0.55, 0.9 + Math.random() * 0.2)) return;
+    // fallback: ۵ تاک سریع فلزی
+    for (let k = 0; k < 5; k++) {
+      window.setTimeout(() => this.noise(0.03, 0.1, 2800, 'bandpass'), k * 55);
+    }
+  }
+
+  /** 🔑 v0.2.49 — خش‌خش تنظیم رادیو موقع تعویض ایستگاه */
+  radioStatic(): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      this.noise(0.14, 0.09, 3800, 'bandpass');
+      this.noise(0.07, 0.06, 2400, 'bandpass');
+    } catch { /* بی‌خطر */ }
+  }
+
+  // ---------- 🔑 v0.2.49 — حلقهٔ باران روی شیشه ----------
+  private rainSrc: AudioBufferSourceNode | null = null;
+  private rainGain: GainNode | null = null;
+  private rainOn = false;
+
+  /** شروع حلقهٔ باران (فید ملایم ۱.۵s) — کانال SFX با ولوم کم */
+  rainStart(): void {
+    if (!this.ctx || !this.gains || this.rainOn) return;
+    this.rainOn = true;
+    try {
+      const t = this.now();
+      const buf = this.buffer('sfx_rain_loop');
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.34, t + 1.5);
+      g.connect(this.gains.sfx);
+      this.rainGain = g;
+      if (buf) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        src.connect(g);
+        src.start(t);
+        this.rainSrc = src;
+      } else {
+        // fallback سینتی: نویز لوپ لو-پاس
+        const len = Math.floor(this.ctx.sampleRate * 2);
+        const nb = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const d = nb.getChannelData(0);
+        let acc = 0;
+        for (let i = 0; i < len; i++) {
+          acc += 0.22 * ((Math.random() * 2 - 1) - acc);
+          d[i] = acc;
+        }
+        const src = this.ctx.createBufferSource();
+        src.buffer = nb;
+        src.loop = true;
+        src.connect(g);
+        src.start(t);
+        this.rainSrc = src;
+      }
+    } catch {
+      this.rainOn = false;
+    }
+  }
+
+  /** توقف حلقهٔ باران (فید بیرون ۱.۲s) */
+  rainStop(): void {
+    if (!this.rainOn) return;
+    this.rainOn = false;
+    const src = this.rainSrc;
+    const g = this.rainGain;
+    this.rainSrc = null;
+    this.rainGain = null;
+    if (this.ctx && g) {
+      try {
+        const t = this.now();
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+        if (src) {
+          src.stop(t + 1.3);
+          src.onended = () => { try { g.disconnect(); } catch { /* بی‌خطر */ } };
+        }
+      } catch { /* بی‌خطر */ }
+    }
+  }
+
+  get rainActive(): boolean {
+    return this.rainOn;
+  }
+
+  // ---------- 🔑 v0.2.49 — آمبرینس پرنده/شهر صبحگاهی ----------
+  private ambSrc: AudioBufferSourceNode | null = null;
+  private ambGain: GainNode | null = null;
+  private ambOn = false;
+
+  /** شروع آمبرینس صبحگاهی (پرنده + هوم شهر دور) — ولوم خیلی کم */
+  ambienceStart(): void {
+    if (!this.ctx || !this.gains || this.ambOn) return;
+    this.ambOn = true;
+    try {
+      const t = this.now();
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.16, t + 2.2);
+      g.connect(this.gains.sfx);
+      this.ambGain = g;
+      const buf = this.buffer('sfx_birds_loop');
+      const src = this.ctx.createBufferSource();
+      if (buf) {
+        src.buffer = buf;
+      } else {
+        // fallback: سکوت امن — لوپ ۱ ثانیه‌ای خالی نمی‌سازیم؛ فقط بی‌صدا رد شویم
+        this.ambOn = false;
+        g.disconnect();
+        this.ambGain = null;
+        return;
+      }
+      src.loop = true;
+      src.connect(g);
+      src.start(t);
+      this.ambSrc = src;
+    } catch {
+      this.ambOn = false;
+    }
+  }
+
+  ambienceStop(): void {
+    if (!this.ambOn) return;
+    this.ambOn = false;
+    const src = this.ambSrc;
+    const g = this.ambGain;
+    this.ambSrc = null;
+    this.ambGain = null;
+    if (this.ctx && g) {
+      try {
+        const t = this.now();
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+        if (src) {
+          src.stop(t + 1.0);
+          src.onended = () => { try { g.disconnect(); } catch { /* بی‌خطر */ } };
+        }
+      } catch { /* بی‌خطر */ }
+    }
+  }
+
+  get ambienceActive(): boolean {
+    return this.ambOn;
+  }
+
   brake(): void {
     this.noise(0.22, 0.12, 2600, 'highpass');
   }
@@ -649,28 +809,52 @@ export class AudioManager {
   }
 
   // ---------- 🔑 v0.2.48 — رادیو ماشین (آهنگ کوتاه شاد پشت‌زمینه) ----------
+  // 🔑 v0.2.49 — دو ایستگاه رادیویی قابل‌انتخاب
   private radioTimer: number | null = null;
   private radioStep = 0;
   private radioNextT = 0;
   private radioOn = false;
+  private radioStation: 1 | 2 = 1;
 
-  /** شروع رادیو — لوپ شاد ۸ میزانه با زمان‌بند WebAudio (بم + ملودی + هی‌هت + کیک) */
-  radioStart(): void {
-    if (!this.ctx || !this.gains || this.radioOn) return;
+  /** شروع رادیو — لوپ با زمان‌بند WebAudio؛ ایستگاه ۱ شاد پاپ، ایستگاه ۲ سنتیِ ۶/۸ */
+  radioStart(station?: 1 | 2): void {
+    if (!this.ctx || !this.gains) return;
+    if (station && station !== this.radioStation && this.radioOn) {
+      // تعویض ایستگاه وسط پخش: خش‌خش کوتاه + ری‌استارت
+      this.radioStop();
+      this.radioStatic();
+    }
+    if (station) this.radioStation = station;
+    if (this.radioOn) return;
     this.radioOn = true;
     this.radioStep = 0;
     this.radioNextT = this.now() + 0.1;
+    const stepSec = this.radioStation === 1 ? 0.19 : 0.155;
     const tick = (): void => {
       if (!this.radioOn || !this.ctx) return;
       const ahead = this.now() + 0.55;
       while (this.radioNextT < ahead) {
         this.radioNote(this.radioStep, this.radioNextT);
         this.radioStep++;
-        this.radioNextT += 0.19; // ~۳۱۶ BPM شانزدهم
+        this.radioNextT += stepSec;
       }
       this.radioTimer = window.setTimeout(tick, 160);
     };
     tick();
+  }
+
+  /** 🔑 v0.2.49 — تعویض ایستگاه رادیو (حین پخش → خش‌خش + ری‌استارت) */
+  setRadioStation(station: 1 | 2): void {
+    if (station === this.radioStation) return;
+    if (this.radioOn) {
+      this.radioStart(station);
+    } else {
+      this.radioStation = station;
+    }
+  }
+
+  get radioStationId(): 1 | 2 {
+    return this.radioStation;
   }
 
   radioStop(): void {
@@ -685,74 +869,148 @@ export class AudioManager {
     return this.radioOn;
   }
 
-  /** یک نُت رادیو در زمان t — الگوی محور اِمینور شاد (رنگ‌وبوی ایرانی) */
+  /** یک نُت رادیو در زمان t — 🔑 v0.2.49: بسته به ایستگاه، دو سبک متفاوت */
   private radioNote(step: number, t: number): void {
     if (!this.ctx || !this.gains) return;
     try {
-      const s = step % 64; // ۴ میزان × ۱۶ شانزدهم
-      const bar = Math.floor(s / 16);
-      // پیش‌روی آکورد: Am - F - C - G
-      const roots = [220.0, 174.6, 130.8, 196.0];
-      const root = roots[bar];
-      // باس — روی ۴م و ۱۲م شانزدهم
-      if (s % 8 === 0 || s % 16 === 11) {
-        const o = this.ctx.createOscillator();
-        const g = this.ctx.createGain();
-        o.type = 'triangle';
-        o.frequency.value = root / 2;
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.085, t + 0.015);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
-        o.connect(g); g.connect(this.gains.music);
-        o.start(t); o.stop(t + 0.2);
-      }
-      // ملودی پلاکی — آرپژ پنتاتونیک
-      const mel = [0, 7, 12, 7, 3, 7, 10, 7, 0, 7, 12, 15, 12, 7, 3, 0];
-      if (s % 2 === 0) {
-        const semi = mel[(s / 2) % 16];
-        const freq = root * Math.pow(2, semi / 12);
-        const o = this.ctx.createOscillator();
-        const g = this.ctx.createGain();
-        o.type = 'square';
-        o.frequency.value = freq * 2;
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.032, t + 0.01);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
-        const f = this.ctx.createBiquadFilter();
-        f.type = 'lowpass';
-        f.frequency.value = 2600;
-        o.connect(f); f.connect(g); g.connect(this.gains.music);
-        o.start(t); o.stop(t + 0.15);
-      }
-      // کیک — بیت‌های ۰/۸
-      if (s % 8 === 0) {
-        const o = this.ctx.createOscillator();
-        const g = this.ctx.createGain();
-        o.type = 'sine';
-        o.frequency.setValueAtTime(150, t);
-        o.frequency.exponentialRampToValueAtTime(46, t + 0.1);
-        g.gain.setValueAtTime(0.1, t);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-        o.connect(g); g.connect(this.gains.music);
-        o.start(t); o.stop(t + 0.14);
-      }
-      // هی‌هت — شانزدهم‌های زوج ضعیف
-      if (s % 4 === 2) {
-        const len = Math.floor(this.ctx.sampleRate * 0.035);
-        const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-        const d = buf.getChannelData(0);
-        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
-        const src = this.ctx.createBufferSource();
-        src.buffer = buf;
-        const f = this.ctx.createBiquadFilter();
-        f.type = 'highpass';
-        f.frequency.value = 6500;
-        const g = this.ctx.createGain();
-        g.gain.value = 0.045;
-        src.connect(f); f.connect(g); g.connect(this.gains.music);
-        src.start(t);
-      }
+      if (this.radioStation === 2) this.radioNote2(step, t);
+      else this.radioNote1(step, t);
     } catch { /* بی‌خطر */ }
+  }
+
+  /** کیک بم مشترک هر دو ایستگاه */
+  private radioKick(t: number, f0 = 150, amp = 0.1): void {
+    if (!this.ctx || !this.gains) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(46, t + 0.1);
+    g.gain.setValueAtTime(amp, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    o.connect(g); g.connect(this.gains.music);
+    o.start(t); o.stop(t + 0.14);
+  }
+
+  /** پرکاشن نویزی مشترک (هی‌هت / تنبک) */
+  private radioTick(t: number, cutoff: number, amp: number, durSec = 0.035): void {
+    if (!this.ctx || !this.gains) return;
+    const len = Math.floor(this.ctx.sampleRate * durSec);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'highpass';
+    f.frequency.value = cutoff;
+    const g = this.ctx.createGain();
+    g.gain.value = amp;
+    src.connect(f); f.connect(g); g.connect(this.gains.music);
+    src.start(t);
+  }
+
+  /** 🔑 v0.2.49 — ایستگاه ۱: «رادیو شاد» — همان الگوی محور اِمینور پاپ (آرپژ پلاکی) */
+  private radioNote1(step: number, t: number): void {
+    const s = step % 64; // ۴ میزان × ۱۶ شانزدهم
+    const bar = Math.floor(s / 16);
+    // پیش‌روی آکورد: Am - F - C - G
+    const roots = [220.0, 174.6, 130.8, 196.0];
+    const root = roots[bar];
+    // باس — روی ۴م و ۱۲م شانزدهم
+    if (s % 8 === 0 || s % 16 === 11) {
+      const o = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      o.type = 'triangle';
+      o.frequency.value = root / 2;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.085, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+      o.connect(g); g.connect(this.gains!.music);
+      o.start(t); o.stop(t + 0.2);
+    }
+    // ملودی پلاکی — آرپژ پنتاتونیک
+    const mel = [0, 7, 12, 7, 3, 7, 10, 7, 0, 7, 12, 15, 12, 7, 3, 0];
+    if (s % 2 === 0) {
+      const semi = mel[(s / 2) % 16];
+      const freq = root * Math.pow(2, semi / 12);
+      const o = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      o.type = 'square';
+      o.frequency.value = freq * 2;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.032, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+      const f = this.ctx!.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 2600;
+      o.connect(f); f.connect(g); g.connect(this.gains!.music);
+      o.start(t); o.stop(t + 0.15);
+    }
+    // کیک — بیت‌های ۰/۸
+    if (s % 8 === 0) this.radioKick(t);
+    // هی‌هت — شانزدهم‌های زوج ضعیف
+    if (s % 4 === 2) this.radioTick(t, 6500, 0.045);
+  }
+
+  /** 🔑 v0.2.49 — ایستگاه ۲: «رادیو گل‌ها» — ریتم ۶/۸ ایرانی، گام هارمونیک، نِی‌وار */
+  private radioNote2(step: number, t: number): void {
+    const s = step % 48; // ۴ میزان × ۱۲ شانزدهم (حس ۶/۸)
+    const bar = Math.floor(s / 12);
+    // پیش‌روی هارمونیک مینور ایرانی: Dm - Gm - A# - A7
+    const roots = [146.83, 196.0, 233.08, 220.0];
+    const root = roots[bar];
+    // باس روی ضرب‌های اصلی ۶/۸ (۰، ۶) + پس‌ضرب (۹)
+    if (s % 12 === 0 || s % 12 === 6) {
+      const o = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      o.type = 'triangle';
+      o.frequency.value = root / 2;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.09, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+      o.connect(g); g.connect(this.gains!.music);
+      o.start(t); o.stop(t + 0.27);
+    }
+    // تنبک: بم (کیک) روی ۰، «تک» تیز روی ۳/۶/۹ + ریز در ۱۱
+    if (s % 12 === 0) this.radioKick(t, 130, 0.11);
+    if (s % 12 === 3 || s % 12 === 6 || s % 12 === 9) this.radioTick(t, 1400, 0.06, 0.05);
+    if (s % 12 === 11) this.radioTick(t, 1600, 0.035, 0.028);
+    // ملودی نِی‌وار (ساوتوث نرم با فیلتر) — گام D هارمونیک مینور
+    const mel = [0, 4, 7, 12, 11, 7, 4, 2, 0, 4, 7, 14];
+    if (s % 2 === 0) {
+      const semi = mel[(s / 2) % 12];
+      const freq = root * Math.pow(2, semi / 12);
+      const o = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      o.type = 'sawtooth';
+      // ویبروی خوانشی نرم
+      o.frequency.setValueAtTime(freq * 2, t);
+      if (s % 12 === 0) o.frequency.linearRampToValueAtTime(freq * 2 * 1.012, t + 0.22);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.028, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      const f = this.ctx!.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 1900; // نرم — حس ساز بادی
+      f.Q.value = 1.2;
+      o.connect(f); f.connect(g); g.connect(this.gains!.music);
+      o.start(t); o.stop(t + 0.22);
+    }
+    // سنتوروار: نُت پراکنده براق هر آغاز میزان
+    if (s % 12 === 0 || s % 24 === 8) {
+      const semi = [12, 16, 19][bar];
+      const freq = roots[bar] * Math.pow(2, semi / 12) * 2;
+      const o = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.02, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+      o.connect(g); g.connect(this.gains!.music);
+      o.start(t); o.stop(t + 0.45);
+    }
   }
 
   /** موسیقی موقت منو: آرپژ ساده شاد (تا فایل موسیقی فاز 9 بیاید) */

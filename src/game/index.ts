@@ -10,8 +10,8 @@ import type { GameSettings } from './core/SaveManager';
 import type { MissionCategory } from './data/missions';
 import type { UpgradeId } from './data/garage';
 
-/** 🔑 v0.2.43 + v0.2.45 — تنظیمات کنترل لمسی (بین موتور و پوستهٔ React) */
-export type UiPrefs = Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode' | 'radio'>;
+/** 🔑 v0.2.43 + v0.2.45 + v0.2.49 — تنظیمات کنترل لمسی + ایستگاه رادیو */
+export type UiPrefs = Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode' | 'radio' | 'radioStation'>;
 
 export interface MissionListItem {
   id: string;
