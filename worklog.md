@@ -1241,8 +1241,8 @@ Work Log:
 - APK v0.2.47/VCODE=47 از scripts/build_apk_v0247.sh (SIGN OK) → push → uploadkon HEAD 200
 
 Stage Summary:
-- main = <بعد از push>
-- APK: download/FunnyCarIR-v0.2.47-test.apk
-- لینک: <بعد از آپلود>
+- main = 09e7f7d (push شد)
+- APK: download/FunnyCarIR-v0.2.47-test.apk (۲۲,۴۰۸,۴۰۹ bytes)
+- لینک: https://uploadkon.ir/uploads/6bfb22_26fc0247.zip (HEAD 200)
 - معماری گفتار: پل بومی (TTS گوگل فارسی گوشی کاربر) + fallback مرورگر؛ دسکتاپ بدون صدای فارسی ساکت (متن هست)
 - درس: خروجی TTS ابری را با معیار مدت/کاراکتر بسنجید — فارسی بعضی جمله‌ها را می‌کِشد یا می‌پراند؛ TTS بومی اندروید برای فارسی راه حرفه‌ای است
