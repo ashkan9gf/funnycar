@@ -18,10 +18,10 @@ Keep the keystore and passwords private. If this app was previously published, u
 Connect an Android phone with USB debugging enabled and authorize the computer. Install the debug APK, start the game, enter gameplay, and run:
 
 ```bash
-bash scripts/android-device-benchmark.sh com.funnycar.app 600
+bash scripts/android-device-benchmark.sh com.funnycar.ir 600
 ```
 
-The default package ID must match `capacitor.config.json`; check it before running. Keep a demanding scene active (traffic, pedestrians, collisions/particles, night transition) for ten minutes. The report records model, Android version, display resolution/density, GraphicsInfo, memory, and thermal-service output before/after. Save screenshots and note visible stutter/crashes alongside the report. Android's thermal service is device/vendor-dependent; no script can substitute for an actual sustained phone run.
+The package ID `com.funnycar.ir` matches `appId` in `capacitor.config.json`. If the app ID changes later, update the command and script default together. Keep a demanding scene active (traffic, pedestrians, collisions/particles, night transition) for ten minutes. The report records model, Android version, display resolution/density, GraphicsInfo, memory, and thermal-service output before/after. Save screenshots and note visible stutter/crashes alongside the report. Android's thermal service is device/vendor-dependent; no script can substitute for an actual sustained phone run.
 
 ## Six completion gates
 
