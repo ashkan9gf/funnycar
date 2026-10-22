@@ -17,6 +17,7 @@ import { createPlaceholder } from '../render/PlaceholderFactory';
 export type GameAsset = HTMLImageElement | HTMLCanvasElement | AudioBuffer;
 
 const AUDIO_EXT = /\.(ogg|mp3|wav)$/i;
+const ASSET_TIMEOUT_MS = 15_000;
 
 export interface AssetReport {
   total: number;
@@ -53,8 +54,20 @@ export class AssetManager {
           const asset = await this.loadOne(id);
           this.cache.set(id, asset);
         } catch (err) {
-          // حتی خطای غیرمنتظره هم بازی را نمی‌بندد
+          // حتی خطای غیرمنتظره هم باید به asset قابل‌استفاده ختم شود؛ undefined در
+          // رندر مسیرهای بعدی می‌تواند باعث کرش زنجیره‌ای شود.
           this.report.errors.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
+          const entry = ASSETS_MANIFEST[id];
+          if (entry) {
+            this.report.placeholders.push(id);
+            this.report.missing.push(id);
+            this.cache.set(id, createPlaceholder(
+              entry.placeholder.type,
+              entry.placeholder.w,
+              entry.placeholder.h,
+              entry.placeholder.label,
+            ));
+          }
         } finally {
           done++;
           onProgress?.(done, ids.length);
@@ -73,6 +86,12 @@ export class AssetManager {
     return new Promise<GameAsset>((resolve) => {
       const img = new Image();
       let settled = false;
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(fallback());
+      }, ASSET_TIMEOUT_MS);
       const fallback = (): HTMLCanvasElement => {
         this.report.placeholders.push(id);
         this.report.missing.push(id);
@@ -83,6 +102,7 @@ export class AssetManager {
       img.onload = () => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeoutId);
         // تصویر صفر‌پیکسلی/خراب = همان رفتار فایل غایب
         if (img.naturalWidth <= 0 || img.naturalHeight <= 0) resolve(fallback());
         else {
@@ -93,6 +113,7 @@ export class AssetManager {
       img.onerror = () => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeoutId);
         resolve(fallback());
       };
       // cache-busting نمی‌گذاریم — مرورگر اجازه کش دارد (آفلاین بودن مهم‌تر است)
@@ -106,7 +127,14 @@ export class AssetManager {
    */
   private async loadAudio(id: string, entry: AssetEntry): Promise<GameAsset> {
     try {
-      const res = await fetch(`/${entry.src}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), ASSET_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(`/${entry.src}`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const arr = await res.arrayBuffer();
       const OAC = window.OfflineAudioContext ?? (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;

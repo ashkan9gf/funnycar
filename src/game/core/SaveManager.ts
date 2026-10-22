@@ -217,11 +217,15 @@ export class SaveManager {
    */
   mutate(fn: (d: SaveData) => void): void {
     try {
-      fn(this.data);
+      // Apply each change to a detached draft first. If a callback throws halfway
+      // through (e.g. a future shop rule), live state remains untouched.
+      const draft = migrate(JSON.parse(JSON.stringify(this.data)) as unknown);
+      fn(draft);
+      this.data = draft;
       this.persist();
     } catch (err) {
-      // حتی خطای داخل mutate نباید بازی را ببندد
-      console.warn('[SaveManager] mutate failed:', err);
+      // A failed mutation must not leave partially-updated coins/progress in memory.
+      console.warn('[SaveManager] mutate failed; state unchanged:', err);
     }
   }
 

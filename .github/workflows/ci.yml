@@ -27,6 +27,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Lint
         run: bun run lint
+      - name: TypeScript validation
+        run: bunx tsc --noEmit
       - name: Production build
         env:
           DATABASE_URL: "file:../db/custom.db"
