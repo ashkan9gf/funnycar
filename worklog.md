@@ -1271,3 +1271,29 @@ Stage Summary:
 - APK: download/FunnyCarIR-v0.2.48-test.apk
 - لینک: https://uploadkon.ir/uploads/e9d522_26FunnyCarIR-v0-2-48-test.zip (HEAD 200)
 - درس‌ها: (۱) clusterR بر حسب واحد منطقی با مدل‌های غیرمقیاس اشتباه می‌شود — گیت ارتفاع نسبی (۳۰٪) مطمئن‌تر است؛ (۲) هر تبدیل «جهت» بین فریم‌ها باید دو-نقطه‌ای باشد (worldToLocal جهت را خراب می‌کند)؛ (۳) CylinderGeometry شعاع می‌گیرد نه قطر؛ (۴) browser cache حتی فایل GLB هم‌نام را کهنه سرو می‌کند — E2E با سشن نو
+
+---
+Task ID: 63
+Agent: main (Z.ai)
+Task: v0.2.49 — پنج صدای نو درخواستی کاربر: دم‌گذار مسافر + آچارخوردن تعمیر + باران روی شیشه + دو ایستگاه رادیویی + پرنده/شهر صبحگاهی («اگر زیاد شلوغ نمیشه اینارو هم بزار»)
+
+Work Log:
+- درخواست کاربر بعد از تحویل v0.2.48: «🎙 صدای مسافر دم‌گذار موقع رسیدن، 🔧 صدای آچارخوردن لحظه‌ای هنگام تعمیر، 🌧 باران روی شیشه، 📻 دو ایستگاه رادیویی قابل‌انتخاب، 🐦 صدای پرنده/شهر صبحگاهی — اگر زیاد شلوغ نمیشه اینارو هم بزار» → هر پنج قلم پیاده شد (هیچ‌کدام HUD را شلوغ نمی‌کنند — صدا/امبرینس خالص)
+- ۴ OGG نو با scripts/gen_audio_v0249.py (همان خط لوله numpy+ffmpeg): sfx_door_01 (۹KB — کوبش در + لچ + دینگ)، sfx_ratchet_01 (۷KB — ۸ دندانهٔ راچت + فنر فلزی)، sfx_rain_loop (۵۵KB — ۶s حلقه بی‌درز: بستر نویز + ۱۳۰ قطرهٔ تپنده)، sfx_birds_loop (۸۵KB — ۱۰s حلقه بی‌درز: هوم شهر + گنجشک FM + فاختهٔ «کو-کو») + ۴ شناسه در manifest
+- دم‌گذار: پایان مأموریت taxi_fare → audio.dropoffDoor() + voice.trigger('taxi_dropoff') (حباب = جملهٔ خوانده‌شده، ۱۰ جمله) + رویداد نو taxi_tip (۷ جملهٔ انعام راننده، chance 0.75) جای mission_success تا دو جمله پشت‌هم خوانده نشود
+- راچت تعمیر: updateRepairZones علاوه بر آچارباد هر ۱.۷s → راچت هر ۸۵۰ms (audio.ratchet با fallback سینتی ۵ تاک)
+- باران: چرخهٔ هوا در GameManager (صاف ۴۵-۱۲۰s → باران ۲۲-۵۰s) — صدا: حلقهٔ rain با فید ۱.۵s/۱.۲s روی کانال SFX؛ تصویر: ۳۲۰ LineSegments در جعبهٔ ۳۰۰×۲۷۰×۳۰۰ دنبال دوربین (سقوط+باد+بازپیچ) + ۲۴ قطرهٔ اورلی با هایلایت و دنبالهٔ خیس + تاری هوا (hemi −۳۰٪، sun −۵۸٪، مِه → خاکستری و near/far کمتر، گنبد/ابر خاکستری، اکسپوژر −۱۳٪) با rainFactor نرم ۲.۵s؛ جملات rain_start/rain_stop (۸+۸) + setWeather/forceWeather عمومی برای QA
+- رادیو دو ایستگاه: radioStart(station?) — تعویض حین پخش = radioStop + radioStatic (خش‌خش) + ری‌استارت؛ ایستگاه ۱ همان پاپ Am-F-C-G؛ ایستگاه ۲ «سنتی ۶/۸» (D هارمونیک مینور، تنبک بم/تک/ریز، ملودی ساوتوث نرم نِی‌وار با ویبرو، پینگ سنتوروار) — settingsradioStation: 1|2 + migrate سیو + سکشن انتخاب ایستگاه در تنظیمات (فقط وقتی رادیو روشن) + resume/save از radioStation
+- پرنده صبحگاهی: ambienceStart/Stop — لوپ sfx_birds_loop با ولوم ۰.۱۶ و فید ۲.۲s در چرخهٔ عمر گیم‌پلی (start/pause/resume/menu/dispose هماهنگ با رادیو و باران)
+- E2E (export پروداکشن :8899 با agent-browser): آمبرینس روشن ✓ رادیو پیش‌فرض ۱ → تعویض ۲ + ذخیرهٔ سیو ✓ بعد رفرش radioStation=2 و رادیو با ایستگاه ۲ شروع ✓ forceWeather rain → rainActive + rain_start + rainMesh visible ✓ clear → rain_stop («آسمان صاف شد؛ جاده هم خشک شد!») + فید صدا ✓ انتقال به زون تعمیر + فراخوانی مسیر پروداکشن updateRepairZones → zoneActive=repair، سلامت ۴۰→۷۰، راچت+آچارباد ✓ taxi_dropoff (مسافر) + taxi_tip (راننده) ✓ هر ۴ AudioBuffer واقعی، placeholders=صفر، صفر خطای صفحه (فقط وارنینگ adaptive-render هدلس)
+- نکتهٔ تست: در هدلس، گیت‌های ۱.۶s گوینده/۰.۷s جهانی چون rAF کند است سخت‌تر رد می‌شوند — taxi_tip با chance 0.75 و رعایت گیت‌ها تست شد؛ در دستگاه واقعی ریتم طبیعی است
+- tsc/lint پاک (خطاهای باقی فقط skills/examples/scripts قدیمی)؛ تست صدا ۱۰/۱۰
+- APK v0.2.49/VCODE=49 از scripts/build_apk_v0249.sh (SIGN OK، ۲۲,۴۵۹,۰۳۸ bytes)
+- push: b2f43d5..610aed7
+
+Stage Summary:
+- main = 610aed7 (push شد)
+- APK: download/FunnyCarIR-v0.2.49-test.apk + .zip
+- لینک: https://uploadkon.ir/uploads/3b7c22_26FunnyCarIR-v0-2-49-test.zip (HEAD 200)
+- هر ۵ قلم تحویل شد؛ باران و آمبرینس کاملاً خودکارند (بدون دکمهٔ اضافه — HUD دست‌نخورده) و رادیو/تعویض ایستگاه در تنظیمات است
+- درس: در هدلس، تست رویدادهای صوتی باید یا مسیر پروداکشن را مستقیم صدا بزند یا گیت‌ها را با sleep عبور کند — وگرنه false-negative می‌گیرد
