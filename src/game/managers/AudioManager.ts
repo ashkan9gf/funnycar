@@ -816,7 +816,7 @@ export class AudioManager {
   private radioOn = false;
   private radioStation: 1 | 2 = 1;
 
-  /** شروع رادیو — لوپ با زمان‌بند WebAudio؛ ایستگاه ۱ شاد پاپ، ایستگاه ۲ سنتیِ ۶/۸ */
+  /** شروع رادیو — لوپ با زمان‌بند WebAudio؛ ایستگاه ۱ «قدیمی» (پلی‌لیست ایرانی v0.2.50)، ایستگاه ۲ سنتیِ ۶/۸ */
   radioStart(station?: 1 | 2): void {
     if (!this.ctx || !this.gains) return;
     if (station && station !== this.radioStation && this.radioOn) {
@@ -828,12 +828,18 @@ export class AudioManager {
     if (this.radioOn) return;
     this.radioOn = true;
     this.radioStep = 0;
+    this.radioPiece = 0;
+    this.radioPieceStart = 0;
     this.radioNextT = this.now() + 0.1;
-    const stepSec = this.radioStation === 1 ? 0.19 : 0.155;
+    if (this.radioStation === 1) this.startCrackle();
     const tick = (): void => {
       if (!this.radioOn || !this.ctx) return;
       const ahead = this.now() + 0.55;
       while (this.radioNextT < ahead) {
+        // 🔑 v0.2.50 — گام زمانی به‌ازای هر قطعه از پلی‌لیست ایستگاه قدیمی
+        const stepSec = this.radioStation === 1
+          ? AudioManager.S1_PIECES[this.radioPiece]?.stepSec ?? 0.19
+          : 0.155;
         this.radioNote(this.radioStep, this.radioNextT);
         this.radioStep++;
         this.radioNextT += stepSec;
@@ -863,10 +869,16 @@ export class AudioManager {
       window.clearTimeout(this.radioTimer);
       this.radioTimer = null;
     }
+    this.stopCrackle(); // 🔑 v0.2.50 — هوم گرامافون هم با خاموشی رادیو قطع شود
   }
 
   get radioPlaying(): boolean {
     return this.radioOn;
+  }
+
+  /** 🔑 v0.2.50 — وضعیت رادیو برای QA/E2E */
+  get radioDebug(): { on: boolean; station: 1 | 2; piece: number; step: number } {
+    return { on: this.radioOn, station: this.radioStation, piece: this.radioPiece, step: this.radioStep };
   }
 
   /** یک نُت رادیو در زمان t — 🔑 v0.2.49: بسته به ایستگاه، دو سبک متفاوت */
@@ -910,47 +922,326 @@ export class AudioManager {
     src.start(t);
   }
 
-  /** 🔑 v0.2.49 — ایستگاه ۱: «رادیو شاد» — همان الگوی محور اِمینور پاپ (آرپژ پلاکی) */
-  private radioNote1(step: number, t: number): void {
-    const s = step % 64; // ۴ میزان × ۱۶ شانزدهم
-    const bar = Math.floor(s / 16);
-    // پیش‌روی آکورد: Am - F - C - G
-    const roots = [220.0, 174.6, 130.8, 196.0];
-    const root = roots[bar];
-    // باس — روی ۴م و ۱۲م شانزدهم
-    if (s % 8 === 0 || s % 16 === 11) {
-      const o = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      o.type = 'triangle';
-      o.frequency.value = root / 2;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.085, t + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
-      o.connect(g); g.connect(this.gains!.music);
-      o.start(t); o.stop(t + 0.2);
+  // ==================== 🔑 v0.2.50 — ایستگاه ۱: «رادیو قدیمی» ====================
+  // پلی‌لیست موزیک‌های قدیمی ایرانی به سبک برنامهٔ «گل‌ها»: سه قطعهٔ سازبندی‌شده
+  // که پشت‌سرهم پخش می‌شوند و بین‌شان خش‌خش «تعویض نوار» می‌آید. نُت‌های ملودیک از
+  // فیلتر رادیوی قدیمی (باند AM + اشباع نرم) رد می‌شوند + هوم گرامافون کهنه.
+  private static readonly S1_PIECES = [
+    { steps: 128, loops: 2, stepSec: 0.205 }, // ۱) پیش‌درآمد شور — ۸ میزان ۴/۴ × ۲ دور
+    { steps: 96, loops: 2, stepSec: 0.165 }, // ۲) تصنیف قدیمی ۳/۴ — ۸ میزان × ۲ دور
+    { steps: 96, loops: 2, stepSec: 0.145 }, // ۳) رنگ شاد ۶/۸ ماهور — ۸ میزان × ۲ دور
+  ];
+  private radioPiece = 0;
+  private radioPieceStart = 0;
+  private oldieIn: GainNode | null = null;
+  private oldieCtx: AudioContext | null = null;
+  private oldieCrackle: AudioBufferSourceNode | null = null;
+  private oldieCrackleGain: GainNode | null = null;
+
+  /** باس «رادیوی قدیمی»: های‌پس ۳۴۰ + لوپس ۳۱۰۰ + اشباع تانهاست — رنگ‌ورودی رادیو/گرامافون کهنه */
+  private ensureOldieBus(): GainNode | null {
+    if (!this.ctx || !this.gains) return null;
+    if (this.oldieIn && this.oldieCtx === this.ctx) return this.oldieIn;
+    try {
+      const input = this.ctx.createGain();
+      input.gain.value = 1.3; // جبران باند محدود
+      const hp = this.ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 340;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 3100;
+      lp.Q.value = 0.4;
+      const shaper = this.ctx.createWaveShaper();
+      const curve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) {
+        const x = (i / 255) * 2 - 1;
+        curve[i] = Math.tanh(1.5 * x);
+      }
+      shaper.curve = curve;
+      input.connect(hp);
+      hp.connect(lp);
+      lp.connect(shaper);
+      shaper.connect(this.gains.music);
+      this.oldieIn = input;
+      this.oldieCtx = this.ctx;
+      return input;
+    } catch {
+      return null;
     }
-    // ملودی پلاکی — آرپژ پنتاتونیک
-    const mel = [0, 7, 12, 7, 3, 7, 10, 7, 0, 7, 12, 15, 12, 7, 3, 0];
-    if (s % 2 === 0) {
-      const semi = mel[(s / 2) % 16];
-      const freq = root * Math.pow(2, semi / 12);
-      const o = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      o.type = 'square';
-      o.frequency.value = freq * 2;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.032, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
-      const f = this.ctx!.createBiquadFilter();
+  }
+
+  /** هوم گرامافون قدیمی: هیس ملایم + ترق‌وتروق پراکنده (لوپ ۳ ثانیه‌ای) */
+  private startCrackle(): void {
+    if (!this.ctx || !this.gains) return;
+    this.stopCrackle();
+    try {
+      const out = this.ensureOldieBus() ?? this.gains.music;
+      const sr = this.ctx.sampleRate;
+      const len = Math.floor(sr * 3);
+      const buf = this.ctx.createBuffer(1, len, sr);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.012;
+      for (let p = 0; p < 26; p++) {
+        const at = Math.floor(Math.random() * (len - 40));
+        const amp = 0.14 + Math.random() * 0.22;
+        for (let k = 0; k < 24; k++) d[at + k] += (Math.random() * 2 - 1) * amp * (1 - k / 24);
+      }
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const hp = this.ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 2600;
+      const g = this.ctx.createGain();
+      g.gain.value = 0.5;
+      src.connect(hp);
+      hp.connect(g);
+      g.connect(out);
+      src.start();
+      this.oldieCrackle = src;
+      this.oldieCrackleGain = g;
+    } catch { /* بی‌خطر */ }
+  }
+
+  private stopCrackle(): void {
+    try { this.oldieCrackle?.stop(); } catch { /* بی‌خطر */ }
+    try { this.oldieCrackleGain?.disconnect(); } catch { /* بی‌خطر */ }
+    this.oldieCrackle = null;
+    this.oldieCrackleGain = null;
+  }
+
+  /** خش‌خش زمان‌بندی‌شدهٔ «تعویض نوار / تنظیم ایستگاه» */
+  private staticAt(t: number, durSec = 0.4): void {
+    if (!this.ctx || !this.gains) return;
+    try {
+      const out = this.ensureOldieBus() ?? this.gains.music;
+      const len = Math.floor(this.ctx.sampleRate * durSec);
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.7;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 3200;
+      f.Q.value = 0.7;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.05, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + durSec);
+      src.connect(f);
+      f.connect(g);
+      g.connect(out);
+      src.start(t);
+    } catch { /* بی‌خطر */ }
+  }
+
+  /** نُت سنتور — دو زخمهٔ نزدیک‌هم (کوک خفیف متفاوت) با افت سریع */
+  private santurPluck(freq: number, t: number, amp = 0.03, dur = 0.45): void {
+    if (!this.ctx || !this.gains) return;
+    const out = this.ensureOldieBus() ?? this.gains.music;
+    for (const det of [1, 1.004]) {
+      try {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = freq * det;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(amp, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        const f = this.ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = 3600;
+        o.connect(f);
+        f.connect(g);
+        g.connect(out);
+        o.start(t);
+        o.stop(t + dur + 0.05);
+      } catch { /* بی‌خطر */ }
+    }
+  }
+
+  /** نُت ویولن/آواز — ارهٔ نرم فیلترشده با ویبروی خوانشی و حملهٔ آرام */
+  private violinNote(freq: number, t: number, durSec: number, amp = 0.045): void {
+    if (!this.ctx || !this.gains) return;
+    const out = this.ensureOldieBus() ?? this.gains.music;
+    try {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = freq;
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 5.4;
+      const lfoG = this.ctx.createGain();
+      lfoG.gain.value = freq * 0.008;
+      lfo.connect(lfoG);
+      lfoG.connect(o.frequency);
+      const f = this.ctx.createBiquadFilter();
       f.type = 'lowpass';
-      f.frequency.value = 2600;
-      o.connect(f); f.connect(g); g.connect(this.gains!.music);
-      o.start(t); o.stop(t + 0.15);
+      f.frequency.value = 2100;
+      f.Q.value = 0.8;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(amp, t + Math.min(0.12, durSec * 0.3));
+      g.gain.setValueAtTime(amp, t + durSec * 0.75);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + durSec);
+      o.connect(f);
+      f.connect(g);
+      g.connect(out);
+      o.start(t);
+      lfo.start(t);
+      o.stop(t + durSec + 0.05);
+      lfo.stop(t + durSec + 0.05);
+    } catch { /* بی‌خطر */ }
+  }
+
+  /** آکورد نرم کوبیده (چنگ) برای تصنیف ۳/۴ */
+  private chordStab(freqs: number[], t: number, amp = 0.017, dur = 0.18): void {
+    if (!this.ctx || !this.gains) return;
+    const out = this.ensureOldieBus() ?? this.gains.music;
+    for (const f0 of freqs) {
+      try {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = f0;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(amp, t + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g);
+        g.connect(out);
+        o.start(t);
+        o.stop(t + dur + 0.03);
+      } catch { /* بی‌خطر */ }
     }
-    // کیک — بیت‌های ۰/۸
-    if (s % 8 === 0) this.radioKick(t);
-    // هی‌هت — شانزدهم‌های زوج ضعیف
-    if (s % 4 === 2) this.radioTick(t, 6500, 0.045);
+  }
+
+  /** باس ملایم داخل باس قدیمی */
+  private oldieBass(freq: number, t: number, amp = 0.085, dur = 0.4): void {
+    if (!this.ctx || !this.gains) return;
+    const out = this.ensureOldieBus() ?? this.gains.music;
+    try {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(amp, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g);
+      g.connect(out);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    } catch { /* بی‌خطر */ }
+  }
+
+  /** 🔑 v0.2.50 — ایستگاه ۱: «رادیو قدیمی» — ریس پلی‌لیست + خش‌خش بین قطعه‌ها */
+  private radioNote1(step: number, t: number): void {
+    const idx = this.radioPiece % AudioManager.S1_PIECES.length;
+    const piece = AudioManager.S1_PIECES[idx];
+    const local = step - this.radioPieceStart;
+    const total = piece.steps * piece.loops;
+    if (local >= total) {
+      // پایان قطعه → قطعهٔ بعدی + خش‌خش تعویض نوار
+      this.radioPiece = (idx + 1) % AudioManager.S1_PIECES.length;
+      this.radioPieceStart = step;
+      this.staticAt(t, 0.5);
+      return;
+    }
+    const toEnd = total - local;
+    if (toEnd <= 3) {
+      if (toEnd === 3) this.staticAt(t, 3 * piece.stepSec);
+      return; // سکوت کوتاه پایان قطعه (حس تعویض نوار)
+    }
+    switch (idx) {
+      case 0:
+        this.oldiePrelude(local, t);
+        break;
+      case 1:
+        this.oldieTasnif(local, t);
+        break;
+      default:
+        this.oldieReng(local, t);
+        break;
+    }
+  }
+
+  /** قطعهٔ ۱ — «پیش‌درآمد شور»: ۴/۴ آرام، ویولن + سنتور (گام ره شور) */
+  private oldiePrelude(local: number, t: number): void {
+    const s = local % 128; // ۸ میزان × ۱۶ شانزدهم
+    const bar = Math.floor(s / 16);
+    const inBar = s % 16;
+    const D4 = 293.66;
+    // درجه‌ها نسبت به ره۴ (شور: ۰=ره، ۱=می‌بمل، ۳=فا، ۵=سل، ۶=لا♭، ۸=سی♭، ۱۰=دو) — فرود کلاسیک تا لا♭
+    const mel = [5, 3, 1, 0, 8, 6, 5, 3, 1, 0, -2, -4, -6, null, 0, null];
+    if (inBar === 0 || inBar === 8) {
+      const deg = mel[bar * 2 + (inBar === 0 ? 0 : 1)];
+      if (deg !== null) {
+        const freq = D4 * Math.pow(2, deg / 12);
+        this.violinNote(freq, t, 8 * 0.205 * 1.04, 0.05);
+        // سنتور: ترمولوی همان نت یک اکتاو بالاتر
+        for (let k = 0; k < 4; k++) this.santurPluck(freq * 2, t + k * 2 * 0.205, 0.015, 0.42);
+      }
+    }
+    if (inBar === 0) {
+      // درون‌مایهٔ ره + پنجمِ مشخص شور (لا♭) در نیمهٔ دوم
+      this.santurPluck(D4, t, 0.026, 1.3);
+      this.santurPluck(bar < 4 ? D4 * 2 : 415.3, t, 0.02, 1.3);
+      this.radioKick(t, 120, 0.05);
+    }
+    if (inBar === 8) this.radioTick(t, 1500, 0.024, 0.04);
+  }
+
+  /** قطعهٔ ۲ — «تصنیف قدیمی» ۳/۴: والس نوستالژی سُل مینور، ویولن + آکورد نرم */
+  private oldieTasnif(local: number, t: number): void {
+    const s = local % 96; // ۸ میزان × ۱۲
+    const bar = Math.floor(s / 12);
+    const inBar = s % 12;
+    const G4 = 392.0;
+    const roots = [98.0, 98.0, 130.81, 146.83, 98.0, 155.56, 146.83, 98.0];
+    const chords = [
+      [392.0, 466.16, 587.33], [392.0, 466.16, 587.33], [261.63, 311.13, 392.0], [293.66, 369.99, 440.0],
+      [392.0, 466.16, 587.33], [311.13, 392.0, 466.16], [293.66, 369.99, 440.0], [392.0, 466.16, 587.33],
+    ];
+    if (inBar === 0) {
+      this.oldieBass(roots[bar], t, 0.09, 0.55);
+      this.radioKick(t, 115, 0.055);
+    }
+    if (inBar === 4 || inBar === 8) {
+      this.chordStab(chords[bar], t, 0.017, 0.18);
+      this.radioTick(t, 5800, 0.026, 0.03); // چنگ
+    }
+    // ملودی — هر کواترنوت (۳ شانزدهم) یک نت
+    const mel = [0, 3, 5, 7, 12, 7, 7, null, 8, 7, 5, 3, 5, 11, 7, null, 7, 5, 3, 0, 3, 5, 8, 7, 10, 11, 12, 7, 7, null, null, null];
+    if (inBar % 3 === 0) {
+      const deg = mel[bar * 4 + inBar / 3];
+      if (deg !== null) this.violinNote(G4 * Math.pow(2, deg / 12), t, 3 * 0.165 * 1.05, 0.042);
+    }
+  }
+
+  /** قطعهٔ ۳ — «رنگ شاد» ۶/۸: دویدن‌های سنتور در ماهور + تنبک */
+  private oldieReng(local: number, t: number): void {
+    const s = local % 96; // ۸ میزان × ۱۲
+    const bar = Math.floor(s / 12);
+    const inBar = s % 12;
+    const C5 = 523.25;
+    const roots = [130.81, 130.81, 174.61, 196.0, 130.81, 220.0, 196.0, 130.81];
+    if (inBar === 0 || inBar === 6) this.oldieBass(roots[bar], t, 0.085, 0.3);
+    if (inBar === 0) this.radioKick(t, 135, 0.09);
+    if (inBar === 3 || inBar === 6 || inBar === 9) this.radioTick(t, 1450, 0.05, 0.045);
+    if (inBar === 11) this.radioTick(t, 1650, 0.03, 0.026);
+    // دونوازی سنتور — شانزدهم‌های ماهور (null = نفس)
+    const mel = [
+      7, 9, 11, 12, 11, 9, 7, 5, 4, 5, 7, null,
+      4, 5, 7, 9, 7, 5, 4, 2, 0, 2, 4, null,
+      9, 7, 5, 4, 5, 7, 9, 11, 12, 11, 9, null,
+      12, 11, 9, 7, 9, 7, 5, 4, 5, 7, 9, null,
+      0, 2, 4, 5, 7, 5, 4, 2, 0, -1, 0, null,
+      9, 7, 4, 2, 0, -1, 0, null, 4, 2, 0, null,
+      2, 4, 7, 9, 7, 4, 2, 0, -1, 0, 2, null,
+      0, null, 7, null, 0, null, 12, null, 0, null, 4, null,
+    ];
+    const deg = mel[s];
+    if (deg !== null) this.santurPluck(C5 * Math.pow(2, deg / 12), t, 0.026, 0.32);
   }
 
   /** 🔑 v0.2.49 — ایستگاه ۲: «رادیو گل‌ها» — ریتم ۶/۸ ایرانی، گام هارمونیک، نِی‌وار */

@@ -764,6 +764,11 @@ export class GameManager {
     return speech.debugState();
   }
 
+  /** 🔑 v0.2.50 — وضعیت رادیو برای QA (window.__funnycar.radioDebug) */
+  get radioDebug(): { on: boolean; station: 1 | 2; piece: number; step: number } {
+    return this.audio.radioDebug;
+  }
+
   /** 🔑 v0.2.43 — تنظیمات کنترل لمسی (اندازه/شفافیت/چپ‌دست/ویبره) — clamp و ذخیره */
   setUiPrefs(p: Partial<Pick<GameSettings, 'controlsScale' | 'controlsOpacity' | 'leftHanded' | 'vibration' | 'controlMode' | 'radio' | 'radioStation'>>): void {
     this.save.mutate((d) => {

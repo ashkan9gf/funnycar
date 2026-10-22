@@ -287,14 +287,14 @@ function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
         <ToggleRow
           label="رادیو ماشین"
           icon={<Music className="h-5 w-5" />}
-          hint="آهنگ شاد پشت‌زمینه حین رانندگی — صدا از اسلایدر «موسیقی»"
+          hint="موزیک قدیمی ایرانی حین رانندگی — صدا از اسلایدر «موسیقی»"
           value={ui.radio}
           onChange={(v) => onChangeUi({ radio: v })}
         />
         {ui.radio && (
           <div className="mt-2 grid grid-cols-2 gap-1.5">
             {([
-              { key: 1 as const, label: "ایستگاه ۱ — شاد پاپ", hint: "آهنگ پلاکی زنده" },
+              { key: 1 as const, label: "ایستگاه ۱ — قدیمی", hint: "کلاسیک ایرانی: سنتور و ویولن" },
               { key: 2 as const, label: "ایستگاه ۲ — سنتی ۶/۸", hint: "تنبک و نِی" },
             ]).map((st) => (
               <button
@@ -918,6 +918,31 @@ export default function GameShell() {
 
   // ---------- 🔑 v0.2.45 — مود ژیروسکوپ: کج‌کردن گوشی = فرمان آنالوگ ----------
   const tiltCenterRef = useRef<number | null>(null);
+  // 🔑 v0.2.50 — راهنمای ژیروسکوپ خودش محو می‌شود (۷ ثانیه / اولین پیچ / لمس) — بعدش فقط آیکن ریز «ثبت مرکز»
+  // نکته: بدون گارد «یک‌بار» — هر ری-ران اثر در حالت (tilt && playing) تایمرها را از نو می‌چیند
+  // تا اگر رندر/ترنزیشنی بین تایمرها رخ داد، راهنما گیر نکند (خودترمیم).
+  const [tiltHintOpen, setTiltHintOpen] = useState(true);
+  const tiltHintTimersRef = useRef<number[]>([]);
+  const dismissTiltHint = useCallback(() => {
+    setTiltHintOpen(false);
+    for (const id of tiltHintTimersRef.current) window.clearTimeout(id);
+    tiltHintTimersRef.current = [];
+  }, []);
+  useEffect(() => {
+    if (ui.controlMode !== "tilt") {
+      const hide = window.setTimeout(() => setTiltHintOpen(false), 0);
+      tiltHintTimersRef.current = [hide];
+      return () => window.clearTimeout(hide);
+    }
+    if (phase !== "playing") return;
+    const show = window.setTimeout(() => setTiltHintOpen(true), 120);
+    const hide = window.setTimeout(() => setTiltHintOpen(false), 7120);
+    tiltHintTimersRef.current = [show, hide];
+    return () => {
+      window.clearTimeout(show);
+      window.clearTimeout(hide);
+    };
+  }, [phase, ui.controlMode]);
   useEffect(() => {
     if (phase !== "playing" || ui.controlMode !== "tilt") {
       gameRef.current?.setVirtualSteerAnalog(null);
@@ -935,7 +960,10 @@ export default function GameShell() {
       if (tiltCenterRef.current === null) tiltCenterRef.current = tilt;
       const steer = Math.max(-1, Math.min(1, (tilt - tiltCenterRef.current) / 22));
       gameRef.current?.setVirtualSteerAnalog(steer);
-      if (Math.abs(steer) > 0.35) advanceTutorial(1); // آموزش قدم ۲ در مود ژیروسکوپ
+      if (Math.abs(steer) > 0.35) {
+        advanceTutorial(1); // آموزش قدم ۲ در مود ژیروسکوپ
+        dismissTiltHint(); // 🔑 v0.2.50 — اولین پیچ = راهنما تمام
+      }
     };
     let granted = true;
     type OrientPerm = { requestPermission?: () => Promise<string> };
@@ -953,7 +981,7 @@ export default function GameShell() {
       window.removeEventListener("deviceorientation", onOrient);
       gameRef.current?.setVirtualSteerAnalog(null);
     };
-  }, [phase, ui.controlMode, advanceTutorial]);
+  }, [phase, ui.controlMode, advanceTutorial, dismissTiltHint]);
 
   // ---------- فرمان ترکیبی (چپ+راست هم‌زمان = مستقیم) ----------
   const applySteer = useCallback(() => {
@@ -1979,7 +2007,10 @@ export default function GameShell() {
                     <HoldButton
                       ariaLabel="گاز"
                       onHold={(d) => {
-                        if (d) advanceTutorial(0);
+                        if (d) {
+                          advanceTutorial(0);
+                          dismissTiltHint(); // 🔑 v0.2.50 — راه افتاد، راهنما بره
+                        }
                         gameRef.current?.setVirtualGas(d);
                       }}
                       className={`pointer-events-auto absolute flex items-center justify-center rounded-full bg-[#8AC926] text-[#3a2e2a] ${tutStep === 0 ? "fc-tut-target" : ""}`}
@@ -1995,16 +2026,28 @@ export default function GameShell() {
                     >
                       <Square style={{ width: brakeIcon, height: brakeIcon }} strokeWidth={2.8} />
                     </HoldButton>
-                    {/* راهنمای ژیروسکوپ + ثبت دوبارهٔ مرکز */}
-                    <button
-                      type="button"
-                      className="fc-btn pointer-events-auto absolute left-1/2 -translate-x-1/2 rounded-full bg-[#3a2e2a]/80 px-3.5 py-1.5 text-[10px] font-extrabold text-white"
-                      style={{ bottom: `calc(${bottom} + ${gasPx + 18}px)` }}
-                      onClick={() => { tiltCenterRef.current = null; }}
-                    >
-                      <Smartphone className="mr-1 inline h-3.5 w-3.5" />
-                      گوشی رو کج کن تا بپیچی — لمس: ثبت مرکز
-                    </button>
+                    {/* راهنمای ژیروسکوپ — 🔑 v0.2.50: خودش محو می‌شود؛ بعدش فقط آیکن ریز ثبت مرکز */}
+                    {tiltHintOpen ? (
+                      <button
+                        type="button"
+                        className="fc-btn pointer-events-auto absolute left-1/2 -translate-x-1/2 rounded-full bg-[#3a2e2a]/80 px-3.5 py-1.5 text-[10px] font-extrabold text-white"
+                        style={{ bottom: `calc(${bottom} + ${gasPx + 18}px)` }}
+                        onClick={() => { tiltCenterRef.current = null; dismissTiltHint(); }}
+                      >
+                        <Smartphone className="mr-1 inline h-3.5 w-3.5" />
+                        گوشی رو کج کن تا بپیچی — لمس: ثبت مرکز
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label="ثبت دوبارهٔ مرکز ژیروسکوپ"
+                        className="fc-btn pointer-events-auto absolute left-1/2 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-full bg-[#3a2e2a]/50 text-white opacity-70"
+                        style={{ bottom: `calc(${bottom} + ${gasPx + 18}px)` }}
+                        onClick={() => { tiltCenterRef.current = null; }}
+                      >
+                        <Smartphone className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </>
                 );
               }
