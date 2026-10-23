@@ -7,10 +7,17 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { assembleCarFromGLB } from '../src/game/render3d/GlbModels';
-import { spinWheels } from '../src/game/render3d/CarFactory3D';
+import { spinWheels, type CarVariant } from '../src/game/render3d/CarFactory3D';
 
 const params = new URLSearchParams(location.search);
-const car = params.get('car') || 'police';
+const requestedCar = params.get('car') || 'police';
+const CAR_VARIANTS: readonly CarVariant[] = [
+  'player', 'pride', 'peugeot405', 'samand', 'nissan', 'tiba', 'taxi', 'police',
+  'renault4', 'vintage', 'challenger',
+];
+const car: CarVariant = CAR_VARIANTS.includes(requestedCar as CarVariant)
+  ? (requestedCar as CarVariant)
+  : 'police';
 const spins = params.get('spins') === '1';
 const buf = await fetch(`/assets/models/vehicles/${car}.glb`).then((r) => r.arrayBuffer());
 

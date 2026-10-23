@@ -26,9 +26,9 @@ async function main() {
       const d = parseFloat(execSync(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${p}`).toString().trim());
       const cps = (t.text.length / d).toFixed(1);
       console.log(`${t.name}: ${d.toFixed(2)}s | ${cps} chars/s | ${t.text.length} chars`);
-    } catch (e) {
-      console.log(`${t.name}: ERROR ${e.message}`);
+    } catch (e: unknown) {
+      console.log(`${t.name}: ERROR ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e: unknown) => { console.error(e); process.exit(1); });

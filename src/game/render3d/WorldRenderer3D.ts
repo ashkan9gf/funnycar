@@ -780,25 +780,27 @@ export class WorldRenderer3D {
     const roadSurface = new THREE.MeshStandardMaterial({
       map: roadTex,
       normalMap: roadMicroMaps.normalMap,
-      normalScale: new THREE.Vector2(0.18, 0.18),
+      normalScale: new THREE.Vector2(0.23, 0.23),
       roughnessMap: roadMicroMaps.roughnessMap,
-      roughness: 0.94, metalness: 0.015, envMapIntensity: 0.22,
+      // Slightly broader grazing highlights reveal asphalt grain without making
+      // the road look wet or mirror-like.
+      roughness: 0.86, metalness: 0.01, envMapIntensity: 0.28,
     });
     const crossSurface = new THREE.MeshStandardMaterial({
       map: crossTex,
       normalMap: roadMicroMaps.normalMap,
-      normalScale: new THREE.Vector2(0.16, 0.16),
+      normalScale: new THREE.Vector2(0.19, 0.19),
       roughnessMap: roadMicroMaps.roughnessMap,
-      roughness: 0.92, metalness: 0.01, envMapIntensity: 0.2,
+      roughness: 0.88, metalness: 0.01, envMapIntensity: 0.24,
     });
     const sidewalkSurface = new THREE.MeshStandardMaterial({
       map: sidewalkTex,
       // Fine surface relief helps concrete slabs read as material, not flat color.
       // Reuse the cached tileable micro maps to avoid extra textures or per-frame work.
       normalMap: roadMicroMaps.normalMap,
-      normalScale: new THREE.Vector2(0.075, 0.075),
+      normalScale: new THREE.Vector2(0.065, 0.065),
       roughnessMap: roadMicroMaps.roughnessMap,
-      roughness: 0.91, metalness: 0.0, envMapIntensity: 0.14,
+      roughness: 0.89, metalness: 0.0, envMapIntensity: 0.16,
     });
     const grassSurface = new THREE.MeshStandardMaterial({
       map: grassTex, roughness: 1.0, metalness: 0.0, envMapIntensity: 0.04,
@@ -2543,7 +2545,7 @@ export class WorldRenderer3D {
       glow.color.copy(SUN_NIGHT).lerp(SUN_DAY, easedDay).lerp(SUN_DUSK, dusk * 0.55);
     }
 
-    this.scene.environmentIntensity = 0.48 + easedDay * 0.34;
+    this.scene.environmentIntensity = 0.5 + easedDay * 0.4;
     this.r3.toneMappingExposure = 0.82 + easedDay * 0.38;
 
     // 🔑 v0.2.49 — تاریِ باران روی همهٔ نورها (بعد از محاسبات شب/روز)

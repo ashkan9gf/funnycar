@@ -122,7 +122,8 @@ let roadRoughnessTex: THREE.CanvasTexture | null = null;
 
 function buildRoadMicroMaps(): void {
   if (roadNormalTex && roadRoughnessTex) return;
-  const size = 256;
+  // Higher-frequency, tileable micro detail for close-up road highlights; two 384² maps remain inexpensive on mobile.
+  const size = 384;
   const { c: normalCanvas, ctx: normalCtx } = makeCanvas(size, size);
   const normalImage = normalCtx.createImageData(size, size);
   const { c: roughCanvas, ctx: roughCtx } = makeCanvas(size, size);
