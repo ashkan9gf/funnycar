@@ -7,8 +7,8 @@ async function main() {
   try {
     const res = await (zai as any).audio.asr.create({ file_base64: b64 });
     console.log('ASR RESULT:', JSON.stringify(res));
-  } catch (e) {
-    console.log('ASR ERROR:', e.message);
+  } catch (e: unknown) {
+    console.log('ASR ERROR:', e instanceof Error ? e.message : String(e));
   }
 }
 main();
