@@ -1399,3 +1399,22 @@ Work Log:
 Stage Summary:
 - کلید روی V3 معتبر است؛ همه‌چیز آماده — بلوکر همان اعتبار صفر است
 - پس از شارژ: python3 scripts/tripo_gen.py player (TRIPO_KEY در env) → GLB در download/tripo/
+
+---
+Task ID: 69
+Agent: main
+Task: مسیر رایگان ساخت GLB — Hugging Face Spaces (TRELLIS.2 / Hunyuan3D)
+
+Work Log:
+- کاربر در ایران است و به‌دلیل تحریم نمی‌تواند Tripo را شارژ کند → مسیر پرداخت حذف شد
+- جایگزین رایگان: Hugging Face Spaces — دسترسی سرور به HF تأیید (200)، gradio_client 2.0.3 نصب
+- عکس مرجع خودروی بازیکن با z-ai image ساخته شد: download/tripo/player_ref.png (سدان سفید ۳/۴، پس‌زمینهٔ روشن، 1344x768)
+- APIها نگاشت شد: TRELLIS.2 (/start_session→/preprocess_image→/image_to_3d→/extract_glb decim+tex) و Hunyuan3D-2.1 (/generation_all image,steps,guidance,seed,octree,rembg → GLB تکسچردار)
+- اجرای TRELLIS.2 → «ZeroGPU runs limit exceeded» برای ناشناس؛ اجرای Hunyuan3D-2.1 → SSE CancelledError (همان محدودیت)
+- اسکن گستردهٔ Spaceها: تمام Spaceهای تولید ۳بعدی فعال روی zero-a10g هستند — هیچ سخت‌افزار اختصاصیِ بدون محدودیت برای ناشناس نیست
+- هر دو اسکریپت به HF_TOKEN مجهز شدند (env) — با توکن رایگان حساب، سهمیهٔ روزانهٔ ZeroGPU فعال می‌شود
+
+Stage Summary:
+- پایپ‌لاین کامل رایگان آماده است: image-gen → TRELLIS.2/Hunyuan3D → GLB (scripts/hf3d_gen.py و hf3d_hunyuan.py)
+- تنها بلوکر: توکن رایگان Hugging Face (ثبت‌نام رایگان، بدون کارت؛ شاید نیاز به VPN برای ثبت‌نام از ایران)
+- پس از دریافت HF_TOKEN: HF_TOKEN=... python3 scripts/hf3d_hunyuan.py → GLB → ادغام GlbLibrary → v0.2.52
