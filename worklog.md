@@ -1347,3 +1347,22 @@ Stage Summary:
 - لینک: https://uploadkon.ir/uploads/95d124_26FunnyCarIR-v0-2-51-test.zip (HEAD 200)
 - فیگور مستقل هم قابل مشاهده است: public/assets/iso/funnycar-lift.html
 - درس: سری‌سازی توابع به صفحهٔ زنده باید «const name = fn.toString()» برای arrowها باشد و ثابت‌های ماژول-خصوصی هم ضمیمه شوند؛ قبل از اطمینان به «شکست تعامل»، یک هندل دیباگ window.__fc بگذار
+
+---
+Task ID: 66
+Agent: main
+Task: جستجوی اسکیل تولید مدل سه‌بعدی GLB برای Three.js («نه مدل سه‌بعدی GLB برای موتور Three.js بازی - اسکیلی هست برای این؟»)
+
+Work Log:
+- clawhub search «3d model glb» / «three.js 3d mesh» / «gltf glb generator game asset» / «meshy tripo hunyuan»
+- inspect کاندیدها: get-3d-model (فقط مرور مارکت‌پلیس 773 LABS)، 3d-model-generator (Meshy — راهنمای دستی UI وب به فرانسه، خروجی STL/OBJ)، image-to-3d-model (STL مهندسی)، blender-3d-modeling (Blender ابری AgentPMT برای تبدیل/رندر)
+- نصب و مطالعهٔ کامل 3d-model-generation-cellcog v1.0.15 (skills/3d-model-generation-cellcog): Text-to-3D/Image-to-3D → GLB آمادهٔ بازی (Three.js صریحاً ذکر شده)، batch generation، PBR، وسایل نقلیه در لیست؛ نیازمندی: python3 + pip install cellcog + CELLCOG_API_KEY از cellcog.ai/profile?tab=api-keys (ثبت‌نام رایگان بدون کارت، مصرفی از ۸ دلار/ماه)
+- بررسی anatomy-src تأیید کرد: anatomy فقط SVG ایزومتریک می‌سازد، GLB ندارد
+- محیط: blender نصب نیست، GPU نیست (nvidia-smi ندارد) → اجرای محلی مدل‌های باز Hunyuan3D/TRELLIS ممکن نیست
+- WebSearch: CellCog (رایگان برای شروع، بدون کارت اعتباری)، Tripo (اعتبار رایگان ثبت‌نام، API GLB/FBX/OBJ برای بازی، Smart Mesh تا 25K polygon)، Meshy (۱۰۰ اعتبار رایگان ماهانه)، Hyper3D Rodin (تولید رایگان، پرداخت موقع دانلود)
+
+Stage Summary:
+- تنها اسکیل واقعیِ «متن/تصویر → GLB آمادهٔ بازی» در ClawHub: 3d-model-generation-cellcog — بلوکه‌روی CELLCOG_API_KEY که کاربر باید بسازد
+- گزینهٔ بدون اسکیل: اسکریپت مستقیم Tripo API (اعتبار رایگان) یا Meshy API (۱۰۰ credit/ماه)
+- مسیر بدون کلید (کم‌کیفیت/کند): اتوماسیون HF Spaces با agent-browser
+- تصمیم نهایی و کلید API با کاربر است؛ پس از دریافت کلید، مسیر: تولید GLB خودرو اول → بهینه‌سازی → GlbLibrary → E2E → v0.2.52

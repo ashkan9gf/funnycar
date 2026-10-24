@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "3d-model-generation-cellcog": {
+      "version": "1.0.15",
+      "installedAt": 1792880536229,
+      "ownerHandle": "cellcog"
+    },
+    "3d-model-generator": {
+      "version": "1.0.0",
+      "installedAt": 1792880749107,
+      "ownerHandle": "rioo-maker"
+    }
+  }
+}
