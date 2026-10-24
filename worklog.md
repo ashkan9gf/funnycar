@@ -1383,3 +1383,19 @@ Work Log:
 Stage Summary:
 - تمام زیرساخت سمت ما آماده است؛ تنها بلوکر: اعتبار صفر حساب Tripo
 - گزینه‌های کاربر: شارژ platform.tripo3d.ai ($10=1000 اعتبار ≈ ۵۰ مدل)، فرم رایگان Game Hub (۵۰۰۰ اعتبار، ۲ روز کاری)، استودیو وب رایگان (۲۰۰ اعتبار/ماه، ۱۳ مدل)، یا Meshy (۱۰۰ اعتبار/ماه)
+
+---
+Task ID: 68
+Agent: main
+Task: بررسی داکیومنت جدید developers.tripo3d.ai (V3) و ارتقای اسکریپت
+
+Work Log:
+- کاربر لینک داکیومنت جدید داد: developers.tripo3d.ai/en/docs/quick-start — داکیومنت رسمی API V3
+- V3: base = https://openapi.tripo3d.ai/v3؛ POST /generation/text-to-model ({"prompt","model":"v3.1-20260211"})؛ GET /tasks/{task_id}؛ image-to-model؛ rig-check/rig/retarget؛ احراز همان Bearer
+- تست با کلید کاربر روی V3: create → همان خطای 2010 «not enough credit»؛ balance واقعی روی GET /account/balance → {"balance":0.00,"frozen":0.00}
+- pricing صفحه 404 است؛ اعتبار رایگان API در داکیومنت V3 ذکر نشده؛ نمونهٔ workflow گیم‌ردی ~165 اعتبار
+- scripts/tripo_gen.py به V3 ارتقا یافت (account/balance، generation/text-to-model با fallback بدون negative_prompt، poll /tasks/{id}، دانلود pbr_model|model) — dry-run موفق: «balance: 0.0 → ERROR zero credit»
+
+Stage Summary:
+- کلید روی V3 معتبر است؛ همه‌چیز آماده — بلوکر همان اعتبار صفر است
+- پس از شارژ: python3 scripts/tripo_gen.py player (TRIPO_KEY در env) → GLB در download/tripo/
