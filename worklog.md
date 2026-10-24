@@ -1366,3 +1366,20 @@ Stage Summary:
 - گزینهٔ بدون اسکیل: اسکریپت مستقیم Tripo API (اعتبار رایگان) یا Meshy API (۱۰۰ credit/ماه)
 - مسیر بدون کلید (کم‌کیفیت/کند): اتوماسیون HF Spaces با agent-browser
 - تصمیم نهایی و کلید API با کاربر است؛ پس از دریافت کلید، مسیر: تولید GLB خودرو اول → بهینه‌سازی → GlbLibrary → E2E → v0.2.52
+
+---
+Task ID: 67
+Agent: main
+Task: تست کلید Tripo کاربر و آماده‌سازی تولید GLB
+
+Work Log:
+- کلید tsk_... کاربر تست شد: /v2/openapi/user/balance → code 0 ولی balance=0
+- POST /task → خطای 2010 «You don't have enough credit» — ساخت تسک با اعتبار صفر ممکن نیست
+- V3 endpoint هنوز 404 است (v3/openapi، v3/task و چند حدس دیگر) — docs هنوز V2 را نشان می‌دهند؛ V2 تا 2026-11-01 کار می‌کند
+- endpointهای user/stats|info|wallet|pricing|tasks وجود ندارند (9404) — فقط balance و task
+- خط لولهٔ بازی تایید شد: CarVariant = player|pride|peugeot405|samand|nissan|tiba|taxi|police|renault4|vintage|challenger — فایل‌ها public/assets/models/vehicles/{variant}.glb + _lod1.glb؛ assembleCarFromGLB مسیر external با فیلتر هندسی چرخ آماده است
+- اسکریپت scripts/tripo_gen.py نوشته شد: balance-check → POST text_to_model (پرامپت بهینه player/pride + negative_prompt) → poll هر 10s → دانلود pbr_model GLB به download/tripo/{name}.glb
+
+Stage Summary:
+- تمام زیرساخت سمت ما آماده است؛ تنها بلوکر: اعتبار صفر حساب Tripo
+- گزینه‌های کاربر: شارژ platform.tripo3d.ai ($10=1000 اعتبار ≈ ۵۰ مدل)، فرم رایگان Game Hub (۵۰۰۰ اعتبار، ۲ روز کاری)، استودیو وب رایگان (۲۰۰ اعتبار/ماه، ۱۳ مدل)، یا Meshy (۱۰۰ اعتبار/ماه)
