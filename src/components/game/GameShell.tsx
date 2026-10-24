@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Anchor,
   ArrowUp,
@@ -198,6 +199,7 @@ function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
   onClose?: () => void;
 }) {
   const [s, setS] = useState<Settings>(game.getSettings());
+  const [showAnatomy, setShowAnatomy] = useState(false);
   const rows: Array<{ key: 'music' | 'sfx' | 'voice'; label: string; icon: React.ReactNode }> = [
     { key: "music", label: "موسیقی", icon: <Music className="h-5 w-5" /> },
     { key: "sfx", label: "افکت‌ها", icon: <Volume2 className="h-5 w-5" /> },
@@ -364,6 +366,45 @@ function SettingsPanel({ game, ui, onChangeUi, onReplayTutorial, onClose }: {
             hint="با لمس دکمه‌ها تیک ملایم می‌کشه"
           />
         </div>
+        {/* ---------- 🔑 v0.2.51 — آناتومی فانی‌کار (فیگور ایزومتریک بالانسر قیچی) ---------- */}
+        <div className="rounded-2xl bg-[#FFF3D6] p-3">
+          <p className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-[#3a2e2a]">
+            <FlaskConical className="h-4 w-4" />
+            آناتومی فانی‌کار — شاسی روی بالانسر قیچی
+          </p>
+          <button
+            type="button"
+            aria-label="دیدن آناتومی فانی‌کار"
+            className="fc-btn w-full rounded-xl bg-[#8AC926] py-2.5 text-sm font-extrabold text-[#3a2e2a]"
+            onClick={() => setShowAnatomy(true)}
+          >
+            🔧 بازکردن نقشهٔ فنی تعمیرگاه
+          </button>
+          <p className="mt-1.5 text-[10px] font-bold leading-4 text-[#3a2e2a]/55">
+            فیگور ایزومتریک تعاملی: موتور، فنرها و دیسک ترمز از نزدیک — انگشتت رو بکش تا بالانسر بالا و پایین بره.
+          </p>
+        </div>
+        {showAnatomy &&
+          createPortal(
+            <div className="fixed inset-0 z-[120] flex flex-col bg-[#0b0b0b]" role="dialog" aria-modal="true" aria-label="آناتومی فانی‌کار">
+              <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
+                <span className="truncate text-xs font-extrabold text-[#a3a3a3]">آناتومی فانی‌کار — شاسی و تعلیق روی بالانسر قیچی</span>
+                <TapButton
+                  ariaLabel="بستن آناتومی"
+                  className="h-9 w-9 shrink-0 bg-[#D64545] text-white"
+                  onTap={() => setShowAnatomy(false)}
+                >
+                  ✕
+                </TapButton>
+              </div>
+              <iframe
+                src="/assets/iso/funnycar-lift.html"
+                title="آناتومی فانی‌کار روی بالانسر قیچی"
+                className="min-h-0 w-full flex-1 border-0 bg-[#0b0b0b]"
+              />
+            </div>,
+            document.body,
+          )}
         {onReplayTutorial && (
           <button
             type="button"
