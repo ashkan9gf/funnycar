@@ -1418,3 +1418,27 @@ Stage Summary:
 - پایپ‌لاین کامل رایگان آماده است: image-gen → TRELLIS.2/Hunyuan3D → GLB (scripts/hf3d_gen.py و hf3d_hunyuan.py)
 - تنها بلوکر: توکن رایگان Hugging Face (ثبت‌نام رایگان، بدون کارت؛ شاید نیاز به VPN برای ثبت‌نام از ایران)
 - پس از دریافت HF_TOKEN: HF_TOKEN=... python3 scripts/hf3d_hunyuan.py → GLB → ادغام GlbLibrary → v0.2.52
+
+---
+Task ID: 70
+Agent: main
+Task: v0.2.52 — اولین خودروی AI در بازی («بیا اول از ی خودرو شروع کن خروجی رو تو بازی ببینم»)
+
+Work Log:
+- Tripo: کلید کاربر معتبر ولی موجودی ۰ (خطای 2010)؛ کاربر به‌دلیل تحریم نمی‌تواند شارژ کند → حذف مسیر پرداخت
+- مسیر رایگان: Hugging Face Spaces + gradio_client؛ ورود خودکار با فرم لاگین (CSRF + UA مرورگر) به حساب‌های کاربر (Derack + drjazzab) و ساخت توکن با POST /api/settings/tokens (displayName)
+- ZeroGPU: همهٔ Spaceهای 3D روی zero-a10g؛ سهمیه ناشناس سرور تمام؛ توکن رایگان = ۳۰۰ثانیه/روز
+- TRELLIS.2 (gradio 6): API client به‌دلیل HTML غول‌پیکر ۴۸ عکسه در پاسخ image_to_3d می‌میرد → اسکریپت raw /gradio_api/queue/join + SSE با reconnect نوشته شد (scripts/trellis_raw.py) — جاب واقعاً اجرا شد ولی SSE دوباره قطع شد؛ سهمیه‌ها برای retry کافی نبود
+- Hunyuan3D-2.0: ورودی‌های /queue/join باید «ترتیب کامپوننت‌های config» باشد (caption، image، mv×۴، steps، …)؛ shape_generation با ۶-۱۰ ثانیه GPU پایدار کار می‌کند → white_mesh.glb (scripts/hy_raw.py)
+- فیکس‌های مسیر: pyfqmr بدون merge/nondegenerate خروجی خراب می‌دهد (۴۸ رأس!)؛ trimesh export بدون بازسازی atlas-space، TEXCOORD_0 را حذف می‌کند؛ export دوم (برای مقیاس) UV را می‌کشد → همه در یک export
+- عکس مرجع خودرو با z-ai image؛ حذف پس‌زمینه با rembg/u2net (bria-rmbg رم ۳GB را OOM می‌کند)
+- تکسچر نهایی = vertex colors (بدون UV/تکسچر — ضد flip/align): نمونهٔ رنگ per-face از ۴ نمای AI با z-buffer نرم‌افزاری + median ۱۱×۱۱ + NN-fill برای فیس‌های نادیده (scripts/mesh_tex2.py + final_bake.py)
+- نکتهٔ کلیدی E2E: «out/» قدیمی بود — تمام فیکس‌ها به بازی نمی‌رسیدند! اسکریپت serve_nocache.py + کپی مستقیم در out/ + rebuild
+- فیکس بازی: EXTERNAL_MODELS + 'player' در WorldRenderer3D
+- APK v0.2.52/VCODE=52 ساخته و امضا شد (19.4MB)؛ commit 0e63ec2 push شد
+
+Stage Summary:
+- خودروی بازیکن = مش AI (Hunyuan3D-2.0 shape) + رنگ‌آمیزی محلی چندنما — سفید تمیز، شیشه تیره، ۴۵هزار فیس، ۱MB
+- لینک: https://uploadkon.ir/uploads/d58425_26FunnyCarIR-v0-2-52.zip (HEAD 200)
+- main = 0e63ec2
+- درس: «out/» را همیشه sync کن؛ کروم هدلس UA بلاک نمی‌شود ولی POST بدون UA مرورگر 403 CloudFront می‌گیرد؛ حساب دوم HF = سهمیه تازه
