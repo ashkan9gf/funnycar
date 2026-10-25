@@ -16,11 +16,12 @@ OUT = f"/home/z/my-project/download/tripo/{NAME}.glb"
 
 def main() -> int:
     from gradio_client import Client, handle_file
-    print("connecting tencent/Hunyuan3D-2.1 ...")
-    c = Client("tencent/Hunyuan3D-2.1", verbose=False, hf_token=HF_TOKEN)
+    print("connecting tencent/Hunyuan3D-2 ...")
+    c = Client("tencent/Hunyuan3D-2", hf_token=HF_TOKEN)
 
     t0 = time.time()
     res = c.predict(
+        None,               # caption (فقط اسپیس 2.0)
         handle_file(IMG),   # image
         None, None, None, None,  # mv_* تک‌دید کافی است
         STEPS,              # steps

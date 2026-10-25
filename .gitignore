@@ -65,3 +65,4 @@ server.log
 # android CI build outputs (Capacitor)
 /www
 /android
+.hf_token

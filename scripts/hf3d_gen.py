@@ -18,7 +18,7 @@ OUT = f"/home/z/my-project/download/tripo/{NAME}.glb"
 def main() -> int:
     from gradio_client import Client, handle_file
     print(f"connecting {SPACE} ...")
-    c = Client(SPACE, verbose=False, hf_token=HF_TOKEN)
+    c = Client(SPACE, verbose=False, token=HF_TOKEN)
 
     try:
         c.predict(api_name="/start_session")

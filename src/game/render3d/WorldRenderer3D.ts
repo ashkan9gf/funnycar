@@ -27,8 +27,9 @@ import { WORLD as WR, WORLD_SIZE, roadCenter, type WorldChunk } from '../world/W
 import { buildCar3D, variantFromAssetId, applyDamageVisual, detachBumper, spinWheels, steerWheels, type CarModel3D, type CarVariant } from './CarFactory3D';
 import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin, dequantizeGeoNew, mergeTemplateStatics } from './GlbModels';
 
-/** واریانت‌های با مدل خارجی کاربر — متریال GLB حفظ می‌شود (بدون پره مصنوعی) */
-const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage', 'challenger']);
+/** واریانت‌های با مدل خارجی کاربر — متریال GLB حفظ می‌شود (بدون پره مصنوعی)
+ *  v0.2.52: player هم اضافه شد — مدل AI ساخته‌شده با Hunyuan3D + تکسچر محلی */
+const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage', 'challenger', 'player']);
 import type { GuardCar } from '../managers/MissionManager';
 import { buildParkedGeometry, type VehicleVariant } from './vehicleGeometry';
 import type { TrafficLights } from '../world/TrafficLights';
