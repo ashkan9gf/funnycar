@@ -14,7 +14,7 @@ export interface PlayerVehicleDef {
 }
 
 export const PLAYER_VEHICLES: PlayerVehicleDef[] = [
-  { id: 'veh_player_01', name: 'پراید سفید', variant: 'player', price: 0, description: 'ماشین شروع؛ کم‌خرج و آشنا', flavor: 'با همین شروع کن، قهرمان کوچه‌ها!' },
+  { id: 'veh_player_01', name: 'پراید قرمز', variant: 'player', price: 0, description: 'ماشین شروع؛ کم‌خرج و آشنا', flavor: 'با همین شروع کن، قهرمان کوچه‌ها!' },
   { id: 'veh_pride_01', name: 'پراید اسپرت', variant: 'pride', price: 320, description: 'سبک و چابک برای کوچه‌های تنگ', flavor: 'فقط باهاش پز نده، هنوز پرایده!' },
   { id: 'veh_tiba_01', name: 'تیبا هاچ‌بک', variant: 'tiba', price: 520, description: 'جمع‌وجور با فرمان‌پذیری خوب', flavor: 'از دور شبیه ماشین مسابقه‌ست؛ از نزدیک هم تقریباً!' },
   { id: 'veh_405_01', name: 'پژو ۴۰۵', variant: 'peugeot405', price: 780, description: 'سدان کشیده برای مسیرهای طولانی', flavor: 'کولر روشن، غرغر مسافر خاموش!' },

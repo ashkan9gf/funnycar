@@ -1442,3 +1442,25 @@ Stage Summary:
 - لینک: https://uploadkon.ir/uploads/d58425_26FunnyCarIR-v0-2-52.zip (HEAD 200)
 - main = 0e63ec2
 - درس: «out/» را همیشه sync کن؛ کروم هدلس UA بلاک نمی‌شود ولی POST بدون UA مرورگر 403 CloudFront می‌گیرد؛ حساب دوم HF = سهمیه تازه
+
+---
+Task ID: 71
+Agent: main
+Task: فیدبک کاربر روی پراید AI — «ماشین رنگی نیست رنگشم بزن» + «اسم ماشینش به پراید نمیخوره» → v0.2.53
+
+Work Log:
+- توکن HF قبلی ذخیره نشده بود → لاگین مجدد فرم (CSRF-free POST /login + UA مرورگر) به ashkanam9gf/#Ashkan6108 (Derack) → توکن write با POST /api/settings/tokens {"displayName"} → ذخیره در .hf_token (gitignore شده)
+- عکس مرجع جدید با z-ai image: پراید سایپای واقعی (هاچ‌بک جعبه‌ای با لوگوی سایپا!) قرمز براق ۳/۴ → rembg/u2net → hy_raw.py: مش سفید در ۹ ثانیه GPU (22474 رأس)
+- ۴ نما (front/back/side/top) قرمز بدون سایه با پرامپت بهبودیافته → rembg → نکته: mesh_tex2 نماها را از زیرپوشهٔ /tmp/views/player/ می‌خواند نه با پسوند (docstring گمراه‌کننده)
+- بیک نما-محور باز هم لکهٔ خاکستری داشت (ناهم‌ترازی ذاتی AI↔مش) → clean_fcol.py v2: رنگ تخت پروسیجرال روی fcol — بدنه قرمز پرایدی یکدست [0.70,0.085,0.10]، کمربند کابین تیره (شیشه دودی)، ny<0.27 پلاستیک مشکی، لاستیک، جلوپنجره مشکی، چراغ جلو گرم، پلاک سفید، چراغ عقب قرمز تیره + نرم‌سازی ۲دوری مرز شیشه
+- final_bake.py → player.glb (987KB، 45000 فیس، طول 172) → render_vcol.py (رندر COLOR_0 با دکود u8/255) تأیید بصری ۵ نما
+- check_player_glb.mjs: COLOR_0 قرمزغالب + bbox (172×96.6×73.5) PASS
+- E2E (playwright سراسری — puppeteer نیست): لودینگ ~۶۰ثانیه، دکمه «رانندگی آزاد» (نه «شروع»!)، state=playing، بدون خطای کنسول، اسکرین‌شات: پراید قرمز از پشت در گیم‌پلی ✓
+- درس: پروسه‌های nohup بین فراخوانی‌های bash ابزار کشته می‌شوند → سرور+E2E در یک دستور
+- درس: NODE_PATH برای ESM فقط وقتی اسکریپت زیر درخت پروژه است
+- vehicles.ts: «پراید سفید» → «پراید قرمز»؛ APK v0.2.53/VCODE=53 (19.4MB) ساخته و امضا شد
+
+Stage Summary:
+- پراید قرمز AI: مش Hunyuan3D-2.0 از مرجع پراید واقعی + رنگ تخت پروسیجرال (ضد لکه) — لینک: https://uploadkon.ir/uploads/193f25_26FunnyCarIR-v0-2-53.zip (HEAD 200)
+- اسکریپت‌های جدید: clean_fcol.py، render_vcol.py، check_player_glb.mjs، e2e_v0253.mjs، dbg_menu.mjs، build_apk_v0253.sh
+- گام بعد پس از تأیید کاربر: بقیهٔ ۹ خودرو با همین خط لوله (هر خودرو ~۱۰ثانیه GPU + بیک)
