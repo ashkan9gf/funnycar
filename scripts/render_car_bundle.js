@@ -30774,6 +30774,7 @@ var FIXED_COLORS = {
 var BUILDING_VARIANTS_PER_TYPE = 6;
 
 // src/game/render3d/GlbModels.ts
+var BAKED_PAINT = new Set(["player", "pride", "nissan", "tiba", "peugeot405", "samand", "taxi", "police", "renault4", "vintage", "challenger"]);
 function pickBodyColor(variant) {
   if (variant === "player")
     return FIXED_COLORS.player ?? "#f4f4f0";
@@ -30881,7 +30882,7 @@ function assembleCarFromGLB(variant, srcScene, opts = {}) {
   const spec = VEHICLE_SPECS[variant];
   const lite = opts.lite === true;
   const external = opts.external === true;
-  const bodyColor = opts.bodyColor ?? pickBodyColor(variant);
+  const bodyColor = opts.bodyColor ?? (BAKED_PAINT.has(variant) ? "#f4f4f0" : pickBodyColor(variant));
   const g = srcScene.clone(true);
   const wheels = [];
   const steerable = [];

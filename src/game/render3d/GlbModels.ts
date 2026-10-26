@@ -14,9 +14,10 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { CarModel3D, CarVariant, ExtWheelSpin } from './CarFactory3D';
 import { VEHICLE_SPECS, FIXED_COLORS, VEHICLE_COLORS } from './vehicleGeometry';
 
-/** v0.2.54 — خودروهای با رنگِ بیک‌شدهٔ رأس (مدل AI): تینت گاراژ/ترافیک روی‌شان اعمال نمی‌شود
- * (ضربِ رنگ، بدنهٔ بیک‌شده را تیره می‌کند — باگ سرمه‌ای نیسان) */
-export const BAKED_PAINT = new Set<string>(['player', 'nissan']);
+/** v0.2.55 — همهٔ خودروهای AI با رنگ بیک‌شدهٔ رأس: تینت گاراژ/ترافیک روی‌شان اعمال نمی‌شود
+ * (ضربِ رنگ، بدنهٔ بیک‌شده را تیره می‌کند — باگ سرمه‌ای نیسان/۴۰۵)
+ * رنگ گاراژ به‌جای تینت، رأس‌های α=۱ (ناحیهٔ بدنه) را در setPlayerPaint عوض می‌کند */
+export const BAKED_PAINT = new Set<string>(['player', 'pride', 'nissan', 'tiba', 'peugeot405', 'samand', 'taxi', 'police', 'renault4', 'vintage', 'challenger']);
 import { BUILDING_VARIANTS_PER_TYPE } from './cityGeometry';
 
 /**

@@ -33,9 +33,17 @@ def upload() -> str:
         headers={k: v for k, v in HDRS.items() if k != "Content-Type"} | {
             "Content-Type": f"multipart/form-data; boundary={boundary}"},
     )
-    with urllib.request.urlopen(r, timeout=120) as resp:
-        paths = json.loads(resp.read())
-    return paths[0]
+    last = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(r, timeout=300) as resp:
+                paths = json.loads(resp.read())
+            return paths[0]
+        except Exception as e:
+            last = e
+            print(f"upload retry {attempt + 1}: {e}", flush=True)
+            time.sleep(5)
+    raise last
 
 
 def join(session: str, server_path: str):
@@ -66,7 +74,7 @@ def join(session: str, server_path: str):
 def sse_listen(session: str) -> dict | None:
     url = f"{BASE}/queue/data?session_hash={session}"
     t0 = time.time()
-    with urllib.request.urlopen(urllib.request.Request(url, headers=HDRS), timeout=900) as resp:
+    with urllib.request.urlopen(urllib.request.Request(url, headers=HDRS), timeout=180) as resp:
         buf = b""
         while True:
             chunk = resp.read(1)
@@ -98,7 +106,14 @@ def main() -> int:
     sp = upload()
     print("uploaded:", sp, flush=True)
     join(session, sp)
-    ev = sse_listen(session)
+    ev = None
+    for attempt in range(3):
+        try:
+            ev = sse_listen(session)
+            break
+        except Exception as e:
+            print(f"sse retry {attempt + 1}: {e}", flush=True)
+            time.sleep(4)
     if not ev:
         print("no completion event"); return 5
     out = ev.get("output", {})

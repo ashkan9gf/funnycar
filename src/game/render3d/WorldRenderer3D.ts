@@ -29,7 +29,7 @@ import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin, dequantizeGeoNew, me
 
 /** واریانت‌های با مدل خارجی کاربر — متریال GLB حفظ می‌شود (بدون پره مصنوعی)
  *  v0.2.52: player هم اضافه شد — مدل AI ساخته‌شده با Hunyuan3D + تکسچر محلی */
-const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage', 'challenger', 'player', 'nissan']);
+const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage', 'challenger', 'player', 'nissan', 'pride', 'tiba']);
 import type { GuardCar } from '../managers/MissionManager';
 import { buildParkedGeometry, type VehicleVariant } from './vehicleGeometry';
 import type { TrafficLights } from '../world/TrafficLights';
@@ -1245,8 +1245,10 @@ export class WorldRenderer3D {
     const old = this.playerModel;
     // 🔑 v0.2.45 — مدل‌های خارجی (سمند/پلیس/تاکسی/چلنجر/...) مسیر external:
     // متریال PBR حفظ + چرخ با پیوت هندسی (extWheels) + paintMats برای رنگ گاراژ
+    // 🔑 v0.2.55 — BAKED_PAINT: bodyColor سفیدِ خنثی (بدون تینت) + بازرنگ رأسی گاراژ
+    const baked = BAKED_PAINT.has(this.playerVariant);
     const model = assembleCarFromGLB(this.playerVariant, scene, {
-      bodyColor: old.bodyColor,
+      bodyColor: baked ? '#f4f4f0' : old.bodyColor,
       external: EXTERNAL_MODELS.has(this.playerVariant),
     });
     model.group.scale.setScalar(old.group.scale.x);
@@ -1256,6 +1258,9 @@ export class WorldRenderer3D {
     this.scene.remove(old.group);
     this.scene.add(model.group);
     this.playerModel = model;
+    if (baked && this.playerPaint && this.playerPaint !== '#f4f4f0') {
+      this.repaintBakedBody(this.playerPaint);
+    }
   }
 
   /** انتخاب خودروی بازیکن از گاراژ؛ مدل GLB یا procedural، بدون ریست موقعیت */
@@ -2918,12 +2923,19 @@ export class WorldRenderer3D {
    * روی هر دو مسیر procedural و GLB کار می‌کند:
    * 🔑 v0.2.41: مدل‌های GLB واقعی (پژو/سمند/رنو۴/...) هم رنگ می‌گیرند —
    * متریال‌های بدنه ثبت‌شده (paintMats) = رنگ اصلی GLB × رنگ انتخابی
+   * 🔑 v0.2.55: مدل‌های AI (BAKED_PAINT) — تینت متریال کل بدنه را تیره می‌کرد؛
+   * به‌جایش رأس‌های α=۱ (ماسک بدنهٔ بیک‌شده در COLOR_0.a) رنگ جدید می‌گیرند —
+   * شیشه/لاستیک/چراغ/نوار (α=۰٫۹۹) دست‌نخورده می‌مانند
    */
   setPlayerPaint(hex: string): void {
     if (typeof hex !== 'string' || !hex.startsWith('#')) return;
     this.playerPaint = hex;
-    // 🔑 v0.2.54 — مدل‌های AI با رنگ بیک‌شدهٔ رأس: ضرب رنگ = تیره‌شدن کل بدنه → فقط ذخیره
-    if (BAKED_PAINT.has(this.playerVariant)) return;
+    if (BAKED_PAINT.has(this.playerVariant)) {
+      // 🔑 #f4f4f0 = سنتینل «رنگ فابریک» — نباید بدنهٔ بیک‌شده را سفید کند
+      // (خرید/لود مقدار پیش‌فرض را ست می‌کنند؛ رنگ کارخانه‌ایِ AI در رأس‌هاست)
+      if (hex !== '#f4f4f0') this.repaintBakedBody(hex);
+      return;
+    }
     const m = this.playerModel;
     if (!m) return;
     m.bodyColor = hex;
@@ -2939,6 +2951,28 @@ export class WorldRenderer3D {
       return;
     }
     m.bodyMat.color.set(hex);
+  }
+
+  /** 🔑 v0.2.55 — بازرنگ رأسی بدنهٔ مدل AI: رأس‌های COLOR_0.a ≥ ۰٫۹۹۵ = بدنه */
+  private repaintBakedBody(hex: string): void {
+    const m = this.playerModel;
+    if (!m) return;
+    m.bodyColor = hex;
+    const c = new THREE.Color(hex); // خطی — همان فضای COLOR_0
+    m.group.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh || !mesh.isMesh) return;
+      const attr = mesh.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+      if (!attr || attr.itemSize !== 4) return;
+      let changed = false;
+      for (let i = 0; i < attr.count; i++) {
+        if (attr.getW(i) >= 0.995) {
+          attr.setXYZ(i, c.r, c.g, c.b);
+          changed = true;
+        }
+      }
+      if (changed) attr.needsUpdate = true;
+    });
   }
 
   /** رنگ فعلی گاراژ (برای رندررهای که بعداً ساخته می‌شوند) */
