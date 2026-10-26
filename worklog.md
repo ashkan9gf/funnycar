@@ -1464,3 +1464,33 @@ Stage Summary:
 - پراید قرمز AI: مش Hunyuan3D-2.0 از مرجع پراید واقعی + رنگ تخت پروسیجرال (ضد لکه) — لینک: https://uploadkon.ir/uploads/193f25_26FunnyCarIR-v0-2-53.zip (HEAD 200)
 - اسکریپت‌های جدید: clean_fcol.py، render_vcol.py، check_player_glb.mjs، e2e_v0253.mjs، dbg_menu.mjs، build_apk_v0253.sh
 - گام بعد پس از تأیید کاربر: بقیهٔ ۹ خودرو با همین خط لوله (هر خودرو ~۱۰ثانیه GPU + بیک)
+
+---
+Task ID: 72
+Agent: main
+Task: فیدبک کاربر — «هنوز رنگ ماشینه مشکل داره بهترش کن و برو ماشین بعدی رو درست کن مثلا نیسان رو» → v0.2.54
+
+Work Log:
+- رندر ۵نمای player.glb (v0.2.53): بدنهٔ قرمز لکه‌لکه‌ای — فیلتر «darkish» روی رنگ بیک نویزدار باعث لکه می‌شد
+- scripts/paint_car.py v3: رنگ‌آمیزی کاملاً هندسی (نرمال+ارتفاع+طولی، بدون نمونهٔ رنگ بیک)؛ دو حالت: shape→GLB کامل+lod1 و final=بازرنگ درجا؛ پالت per-car
+- download/tripo و /tmp/views بین سشن پاک شده بودند → player فقط با حالت final بازرنگ شد (بدون GPU)
+- توکن HF قبلی نبود → scripts/hf_login.py (POST /login فرم + کوکی، POST /api/settings/tokens {displayName}) به ashkanam9gf/#Ashkan6108 → hf_ydwJDHSYU… در .hf_token
+- مرجع نیسان با z-ai image: نیسان جونیور/وانت آبی ۳/۴ (نتیجهٔ عالی) → rembg u2net (bria OOM می‌دهد) → 384px
+- hy_raw.py: مش سفید در ۹ثانیه GPU (nissan_shape.glb، 449k فیس → ساده‌سازی 45k)
+- 🔑 باگ ۱ تیرگی: پالت sRGB نوشته می‌شد ولی GLTF COLOR_0 خطی است → آبی ^2.4 تیره (قرمز پراید چون آلبدوی بالا داشت زنده می‌ماند!) → srgb_to_linear روی پالت
+- 🔑 باگ ۲ سوراخ‌شدن: heuristic فلیپ winding «نرمال به سمت مرکز» برای تختِ بازِ مقعر غلط می‌زند (43% فیس فلیپ!) → دیوارها backface-cull → بدنه شبح‌وار → mesh.fix_normals حجم‌محور
+- 🔑 باگ ۳ سرمه‌ای در بازی: assembleCarFromGLB متریال بدنه را در pickBodyColor('nissan')=#2f6fae ضرب می‌کرد → BAKED_PAINT={player,nissan} → تینت برای این دو skipped (هم در assemble هم setPlayerPaint)
+- GLB بی‌متریال → پیش‌فرض spec metallic=1 → متریال funnycar_vcol با metallic=0 تزریق شد
+- پلاک/چراغ/چراغ‌عقب تنگ‌تر شدند (ny باند، |fn.z|، nx) — لکهٔ سفید سپرهای پراید کم شد
+- diag رنگی نواحی (قرمز=شیشه) نشان داد کابین بلند است → شیشه ny از 0.48→0.60
+- هارنس رندر واقعی: render_car_shot.mjs puppeteer→playwright + bun build render_car_entry.ts؛ رندر خام (بدون assemble) برای ایزوله‌کردن باگ ضرب رنگ
+- EXTERNAL_MODELS + 'nissan'؛ E2E: e2e_v0254 (GLBها+رانندگی پراید) و e2e_nissan_v0254 (خرید نیسان از گاراژ) — هر دو ALL PASS، بدون خطای کنسول
+- APK v0.2.54/VCODE=54 (19.7MB zip) ساخته/امضا/آپلود شد
+
+Stage Summary:
+- نیسان آبی AI: مش Hunyuan3D از مرجع نیسان جونیور + رنگ پروسیجرال v3 (آبی نیسانی روشن، شیشه دودی، تخت تیره، چراغ گوشه‌ای) — nissan.glb+lod1 (1.5MB)
+- پراید قرمز هم با پالت خطی و نواحی تمیزتر بازرنگ شد
+- لینک: https://uploadkon.ir/uploads/225126_26FunnyCarIR-v0-2-54.zip (HEAD 200)
+- main = 3b62ae3
+- درس: هر سه باگ (خطی/ winding/ ضرب رنگ) فقط با رندر three.js واقعی پیدا شدند — رندرهای ارتو‌پایتون کور بودند
+- گام بعد پس از تأیید کاربر: بقیهٔ ۸ خودرو با paint_car.py (هر خودرو ~۱۰ثانیه GPU + بیک ~۳دقیقه)
