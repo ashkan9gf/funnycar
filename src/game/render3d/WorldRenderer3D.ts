@@ -25,11 +25,11 @@ import { faNum } from '../managers/MissionManager';
 import { RENDER3D, MISSIONS as M, RANDOM_EVENTS as RE, PEDESTRIANS as PEDS, DEBRIS, TRAFFIC_LIGHTS, ENDLESS } from '../data/balance';
 import { WORLD as WR, WORLD_SIZE, roadCenter, type WorldChunk } from '../world/World';
 import { buildCar3D, variantFromAssetId, applyDamageVisual, detachBumper, spinWheels, steerWheels, type CarModel3D, type CarVariant } from './CarFactory3D';
-import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin, dequantizeGeoNew, mergeTemplateStatics } from './GlbModels';
+import { GlbLibrary, assembleCarFromGLB, decorateWheelSpin, dequantizeGeoNew, mergeTemplateStatics, BAKED_PAINT } from './GlbModels';
 
 /** واریانت‌های با مدل خارجی کاربر — متریال GLB حفظ می‌شود (بدون پره مصنوعی)
  *  v0.2.52: player هم اضافه شد — مدل AI ساخته‌شده با Hunyuan3D + تکسچر محلی */
-const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage', 'challenger', 'player']);
+const EXTERNAL_MODELS = new Set<string>(['samand', 'peugeot405', 'police', 'taxi', 'renault4', 'vintage', 'challenger', 'player', 'nissan']);
 import type { GuardCar } from '../managers/MissionManager';
 import { buildParkedGeometry, type VehicleVariant } from './vehicleGeometry';
 import type { TrafficLights } from '../world/TrafficLights';
@@ -2922,6 +2922,8 @@ export class WorldRenderer3D {
   setPlayerPaint(hex: string): void {
     if (typeof hex !== 'string' || !hex.startsWith('#')) return;
     this.playerPaint = hex;
+    // 🔑 v0.2.54 — مدل‌های AI با رنگ بیک‌شدهٔ رأس: ضرب رنگ = تیره‌شدن کل بدنه → فقط ذخیره
+    if (BAKED_PAINT.has(this.playerVariant)) return;
     const m = this.playerModel;
     if (!m) return;
     m.bodyColor = hex;

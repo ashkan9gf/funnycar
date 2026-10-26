@@ -7,6 +7,12 @@ import numpy as np
 GLB = sys.argv[1] if len(sys.argv) > 1 else "/home/z/my-project/download/tripo/player.glb"
 OUT = sys.argv[2] if len(sys.argv) > 2 else "/tmp/vcol_check.png"
 VIEWS = [(10, -90, "front-Z"), (10, 90, "back+Z"), (8, 0, "left-X"), (8, 180, "right+X"), (88, -90, "top")]
+if len(sys.argv) > 3:
+    # "elev,azim,label;..." — نمای سفارشی
+    VIEWS = []
+    for spec in sys.argv[3].split(";"):
+        e, a, lab = spec.split(",")
+        VIEWS.append((float(e), float(a), lab))
 
 
 def read_glb(path):

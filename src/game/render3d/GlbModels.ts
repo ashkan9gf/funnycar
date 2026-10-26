@@ -13,6 +13,10 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CarModel3D, CarVariant, ExtWheelSpin } from './CarFactory3D';
 import { VEHICLE_SPECS, FIXED_COLORS, VEHICLE_COLORS } from './vehicleGeometry';
+
+/** v0.2.54 — خودروهای با رنگِ بیک‌شدهٔ رأس (مدل AI): تینت گاراژ/ترافیک روی‌شان اعمال نمی‌شود
+ * (ضربِ رنگ، بدنهٔ بیک‌شده را تیره می‌کند — باگ سرمه‌ای نیسان) */
+export const BAKED_PAINT = new Set<string>(['player', 'nissan']);
 import { BUILDING_VARIANTS_PER_TYPE } from './cityGeometry';
 
 /**
@@ -267,7 +271,7 @@ export function assembleCarFromGLB(
   const spec = VEHICLE_SPECS[variant];
   const lite = opts.lite === true;
   const external = opts.external === true;
-  const bodyColor = opts.bodyColor ?? pickBodyColor(variant);
+  const bodyColor = opts.bodyColor ?? (BAKED_PAINT.has(variant) ? '#f4f4f0' : pickBodyColor(variant));
 
   const g = srcScene.clone(true);
   const wheels: THREE.Object3D[] = [];

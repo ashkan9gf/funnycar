@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const car = process.argv[2] || 'nissan';
+const out = process.argv[3] || `/tmp/raw_${car}.png`;
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-gl=angle', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 600, height: 450 } });
+page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 200)));
+await page.goto(`http://localhost:8899/raw_page.html?car=${car}`, { waitUntil: 'load', timeout: 30000 }).catch((e) => console.log('nav', e.message));
+await page.waitForFunction('window.__DONE === 1', { timeout: 20000 }).catch(() => console.log('no __DONE'));
+await new Promise((r) => setTimeout(r, 500));
+await page.screenshot({ path: out });
+await browser.close();
+console.log('saved', out);
