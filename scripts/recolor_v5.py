@@ -60,6 +60,9 @@ if KEY in ("player", "pride"):
     cfg["low_ny"] = 0.24
     # 🔧 v5r4: شیب‌های داخل فرورفتگی پنجره هم شیشه شوند (رگه‌های بدنه‌رنگ داخل پنجره)
     cfg["glass_recess_grab"] = 0.90
+    # 🔧 v5r13: شیشهٔ جلو/عقب شیب‌دار (|fn_y| تا ~۰٫۸) با عمق ۳ سیلاب پوشش نمی‌داد →
+    # وسط شیشهٔ جلو/عقب بدنه‌رنگ می‌ماند (رگه‌های قرمز) — عمق ۱۲ با همان قید جعبه
+    cfg["glass_flood_depth"] = 12
 
 
 if KEY == "peugeot405":
@@ -149,7 +152,9 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
         _faH = np.asarray(_meshH.face_adjacency)
         _faA = np.asarray(_meshH.face_adjacency_angles)
         _maxa = float(cfg.get("glass_flood_deg", 75)) * np.pi / 180.0
-        _depth = int(cfg.get("glass_flood_depth", 3))
+        # 🔧 v5r13: عمق پیش‌فرض ۳ → ۱۲ — شیشهٔ شیب‌دار جلو/عقب (|fn_y| تا ~۰٫۸) با عمق ۳
+        # پوشش داده نمی‌شد و وسطش بدنه‌رنگ می‌ماند؛ قید جعبهٔ ny/nz سرریز را مهار می‌کند
+        _depth = int(cfg.get("glass_flood_depth", 12))
         _adjl = _dd(list)
         for (_a, _b), _th in zip(_faH, _faA):
             if _th <= _maxa:
@@ -262,6 +267,43 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
         s = cfg["stripe"]
         STRIPE_F = (ny > s["ny"][0]) & (ny < s["ny"][1]) & (nz > s["nz"][0]) & (nz < s["nz"][1]) & \
                    (np.abs(fn[:, 2]) < 0.40) & ~GLASS_F
+    # 🔧 v5r12 — پرکردن رگه‌های بدنه‌رنگ داخل باند شیشه (شکایت کاربر: رگه‌های قرمز داخل پنجره)
+    # اجزای همبندِ کوچکِ غیرشیشه‌ای داخل جعبهٔ شیشه — حتی اگر به مرز باند بچسبند
+    # (hole-fill قبلی فقط اجزای کاملاً محصور با رأی ۲همسایه را می‌گرفت؛ رگه‌های نازکِ چسبیده به مرز جا می‌ماندند)
+    # بدنهٔ اصلی و ستون‌ها اجزای بزرگ دارند (>>vein_max) → دست نمی‌خورند.
+    if GLASS_F.sum() > 0 and cfg.get("glass_vein_fill", True):
+        _vein_max = int(cfg.get("glass_vein_max", 40))
+        _fyv = float(cfg.get("glass_vein_fn_y", 0.97))
+        _nyLoV, _nyHiV = gny0 - 0.02, min(gny1 + 0.03, 0.93)
+        _nzLoV, _nzHiV = gnz0 - 0.04, min(gnz1 + 0.04, 0.82)
+        _protV = GRILLE_F | HEAD_F | TAIL_F | PLATE_F | STRIPE_F | BED_F
+        _candV = (ny > _nyLoV) & (ny < _nyHiV) & (nz > _nzLoV) & (nz < _nzHiV) & \
+                 (~GLASS_F) & (~_protV) & (~TIRE_F) & (~PLASTIC_F) & (np.abs(fn[:, 1]) < _fyv)
+        if _candV.any():
+            _faV = np.asarray(trimesh.Trimesh(Vm, F, process=False).face_adjacency)
+            _parV = np.arange(len(F))
+            def _findV(a):
+                while _parV[a] != a:
+                    _parV[a] = _parV[_parV[a]]
+                    a = _parV[a]
+                return a
+            for _a, _b in _faV:
+                if _candV[_a] and _candV[_b]:
+                    _ra, _rb = _findV(int(_a)), _findV(int(_b))
+                    if _ra != _rb:
+                        _parV[_ra] = _rb
+            _compV = np.array([_findV(i) for i in range(len(F))])
+            _sizesV: dict = {}
+            for _i in np.where(_candV)[0]:
+                _r = int(_compV[_i])
+                _sizesV[_r] = _sizesV.get(_r, 0) + 1
+            _vf = 0
+            for _r, _sz in _sizesV.items():
+                if _sz <= _vein_max:
+                    _m = _compV == _r
+                    GLASS_F[_m] = True
+                    _vf += _sz
+            print(f"glass vein fill: {_vf} faces in {len(_sizesV)} comps (glass={int(GLASS_F.sum())})", flush=True)
     return {"glass": GLASS_F, "plastic": PLASTIC_F, "tire": TIRE_F, "grille": GRILLE_F,
             "head": HEAD_F, "plate": PLATE_F, "tail": TAIL_F, "bed": BED_F, "stripe": STRIPE_F,
             "ny": ny, "fn": fn, "fc": fc}
