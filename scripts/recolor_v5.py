@@ -20,6 +20,7 @@ Usage: python3 scripts/recolor_v5.py <key>
 import os
 import shutil
 import sys
+from pathlib import Path
 
 import numpy as np
 import trimesh
@@ -27,15 +28,16 @@ import scipy.spatial as spt
 from pygltflib import GLTF2
 
 KEY = sys.argv[1]
-PUB = "/home/z/my-project/public/assets/models/vehicles"
-HARN = "/home/z/my-project/scripts/assets/models/vehicles"
-# منبع همیشه پاک‌ترین نسخه (v0.2.55) — خروجی روی public می‌نویسد؛ اسکریپت idempotent می‌ماند
-IN = f"/home/z/my-project/scripts/raw_assets/models/vehicles/{KEY}.glb"
+ROOT = Path(__file__).resolve().parents[1]
+PUB = str(ROOT / "public/assets/models/vehicles")
+HARN = str(ROOT / "scripts/assets/models/vehicles")
+# منبع خام داخل مخزن؛ خروجی‌ها در مسیرهای پروژه ساخته می‌شوند تا CI و توسعه محلی یکسان باشند.
+IN = str(ROOT / f"scripts/raw_assets/models/vehicles/{KEY}.glb")
 OUT = f"{PUB}/{KEY}.glb"
 FLIP = np.diag([-1.0, 1.0, -1.0]).astype(np.float64)
 
 # ---------- پالت‌ها از paint_car.py (بخش CARS — sRGB) ----------
-_src = open("/home/z/my-project/scripts/paint_car.py", encoding="utf-8").read()
+_src = (ROOT / "scripts/paint_car.py").read_text(encoding="utf-8")
 _ns: dict = {}
 sys.argv = ["paint_car", "in.glb", KEY if KEY != "pride" else "player", "shape", "45000", "0"]
 exec(_src.split("def srgb_to_linear")[0], _ns)
@@ -480,6 +482,15 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
                         cnts[i] += 1
             ok = cnts > 0
             col[ok] = 0.55 * col[ok] + 0.45 * (sums[ok] / cnts[ok][:, None])
+
+    # شیشه بعد از هموارسازی دوباره دقیقاً از گرادیان اصلی گرفته می‌شود؛
+    # در غیر این صورت رنگ بدنه/تریم همسایه می‌تواند به شیشه نشت کند.
+    if glass_m.any():
+        gny0, gny1 = cfg["glass_ny"]
+        t = np.clip((ny[glass_m] - gny0) / max(gny1 - gny0, 1e-6), 0, 1) ** 1.2
+        g0 = np.array(cfg["glass"], np.float32)
+        g1 = np.clip(g0 * np.array([2.3, 2.4, 2.6], np.float32), 0, 1)
+        col[glass_m] = g0[None, :] * (1 - t)[:, None] + g1[None, :] * t[:, None]
 
     # قفل متریال‌های حساس پس از هموارسازی: هموارسازی نباید رنگ لاستیک/تریم را به بدنه بکشد.
     # 🔑 قفل فقط خارج از prot — چراغ/پلاک/grille نباید رنگ لاستیک محیط بگیرند
