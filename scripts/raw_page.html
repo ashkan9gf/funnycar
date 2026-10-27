@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>raw glb viewer</title>
+<style>body{margin:0;background:#dfe6f0}canvas{display:block}</style>
+</head>
+<body>
+<script type="importmap">
+{"imports": {"three": "/node_modules/three/build/three.module.js", "three/examples/jsm/": "/node_modules/three/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from '/node_modules/three/build/three.module.js';
+import { GLTFLoader } from '/node_modules/three/examples/jsm/loaders/GLTFLoader.js';
+import { RoomEnvironment } from '/node_modules/three/examples/jsm/environments/RoomEnvironment.js';
+
+const car = new URLSearchParams(location.search).get('car') || 'player';
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(600, 450);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.9;
+const cam = new THREE.PerspectiveCamera(38, 600 / 450, 1, 4000);
+const hemi = new THREE.HemisphereLight('#ffffff', '#7a6a55', 1.0);
+scene.add(hemi);
+const dir = new THREE.DirectionalLight('#fff6e0', 1.6);
+dir.position.set(80, 150, -60);
+scene.add(dir);
+const loader = new GLTFLoader();
+loader.load(`/public/assets/models/vehicles/${car}.glb`, (gltf) => {
+  const g = gltf.scene;
+  const box = new THREE.Box3().setFromObject(g);
+  const c = box.getCenter(new THREE.Vector3());
+  const sz = box.getSize(new THREE.Vector3());
+  g.position.sub(c);
+  scene.add(g);
+  cam.position.set(sz.x * 1.15, sz.y * 0.85, sz.z * 1.35);
+  cam.lookAt(0, sz.y * 0.15, 0);
+  renderer.render(scene, cam);
+  window.__DONE = 1;
+}, undefined, (e) => { console.error(e); window.__DONE = 1; });
+</script>
+</body>
+</html>

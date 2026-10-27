@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-gl=angle', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+page.on('console', (m) => console.log('[console]', m.type(), String(m.text()).slice(0, 300)));
+page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 500)));
+await page.goto('http://localhost:8899/render_car_page.html?car=pride_raw_tex&spins=0', { waitUntil: 'load', timeout: 30000 });
+await new Promise((r) => setTimeout(r, 8000));
+const imgs = await page.evaluate(() => document.querySelectorAll('img').length);
+const done = await page.evaluate(() => window.__RENDER_DONE);
+console.log('imgs:', imgs, 'RENDER_DONE:', done);
+await page.screenshot({ path: '/tmp/dbg_tex.png' });
+await browser.close();

@@ -66,3 +66,4 @@ server.log
 /www
 /android
 .hf_token
+.hf_token*

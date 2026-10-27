@@ -1,0 +1,14 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-gl=angle', '--enable-unsafe-swiftshader'] });
+const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+const page = await ctx.newPage();
+await page.goto('http://localhost:8899/', { waitUntil: 'load', timeout: 60000 });
+await page.waitForTimeout(5000);
+const clickByText = async (re) => page.evaluate((re2) => { const b = [...document.querySelectorAll('button')].find(x => new RegExp(re2).test(x.textContent||'')); if (b) { b.click(); return true; } return false; }, re);
+await clickByText('رانندگی آزاد');
+await page.waitForTimeout(2500);
+await clickByText('بریم');
+await page.waitForTimeout(7000);
+await page.screenshot({ path: 'scripts/v0256_drive3.png' });
+console.log('done');
+await browser.close();
