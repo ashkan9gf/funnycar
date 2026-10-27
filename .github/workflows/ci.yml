@@ -57,6 +57,20 @@ jobs:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
       - name: Install locked project dependencies
         run: bun install --frozen-lockfile
+      - name: Install vehicle recolor tooling
+        run: |
+          python3 -m pip install --disable-pip-version-check numpy scipy trimesh pygltflib Pillow pyfqmr xatlas
+      - name: Rebuild vehicle models with protected paint boundaries
+        run: |
+          set -euo pipefail
+          for vehicle in player challenger nissan peugeot405 police renault4 samand taxi tiba vintage; do
+            echo "Recoloring vehicle: ${vehicle}"
+            python3 scripts/recolor_v5.py "${vehicle}"
+          done
+          cp public/assets/models/vehicles/player.glb public/assets/models/vehicles/pride.glb
+          cp public/assets/models/vehicles/player_lod1.glb public/assets/models/vehicles/pride_lod1.glb
+          test -s public/assets/models/vehicles/pride.glb
+          test -s public/assets/models/vehicles/pride_lod1.glb
       - name: Build and verify offline web bundle
         run: bash scripts/build-android-web.sh
       - name: Install Capacitor tooling
