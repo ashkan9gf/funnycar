@@ -56,6 +56,19 @@ if KEY in ("player", "pride"):
     cfg["head_r"] = (0.90, 0.34, 0.50, 0.60)
     cfg["head_fn_z"] = 0.55
     cfg["low_ny"] = 0.24
+    # 🔧 v5r4: شیب‌های داخل فرورفتگی پنجره هم شیشه شوند (رگه‌های بدنه‌رنگ داخل پنجره)
+    cfg["glass_recess_grab"] = 0.90
+
+
+if KEY == "peugeot405":
+    # 🔧 v5r6: مش ۴۰۵ فرورفتگی پنجره ندارد (نرمال‌های کابین p50 |fn_y|=۰٫۸۹ — سطح صاف!) —
+    # پنجره فقط با موقعیت: جعبهٔ کابین + fn_y خام برای seed شیشهٔ عقب
+    cfg["glass_ny"] = (0.52, 0.86)
+    cfg["glass_nz"] = (0.18, 0.78)
+    cfg["glass_fn_y"] = 0.62
+    cfg["glass_fn_y_raw"] = True
+    cfg["glass_box_fill"] = (0.54, 0.87, 0.20, 0.70)
+    cfg["glass_flood_depth"] = 2  # سیلاب کم — وگرنه از جعبه بیرون می‌زد (خط کمربند)
 
 
 def srgb_to_linear(c) -> np.ndarray:
@@ -104,10 +117,11 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
     gny0, gny1 = cfg["glass_ny"]
     gnz0, gnz1 = cfg["glass_nz"]
     # 🔒 سقف سراسری — بیکِ v4 برای رأس تخت تنظیم بود؛ در تکسچرِ تیز، سرریز فاحش دیده می‌شود
+    # (خودرویی که صراحتاً glass_fn_y_raw بخواهد از سقف عبور می‌کند — مثلاً ۴۰۵ با پنجره‌های تختِ شیب‌دار)
     gny1 = min(gny1, 0.90)
     gnz0 = max(gnz0, 0.16)
     gnz1 = min(gnz1, 0.80)
-    gfy = min(cfg["glass_fn_y"], 0.42)
+    gfy = cfg["glass_fn_y"] if cfg.get("glass_fn_y_raw") else min(cfg["glass_fn_y"], 0.42)
     GLASS_F = (ny > gny0) & (ny < gny1) & (nz > gnz0) & (nz < gnz1) & (np.abs(fn[:, 1]) < gfy)
     cent0 = fc
     tree0 = spt.cKDTree(cent0)
@@ -124,6 +138,100 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
         # یک دور open پایانی برای لبهٔ صاف‌تر
         gcnt = GLASS_F[nn0].sum(axis=1)
         GLASS_F = GLASS_F & (gcnt >= 2)
+    # 🔧 v5r4 — سیلابی از هستهٔ شیشه با پیوستگی نرمال: شیب‌های داخل فرورفتگی پنجره را
+    # می‌گیرد و در شیار تیزِ قاب متوقف می‌شود (پیش‌فرض روشن برای همهٔ خودروها).
+    _grab = cfg.get("glass_recess_grab", True)
+    if GLASS_F.sum() > 0 and _grab:
+        from collections import deque, defaultdict as _dd
+        _meshH = trimesh.Trimesh(Vm, F, process=False)
+        _faH = np.asarray(_meshH.face_adjacency)
+        _faA = np.asarray(_meshH.face_adjacency_angles)
+        _maxa = float(cfg.get("glass_flood_deg", 75)) * np.pi / 180.0
+        _depth = int(cfg.get("glass_flood_depth", 3))
+        _adjl = _dd(list)
+        for (_a, _b), _th in zip(_faH, _faA):
+            if _th <= _maxa:
+                _adjl[int(_a)].append(int(_b))
+                _adjl[int(_b)].append(int(_a))
+        _nyLo = gny0 - 0.02
+        _nyHi = gny1
+        _nzLo = gnz0
+        _nzHi = gnz1
+        _dist = np.full(len(F), -1, np.int64)
+        _dq = deque()
+        for _i in np.where(GLASS_F)[0]:
+            _dist[_i] = 0
+            _dq.append(int(_i))
+        _added = 0
+        while _dq:
+            _f = _dq.popleft()
+            if _dist[_f] >= _depth:
+                continue
+            for _nb in _adjl.get(_f, ()):
+                if _dist[_nb] < 0 and (_nyLo < ny[_nb] < _nyHi) and (_nzLo < nz[_nb] < _nzHi):
+                    _dist[_nb] = _dist[_f] + 1
+                    GLASS_F[_nb] = True
+                    _added += 1
+                    _dq.append(_nb)
+        print(f"glass recess flood: +{_added} faces", flush=True)
+        # پرکردن جعبه‌ای (per-car): مش‌هایی که فرورفتگی پنجره ندارند (۴۰۵) — پنجره فقط
+        # با موقعیت تعریف می‌شود؛ نرمال‌های تقریباً افقی/سقفی مستثنا می‌شوند
+        _boxf = cfg.get("glass_box_fill")
+        if _boxf:
+            _bny0, _bny1, _bnz0, _bnz1 = (float(x) for x in _boxf)
+            _addbox = (~GLASS_F) & (ny > _bny0) & (ny < _bny1) & (nz > _bnz0) & (nz < _bnz1) & \
+                      ((np.abs(fn[:, 0]) > 0.30) | (np.abs(fn[:, 1]) < 0.85))
+            GLASS_F |= _addbox
+            print(f"glass box fill: +{int(_addbox.sum())} faces", flush=True)
+        # هموارسازی مرز پس از سیلاب: open ملایم + close جبرانی — لبهٔ دندانه‌دار نرم می‌شود
+        _gvs = GLASS_F[nn0].sum(axis=1)
+        GLASS_F = GLASS_F & (_gvs >= 2)
+        _gvs = GLASS_F[nn0].sum(axis=1)
+        GLASS_F = GLASS_F | (_gvs >= 5)
+        _gvs = GLASS_F[nn0].sum(axis=1)
+        GLASS_F = GLASS_F | (_gvs >= 4)
+        # open با شعاع بزرگ (۱۵همسایه): زوایدای مرزی در مقیاس بزرگ حذف می‌شوند
+        # (فقط open — close بزرگ ستون باریک بین پنجره‌ها را می‌بلعد)
+        _, _nn15 = tree0.query(cent0, k=16)
+        _gvs15 = GLASS_F[_nn15[:, 1:]].sum(axis=1)
+        GLASS_F = GLASS_F & (_gvs15 >= 5)
+    # 🔧 v5r3 — پرکردن حفره‌های بدنه‌رنگِ محصورِ داخل شیشه (رگه‌های قرمز داخل پنجرهٔ پراید)
+    # اجزای همبندِ غیرشیشه‌ای که «همهٔ» فیس‌هایشان همسایهٔ شیشه دارند = رگهٔ محصور داخل پنجره
+    # (بدنهٔ اصلی فیس‌های دور از شیشه دارد → واجد شرایط نیست → دست نمی‌خورد)
+    if GLASS_F.sum() > 0 and cfg.get("glass_hole_fill", True):
+        _faH = np.asarray(trimesh.Trimesh(Vm, F, process=False).face_adjacency)
+        _par = np.arange(len(F))
+        def _find(a):
+            while _par[a] != a:
+                _par[a] = _par[_par[a]]
+                a = _par[a]
+            return a
+        for _a, _b in _faH:
+            if not GLASS_F[_a] and not GLASS_F[_b]:
+                _ra, _rb = _find(int(_a)), _find(int(_b))
+                if _ra != _rb:
+                    _par[_ra] = _rb
+        _comp = np.array([_find(i) for i in range(len(F))])
+        _gcntH = GLASS_F[nn0].sum(axis=1)  # رأی شیشه‌ای هر فیس (از ۷ همسایه)
+        _hole_max = int(cfg.get("glass_hole_max", 700))
+        _vote_min = int(cfg.get("glass_hole_vote", 2))
+        _ny_min = cfg["glass_ny"][0] - 0.10
+        _cand = {}
+        for _i in np.where(~GLASS_F)[0]:
+            _r = int(_comp[_i])
+            _c = _cand.get(_r)
+            if _c is None:
+                _c = _cand[_r] = [0, 0.0, True]
+            _c[0] += 1
+            _c[1] += float(ny[_i])
+            if _gcntH[_i] < _vote_min:
+                _c[2] = False
+        _filled = 0
+        for _r, (_sz, _sy, _ok) in _cand.items():
+            if _ok and _sz <= _hole_max and (_sy / _sz) > _ny_min:
+                GLASS_F[_comp == _r] = True
+                _filled += _sz
+        print(f"glass hole fill: {_filled} faces in {len(_cand)} comps", flush=True)
     PLASTIC_F = ((ny < cfg.get("low_ny", 0.26)) & ((nz > cfg.get("plastic_nz_hi", 0.90)) | (nz < cfg.get("plastic_nz_lo", 0.10))) & ~GLASS_F) | \
                 ((ny < cfg["rocker_ny"]) & (np.abs(fn[:, 1]) < 0.5) & ~GLASS_F) | \
                 ((fn[:, 1] < -0.62) & (ny < 0.42) & ~GLASS_F)
@@ -353,8 +461,10 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
     if t2v.any():
         col[t2v] = 0.88 * col[t2v] + 0.12 * TRIM_LIN[None, :]
 
-    # ۵) صاف‌سازی مرز شیشه/بدنه — فقط در نوار مرزی؛ بعداً نواحی محافظت‌شده دوباره قفل می‌شوند
-    gzone = glass_m | trim1 | trim2
+    # ۵) صاف‌سازی مرز شیشه/بدنه — فقط در نوار مرزی
+    # 🔑 نواحی محافظت‌شده (چراغ/پلاک/grille/نوار) وارد هموارسازی نمی‌شوند — وگرنه
+    # رنگ شیشه/بدنه داخل چراغ‌ها می‌بَرد (سرریز چراغ عقب ۴۰۵)
+    gzone = glass_m | (trim1 & ~prot) | (trim2 & ~prot)
     if gzone.sum() > 0:
         loc = -np.ones(len(_FULL_F), np.int64)
         loc[fidx] = np.arange(n)
@@ -372,13 +482,17 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
             col[ok] = 0.55 * col[ok] + 0.45 * (sums[ok] / cnts[ok][:, None])
 
     # قفل متریال‌های حساس پس از هموارسازی: هموارسازی نباید رنگ لاستیک/تریم را به بدنه بکشد.
-    tire_m = M["tire"][fidx]
+    # 🔑 قفل فقط خارج از prot — چراغ/پلاک/grille نباید رنگ لاستیک محیط بگیرند
+    tire_m = M["tire"][fidx] & ~prot
+    lock1 = trim1 & ~prot
+    lock2 = trim2 & ~prot
     if tire_m.any():
         col[tire_m] = np.array(cfg["tire"], np.float32) * (1.0 - 0.28 * cavb[tire_m])[:, None]
-    if trim1.any():
-        col[trim1] = 0.70 * np.array(cfg["plastic"], np.float32) + 0.30 * TRIM_LIN
-    if trim2.any():
-        col[trim2] = 0.88 * np.array(cfg["body"], np.float32) + 0.12 * TRIM_LIN
+    if lock1.any():
+        col[lock1] = 0.70 * np.array(cfg["plastic"], np.float32) + 0.30 * TRIM_LIN
+    if lock2.any():
+        # 🔑 بدون مؤلفهٔ بدنه — وگرنه بعد از بازرنگ گاراژ حلقهٔ دور پنجره با رنگ کهنه می‌ماند
+        col[lock2] = 0.85 * np.array(cfg["plastic"], np.float32) + 0.15 * TRIM_LIN
 
     # تریم و لاستیک نواحی مستقل‌اند و نباید COLOR_0 بدنه روی آن‌ها ضرب شود.
     body_region = ~(glass_m | plastic_m | grille_m | head_m | tail_m | plate_m |
@@ -530,6 +644,10 @@ Vm = V @ FLIP  # فضای ماسک: جلو=+Z
 
 M = zone_masks(Vm, F)
 print("regions(full):", {k: int(M[k].sum()) for k in ("glass", "plastic", "tire", "grille", "head", "plate", "tail", "bed", "stripe")}, flush=True)
+if os.environ.get("PROBE"):
+    _side = (M["ny"] > 0.55) & (M["ny"] < 0.65) & (np.abs(M["fn"][:, 0]) > 0.7)
+    print(f"PROBE vertical-side faces={int(_side.sum())} glass={int((M['glass'] & _side).sum())} "
+          f"plastic={int((M['plastic'] & _side).sum())}", flush=True)
 
 # حاشیهٔ تریم دور شیشه — روی همسایگی فیس‌های مش کامل (قبل از تفکیک)
 from collections import defaultdict
