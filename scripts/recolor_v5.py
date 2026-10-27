@@ -353,7 +353,7 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
     if t2v.any():
         col[t2v] = 0.88 * col[t2v] + 0.12 * TRIM_LIN[None, :]
 
-    # ۵) صاف‌سازی مرز شیشه/بدنه — ۲ دور فقط در نوار مرزی (جگ‌جگِ ماسک نرم می‌شود)
+    # ۵) صاف‌سازی مرز شیشه/بدنه — فقط در نوار مرزی؛ بعداً نواحی محافظت‌شده دوباره قفل می‌شوند
     gzone = glass_m | trim1 | trim2
     if gzone.sum() > 0:
         loc = -np.ones(len(_FULL_F), np.int64)
@@ -371,7 +371,18 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
             ok = cnts > 0
             col[ok] = 0.55 * col[ok] + 0.45 * (sums[ok] / cnts[ok][:, None])
 
-    body_region = ~(glass_m | plastic_m | grille_m | head_m | tail_m | plate_m | bed_m | stripe_m)
+    # قفل متریال‌های حساس پس از هموارسازی: هموارسازی نباید رنگ لاستیک/تریم را به بدنه بکشد.
+    tire_m = M["tire"][fidx]
+    if tire_m.any():
+        col[tire_m] = np.array(cfg["tire"], np.float32) * (1.0 - 0.28 * cavb[tire_m])[:, None]
+    if trim1.any():
+        col[trim1] = 0.70 * np.array(cfg["plastic"], np.float32) + 0.30 * TRIM_LIN
+    if trim2.any():
+        col[trim2] = 0.88 * np.array(cfg["body"], np.float32) + 0.12 * TRIM_LIN
+
+    # تریم و لاستیک نواحی مستقل‌اند و نباید COLOR_0 بدنه روی آن‌ها ضرب شود.
+    body_region = ~(glass_m | plastic_m | grille_m | head_m | tail_m | plate_m |
+                    bed_m | stripe_m | trim1 | trim2 | tire_m)
     alpha = np.where(body_region, 1.0, 0.99).astype(np.float32)
     # 🔑 تکسچر جدا: بدنه = سفید×سایه (رنگ فقط در COLOR_0 — وگرنه ضربِ دوباره تیره می‌کند)
     tex_col = col.copy()
