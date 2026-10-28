@@ -27,13 +27,13 @@ const MODELS: {
   variant: CarVariant | null;
   size: string;
 }[] = [
-  { id: "player", label: "پیکان قرمز", sub: "ماشین بازیکن — old-car شما", rel: "vehicles/player.glb", variant: "player", size: "۵٫۸MB" },
-  { id: "peugeot405", label: "پژو ۲۰۶", sub: "ترافیک — car-peugeot-206 شما", rel: "vehicles/peugeot405.glb", variant: "peugeot405", size: "۳٫۶MB" },
-  { id: "samand", label: "پیکان نقره‌ای", sub: "ترافیک — old-car شما", rel: "vehicles/samand.glb", variant: "samand", size: "۳٫۹MB" },
-  { id: "taxi", label: "تاکسی کراون‌ویکتوریا", sub: "ترافیک — ford-taxi شما", rel: "vehicles/taxi.glb", variant: "taxi", size: "۴۱۶KB" },
-  { id: "police", label: "پلیس لو-پلی", sub: "ترافیک — police-car شما", rel: "vehicles/police.glb", variant: "police", size: "۱۶۸KB" },
-  { id: "renault4", label: "رنو ۴ (جدید)", sub: "ترافیک — renault_4_cv شما", rel: "vehicles/renault4.glb", variant: "renault4", size: "۴٫۵MB" },
-  { id: "vintage", label: "ماشین قدیمی زنگ‌زده (جدید)", sub: "ترافیک — rusty_vintage_car شما", rel: "vehicles/vintage.glb", variant: "vintage", size: "۲٫۸MB" },
+  { id: "player", label: "تیزبوق", sub: "ماشین بازیکن — قرمز", rel: "vehicles/player.glb", variant: "player", size: "۵٫۸MB" },
+  { id: "peugeot405", label: "فشفاهی", sub: "ترافیک — سدان سفید", rel: "vehicles/peugeot405.glb", variant: "peugeot405", size: "۳٫۶MB" },
+  { id: "samand", label: "دبه‌کش", sub: "ترافیک — سدان نقره‌ای", rel: "vehicles/samand.glb", variant: "samand", size: "۳٫۹MB" },
+  { id: "taxi", label: "کرایه‌چی", sub: "ترافیک — تاکسی زرد", rel: "vehicles/taxi.glb", variant: "taxi", size: "۴۱۶KB" },
+  { id: "police", label: "آژیرخان", sub: "ترافیک — پلیس", rel: "vehicles/police.glb", variant: "police", size: "۱۶۸KB" },
+  { id: "renault4", label: "چهاردَنده (جدید)", sub: "ترافیک — کلاسیک کرم", rel: "vehicles/renault4.glb", variant: "renault4", size: "۴٫۵MB" },
+  { id: "vintage", label: "تُف‌تُفی (جدید)", sub: "ترافیک — قدیمی زیتونی", rel: "vehicles/vintage.glb", variant: "vintage", size: "۲٫۸MB" },
   { id: "props", label: "پراپ‌های شهری", sub: "اجسام شهر — cities شما", rel: "city/props.glb", variant: null, size: "۹۶۰KB" },
 ];
 

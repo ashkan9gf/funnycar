@@ -137,7 +137,7 @@ export const MISSION_LIST: MissionDef[] = [
   {
     id: 'p01_park_valiasr',
     title: 'پارک دوبل ولیعصر',
-    intro: 'یه جای خالی بین دو پراید! دنده‌عقب بیا، یه ذره هم تراز پارک کن.',
+    intro: 'یه جای خالی بین دو قسطی! دنده‌عقب بیا، یه ذره هم تراز پارک کن.',
     objective: 'دنده‌عقب برو تو جای پارک، تراز وایسا، ترمز!',
     kind: 'parallel_park',
     category: 'park',
@@ -556,7 +556,7 @@ export const MISSION_LIST: MissionDef[] = [
   {
     id: 'nq05_finale_race',
     title: 'شاگردی ۵: آخر خط!',
-    intro: 'عمو نقی شرط بسته پژو سفید زودتر می‌رسه! ثابت کن پراید هم می‌تونه!',
+    intro: 'عمو نقی شرط بسته فشفاهی سفید زودتر می‌رسه! ثابت کن تیزبوق هم می‌تونه!',
     objective: 'برس گوشه شمال‌شرقی شهر قبل از اتمام وقت!',
     kind: 'timed_reach',
     category: 'story',

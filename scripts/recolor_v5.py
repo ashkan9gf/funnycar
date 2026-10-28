@@ -43,9 +43,13 @@ sys.argv = ["paint_car", "in.glb", KEY if KEY != "pride" else "player", "shape",
 exec(_src.split("def srgb_to_linear")[0], _ns)
 CARS: dict = _ns["CARS"]
 cfg = CARS[KEY if KEY in CARS else "player"]
-# پراید قرمز کمی روشن‌تر و اشباع‌تر (بازخورد کاربر: رنگ تختِ تیره توپلاستیکی بود)
 if KEY in ("player", "pride"):
-    cfg["body"] = [0.78, 0.105, 0.115]
+    # 🔧 v5r14c — تمایز خودروها (درخواست کاربر): player قرمز می‌ماند،
+    # pride فیروزه‌ای (رنگ کلاسیک ایرانی) — دیگر دوقلوی قرمز نیستند
+    if KEY == "player":
+        cfg["body"] = [0.78, 0.105, 0.115]
+    else:
+        cfg["body"] = [0.10, 0.60, 0.58]
     cfg["tail_nx"] = 0.55  # چراغ عقب پراید — v4 با ۱٫۰ هیچ‌وقت روشن نمی‌شد
     # شیشهٔ کارتونی: آبی‌خاکستری متوسط (نه سیاه) + هایلایت آسمان
     cfg["glass"] = [0.20, 0.27, 0.33]
@@ -75,6 +79,15 @@ if KEY == "peugeot405":
     cfg["glass_box_fill"] = (0.54, 0.87, 0.20, 0.70)
     cfg["glass_flood_depth"] = 2  # سیلاب کم — وگرنه از جعبه بیرون می‌زد (خط کمربند)
 
+# 🔧 v5r14b — چراغ عقبِ تنگ‌تر: پنجرهٔ ny پهن کل گوشهٔ صندوق را قرمز می‌کرد
+# (اندازه‌گیری diag: خوشهٔ چراغ ny p05-p95 — challenger 0.33-0.58, nissan 0.32-0.61, 405 0.32-0.43)
+if KEY == "challenger":
+    cfg["tail_r"] = (0.06, 0.37, 0.55)
+if KEY == "nissan":
+    cfg["tail_r"] = (0.07, 0.38, 0.56)
+if KEY == "peugeot405":
+    cfg["tail_r"] = (0.09, 0.32, 0.48)
+
 
 def srgb_to_linear(c) -> np.ndarray:
     c = np.asarray(c, np.float32)
@@ -93,18 +106,28 @@ TRIM_LIN = np.array(cfg["plastic"], np.float32) * 0.72
 
 
 # ---------- بارگذاری merged ----------
+# Face-to-source-geometry map: keep original GLB part boundaries while recoloring.
+SOURCE_FACE_GROUP = None
+SOURCE_GEOM_NAMES = []
+
+
 def load_merged(path: str):
+    global SOURCE_FACE_GROUP, SOURCE_GEOM_NAMES
     sc = trimesh.load(path, force="scene")
-    Vs, Fs = [], []
+    Vs, Fs, Gs = [], [], []
+    SOURCE_GEOM_NAMES = []
     off = 0
-    for g in sc.geometry.values():
+    for gi, (name, g) in enumerate(sc.geometry.items()):
         v = np.asarray(g.vertices, np.float64)
         f = np.asarray(g.faces, np.int64)
         Vs.append(v)
         Fs.append(f + off)
+        Gs.append(np.full(len(f), gi, dtype=np.int32))
+        SOURCE_GEOM_NAMES.append(str(name))
         off += len(v)
     V = np.concatenate(Vs, 0)
     F = np.concatenate(Fs, 0)
+    SOURCE_FACE_GROUP = np.concatenate(Gs, 0)
     return V, F
 
 
@@ -246,6 +269,56 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
     if PLASTIC_F.sum() > 0:
         PLASTIC_F = PLASTIC_F & (PLASTIC_F[nn0].sum(axis=1) >= 3)
     TIRE_F = (ny < cfg["tire_ny"]) & (nx_abs > cfg["tire_nx"])
+
+    # v0.2.59: preserve original GLB geometry boundaries for wheel/tire/rim parts.
+    # The old normalized-height mask only caught part of some tires, leaving uncovered
+    # faces to fall through to the body-paint default. Expand only compact source parts
+    # that overlap a tire seed or sit concentrically around a detected wheel seed.
+    _tire_seed = TIRE_F.copy()
+    _wheel_centers = []
+    if _tire_seed.any() and SOURCE_FACE_GROUP is not None:
+        _mid_x = 0.5 * (bmin[0] + bmax[0])
+        _mid_z = 0.5 * (bmin[2] + bmax[2])
+        for _sx in (False, True):
+            for _sz in (False, True):
+                _q = _tire_seed & ((fc[:, 0] >= _mid_x) if _sx else (fc[:, 0] < _mid_x)) & \
+                     ((fc[:, 2] >= _mid_z) if _sz else (fc[:, 2] < _mid_z))
+                if int(_q.sum()) >= 8:
+                    _wheel_centers.append(np.median(fc[_q], axis=0))
+        _expanded = 0
+        for _gid in np.unique(SOURCE_FACE_GROUP):
+            _gf = np.where(SOURCE_FACE_GROUP == _gid)[0]
+            if len(_gf) < 8:
+                continue
+            _gv = Vm[F[_gf].ravel()]
+            _gmin, _gmax = _gv.min(axis=0), _gv.max(axis=0)
+            _ge = _gmax - _gmin
+            _gc = fc[_gf].mean(axis=0)
+            _gny = (_gc[1] - bmin[1]) / ext[1]
+            _gnx = abs((_gc[0] - bmin[0]) / ext[0] - 0.5) * 2
+            _compact = (_ge[0] <= 0.30 * ext[0] and
+                        _ge[1] <= 0.42 * ext[1] and
+                        _ge[2] <= 0.34 * ext[2])
+            _wheel_zone = (_gny < min(cfg["tire_ny"] + 0.22, 0.48) and
+                           _gnx > max(cfg["tire_nx"] - 0.16, 0.30))
+            if not (_compact and _wheel_zone):
+                continue
+            _group_seed = _tire_seed[_gf]
+            _near_seed = bool(_group_seed.sum() >= 4)
+            if not _near_seed and _wheel_centers:
+                _distances = []
+                for _wc in _wheel_centers:
+                    _dy = (_gc[1] - _wc[1]) / ext[1]
+                    _dz = (_gc[2] - _wc[2]) / ext[2]
+                    _dx = (_gc[0] - _wc[0]) / ext[0]
+                    _distances.append((_dy * _dy + _dz * _dz + 0.35 * _dx * _dx) ** 0.5)
+                _near_seed = min(_distances) < 0.12
+            if _near_seed:
+                _new_faces = _gf[~TIRE_F[_gf]]
+                TIRE_F[_gf] = True
+                _expanded += len(_new_faces)
+        print(f"wheel part guard: +{_expanded} faces protected across {len(_wheel_centers)} wheel zones", flush=True)
+
     gz = cfg["grille_r"]
     GRILLE_F = (nz > gz[0]) & (nx_abs < gz[1]) & (ny > gz[2]) & (ny < gz[3]) & (fn[:, 2] > 0.5)
     hr = cfg["head_r"]
@@ -267,6 +340,38 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
         s = cfg["stripe"]
         STRIPE_F = (ny > s["ny"][0]) & (ny < s["ny"][1]) & (nz > s["nz"][0]) & (nz < s["nz"][1]) & \
                    (np.abs(fn[:, 2]) < 0.40) & ~GLASS_F
+    # 🔧 v5r14 — جاروب باند شیشه + اتساع محدود (ریشه‌یابی diag_glass3/4 روی پراید):
+    # درزهای نویزیِ مش AI مسیر BFS سیلاب را می‌بُرند و open بزرگِ ۱۵همسایه نوارهای
+    # باریک شیشه را می‌خورد → شبه‌جزیره‌های بدنه‌رنگ داخل باند (کامپوننت‌های تا ۲۴۳
+    # فیس در پراید: ریل لبهٔ سقف، رگهٔ شیشهٔ جلو، لبهٔ عمودی شیشهٔ عقب).
+    # قانون: هر فیسِ داخل هستهٔ باند که سطحِ پنجره‌وار دارد (|fn_y|<0.92) شیشه است —
+    # بدون نیاز به پیوستگی. ستون‌ها از قبل داخل باندِ تیره‌اند؛ ریسک بصری نزدیک صفر.
+    _protG = GRILLE_F | HEAD_F | TAIL_F | PLATE_F | STRIPE_F | BED_F
+    _fnay = np.abs(fn[:, 1])
+    _swp = (~GLASS_F) & (~_protG) & (~TIRE_F) & (~PLASTIC_F) & \
+           (ny > gny0 + 0.015) & (ny < gny1 + 0.05) & (nz > gnz0) & (nz < gnz1 + 0.02) & \
+           ((_fnay < 0.92) | (ny < gny1 - 0.04))
+    # پسوندِ لبهٔ کناریِ شیشهٔ عقبِ هاچ‌بک (زیر کف جعبهٔ nz): فقط لبه‌های کناری
+    # (nx>0.45) و شیب‌دار (<0.75) — مرکزِ درِ صندوقِ سدان صاف و وسطی است و گرفته نمی‌شود
+    _swp |= (~GLASS_F) & (~_protG) & (~TIRE_F) & (~PLASTIC_F) & \
+            (ny > gny0 + 0.10) & (ny < gny1) & (nz > gnz0 - 0.06) & (nz < gnz0) & \
+            (_fnay < 0.75) & (nx_abs > 0.45)
+    GLASS_F |= _swp
+    _faS = np.asarray(trimesh.Trimesh(Vm, F, process=False).face_adjacency)
+    _swp_n = int(_swp.sum())
+    # اتساع ۲رینگی با آستانهٔ ۲همسایه — محافظه‌کار: مرز را پاک می‌کند ولی سقف/ستون را نمی‌خورد
+    for _r in range(2):
+        _gsum = np.zeros(len(F), np.int64)
+        _gsum[_faS[:, 0]] += GLASS_F[_faS[:, 1]]
+        _gsum[_faS[:, 1]] += GLASS_F[_faS[:, 0]]
+        _add = (~GLASS_F) & (~_protG) & (~TIRE_F) & (~PLASTIC_F) & (_gsum >= 2) & \
+               (ny > gny0 - 0.02) & (ny < gny1 + 0.02) & (nz > gnz0 - 0.07) & (nz < gnz1 + 0.02) & \
+               (_fnay < 0.92)
+        if not _add.any():
+            break
+        GLASS_F |= _add
+    print(f"glass band sweep: core=+{_swp_n} total={int(GLASS_F.sum())}", flush=True)
+
     # 🔧 v5r12 — پرکردن رگه‌های بدنه‌رنگ داخل باند شیشه (شکایت کاربر: رگه‌های قرمز داخل پنجره)
     # اجزای همبندِ کوچکِ غیرشیشه‌ای داخل جعبهٔ شیشه — حتی اگر به مرز باند بچسبند
     # (hole-fill قبلی فقط اجزای کاملاً محصور با رأی ۲همسایه را می‌گرفت؛ رگه‌های نازکِ چسبیده به مرز جا می‌ماندند)
@@ -485,6 +590,13 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
         col[head_m] = np.array(cfg["head"], np.float32) * (1 - 0.15 * cavb[head_m])[:, None]
     if tail_m.any():
         col[tail_m] = np.array(cfg["tail"], np.float32) * (1 - 0.15 * cavb[tail_m])[:, None]
+    # 🔧 v5r14b — فِیتر مرز چراغ عقب (سراسری): چراغ مش جدا است؛ حلقهٔ مرزی در بدنه ترکیب می‌شود
+    _feG = M.get("tail_feather")
+    if _feG is not None and not bool(tail_m.all()):
+        _fe = _feG[fidx] & (~tail_m) & (~grille_m) & (~head_m) & (~plate_m) & (~glass_m) & (~plastic_m)
+        if _fe.any():
+            col[_fe] = 0.55 * col[_fe] + 0.45 * np.array(cfg["tail"], np.float32)[None, :]
+            print(f"tail feather: {int(_fe.sum())} faces", flush=True)
     # ۳) شیشه: گرادیان آسمان — بالا روشن‌تر (بازتاب)، پایین تیره
     if glass_m.any():
         gny0, gny1 = cfg["glass_ny"]
@@ -722,6 +834,15 @@ _trim2 &= ~_trim1 & ~M["glass"]
 M["trim1"] = _trim1
 M["trim2"] = _trim2
 print(f"trim(global): ring1={int(_trim1.sum())} ring2={int(_trim2.sum())}", flush=True)
+# 🔧 v5r14b — حلقهٔ فِیتر چراغ عقب (سراسری): چراغ‌ها مش جدا می‌شوند؛ مرزشان باید
+ # در بدنه نرم شود — اینجا محاسبه و از طریق M به paint_body پاس می‌شود
+_tsG = np.zeros(len(F), np.int32)
+for _a, _b in _fa:
+    if M["tail"][_b]:
+        _tsG[_a] += 1
+    if M["tail"][_a]:
+        _tsG[_b] += 1
+M["tail_feather"] = _tsG >= 1
 _NBRs = _nbrs  # برای صاف‌سازی مرز در paint_body
 
 cav, conv = cavity_face(V, F)
