@@ -93,18 +93,28 @@ TRIM_LIN = np.array(cfg["plastic"], np.float32) * 0.72
 
 
 # ---------- بارگذاری merged ----------
+# Face-to-source-geometry map: keep original GLB part boundaries while recoloring.
+SOURCE_FACE_GROUP = None
+SOURCE_GEOM_NAMES = []
+
+
 def load_merged(path: str):
+    global SOURCE_FACE_GROUP, SOURCE_GEOM_NAMES
     sc = trimesh.load(path, force="scene")
-    Vs, Fs = [], []
+    Vs, Fs, Gs = [], [], []
+    SOURCE_GEOM_NAMES = []
     off = 0
-    for g in sc.geometry.values():
+    for gi, (name, g) in enumerate(sc.geometry.items()):
         v = np.asarray(g.vertices, np.float64)
         f = np.asarray(g.faces, np.int64)
         Vs.append(v)
         Fs.append(f + off)
+        Gs.append(np.full(len(f), gi, dtype=np.int32))
+        SOURCE_GEOM_NAMES.append(str(name))
         off += len(v)
     V = np.concatenate(Vs, 0)
     F = np.concatenate(Fs, 0)
+    SOURCE_FACE_GROUP = np.concatenate(Gs, 0)
     return V, F
 
 
@@ -246,6 +256,56 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
     if PLASTIC_F.sum() > 0:
         PLASTIC_F = PLASTIC_F & (PLASTIC_F[nn0].sum(axis=1) >= 3)
     TIRE_F = (ny < cfg["tire_ny"]) & (nx_abs > cfg["tire_nx"])
+
+    # v0.2.59: preserve original GLB geometry boundaries for wheel/tire/rim parts.
+    # The old normalized-height mask only caught part of some tires, leaving uncovered
+    # faces to fall through to the body-paint default. Expand only compact source parts
+    # that overlap a tire seed or sit concentrically around a detected wheel seed.
+    _tire_seed = TIRE_F.copy()
+    _wheel_centers = []
+    if _tire_seed.any() and SOURCE_FACE_GROUP is not None:
+        _mid_x = 0.5 * (bmin[0] + bmax[0])
+        _mid_z = 0.5 * (bmin[2] + bmax[2])
+        for _sx in (False, True):
+            for _sz in (False, True):
+                _q = _tire_seed & ((fc[:, 0] >= _mid_x) if _sx else (fc[:, 0] < _mid_x)) & \\
+                     ((fc[:, 2] >= _mid_z) if _sz else (fc[:, 2] < _mid_z))
+                if int(_q.sum()) >= 8:
+                    _wheel_centers.append(np.median(fc[_q], axis=0))
+        _expanded = 0
+        for _gid in np.unique(SOURCE_FACE_GROUP):
+            _gf = np.where(SOURCE_FACE_GROUP == _gid)[0]
+            if len(_gf) < 8:
+                continue
+            _gv = Vm[F[_gf].ravel()]
+            _gmin, _gmax = _gv.min(axis=0), _gv.max(axis=0)
+            _ge = _gmax - _gmin
+            _gc = fc[_gf].mean(axis=0)
+            _gny = (_gc[1] - bmin[1]) / ext[1]
+            _gnx = abs((_gc[0] - bmin[0]) / ext[0] - 0.5) * 2
+            _compact = (_ge[0] <= 0.30 * ext[0] and
+                        _ge[1] <= 0.42 * ext[1] and
+                        _ge[2] <= 0.34 * ext[2])
+            _wheel_zone = (_gny < min(cfg["tire_ny"] + 0.22, 0.48) and
+                           _gnx > max(cfg["tire_nx"] - 0.16, 0.30))
+            if not (_compact and _wheel_zone):
+                continue
+            _group_seed = _tire_seed[_gf]
+            _near_seed = bool(_group_seed.sum() >= 4)
+            if not _near_seed and _wheel_centers:
+                _distances = []
+                for _wc in _wheel_centers:
+                    _dy = (_gc[1] - _wc[1]) / ext[1]
+                    _dz = (_gc[2] - _wc[2]) / ext[2]
+                    _dx = (_gc[0] - _wc[0]) / ext[0]
+                    _distances.append((_dy * _dy + _dz * _dz + 0.35 * _dx * _dx) ** 0.5)
+                _near_seed = min(_distances) < 0.12
+            if _near_seed:
+                _new_faces = _gf[~TIRE_F[_gf]]
+                TIRE_F[_gf] = True
+                _expanded += len(_new_faces)
+        print(f"wheel part guard: +{_expanded} faces protected across {len(_wheel_centers)} wheel zones", flush=True)
+
     gz = cfg["grille_r"]
     GRILLE_F = (nz > gz[0]) & (nx_abs < gz[1]) & (ny > gz[2]) & (ny < gz[3]) & (fn[:, 2] > 0.5)
     hr = cfg["head_r"]
