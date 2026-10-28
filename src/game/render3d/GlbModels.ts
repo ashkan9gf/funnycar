@@ -403,8 +403,9 @@ export function assembleCarFromGLB(
             lightMaterial.emissive.set('#ffe2a3');
             lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.28);
           } else if (lightKind === 'rear') {
-            lightMaterial.emissive.set('#d71920');
-            lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.42);
+            // 🔧 v0.2.60 — سرمی گرم کمتر: قرمزِ درخشان روی مش نویزی AI مثل «لکه» دیده می‌شد
+            lightMaterial.emissive.set('#8f1113');
+            lightMaterial.emissiveIntensity = Math.min(Math.max(lightMaterial.emissiveIntensity, 0.14), 0.2);
           } else {
             lightMaterial.emissive.set('#ff9d24');
             lightMaterial.emissiveIntensity = Math.max(lightMaterial.emissiveIntensity, 0.32);

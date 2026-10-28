@@ -51,6 +51,8 @@ if KEY in ("player", "pride"):
     else:
         cfg["body"] = [0.10, 0.60, 0.58]
     cfg["tail_nx"] = 0.55  # چراغ عقب پراید — v4 با ۱٫۰ هیچ‌وقت روشن نمی‌شد
+    # 🔧 v0.2.60 — چراغ عقب تیره‌تر: قرمز روشن روی بدنهٔ قرمز مثل «لکه» دیده می‌شد
+    cfg["tail"] = [0.40, 0.045, 0.05]
     # شیشهٔ کارتونی: آبی‌خاکستری متوسط (نه سیاه) + هایلایت آسمان
     cfg["glass"] = [0.20, 0.27, 0.33]
     cfg["tail_r"] = (0.10, 0.34, 0.50)
@@ -85,8 +87,23 @@ if KEY == "challenger":
     cfg["tail_r"] = (0.06, 0.37, 0.55)
 if KEY == "nissan":
     cfg["tail_r"] = (0.07, 0.38, 0.56)
+    # 🔧 v0.2.60 — کابین نیسان مثل ۴۰۵ نیمه‌صاف است؛ جعبهٔ موقعیتی پنجرهٔ کابین
+    # (سقف nz ۰٫۵۶-۰٫۷۰ — اندازه‌گیری diag) تا شیشه‌های پراکنده/پاره نشود
+    cfg["glass_box_fill"] = (0.58, 0.90, 0.52, 0.86)
 if KEY == "peugeot405":
     cfg["tail_r"] = (0.09, 0.32, 0.48)
+    # 🔧 v0.2.60 — شیشهٔ ۴۰۵ خیلی روشن بود (سخابیِ کم‌رنگ → روی بدنهٔ سفید «پنجرهٔ سفید»
+    # دیده می‌شد)؛ طبقه‌بندی درست بود، رنگ غلط بود — همان شیشهٔ کارتونی تیرهٔ player/pride
+    cfg["glass"] = [0.20, 0.27, 0.33]
+    # 🔧 v0.2.60 — جعبهٔ شیشه تنگ بود: پنجره‌های جلو (nz ۰٫۷۵-۰٫۸۸) و ربع‌شیشهٔ عقب
+    # (nz ۰٫۱۲-۰٫۲۵) بیرون جعبه می‌افتادند و «پنجرهٔ سفید» می‌ماندند (اندازه‌گیری diag)
+    cfg["glass_nz"] = (0.10, 0.88)
+    cfg["glass_box_fill"] = (0.54, 0.87, 0.10, 0.88)
+
+
+# 🔧 v0.2.60 — چراغ عقب تیرهٔ یکسان برای همه: قرمز روشن روی مش نویزی مثل «لکه» دیده می‌شد
+# (player/pride در بلوک بالا هم ست می‌کنند — این خط پوشش سراسری است)
+cfg["tail"] = [0.40, 0.045, 0.05]
 
 
 def srgb_to_linear(c) -> np.ndarray:
@@ -207,11 +224,13 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
         # پرکردن جعبه‌ای (per-car): مش‌هایی که فرورفتگی پنجره ندارند (۴۰۵) — پنجره فقط
         # با موقعیت تعریف می‌شود؛ نرمال‌های تقریباً افقی/سقفی مستثنا می‌شوند
         _boxf = cfg.get("glass_box_fill")
+        _boxadd = np.zeros(len(F), bool)
         if _boxf:
             _bny0, _bny1, _bnz0, _bnz1 = (float(x) for x in _boxf)
             _addbox = (~GLASS_F) & (ny > _bny0) & (ny < _bny1) & (nz > _bnz0) & (nz < _bnz1) & \
                       ((np.abs(fn[:, 0]) > 0.30) | (np.abs(fn[:, 1]) < 0.85))
             GLASS_F |= _addbox
+            _boxadd = _addbox.copy()
             print(f"glass box fill: +{int(_addbox.sum())} faces", flush=True)
         # هموارسازی مرز پس از سیلاب: open ملایم + close جبرانی — لبهٔ دندانه‌دار نرم می‌شود
         _gvs = GLASS_F[nn0].sum(axis=1)
@@ -225,6 +244,11 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
         _, _nn15 = tree0.query(cent0, k=16)
         _gvs15 = GLASS_F[_nn15[:, 1:]].sum(axis=1)
         GLASS_F = GLASS_F & (_gvs15 >= 5)
+        # 🔧 v0.2.60 — فیس‌های box-fill معاف از رأی‌گیری‌ها: پنجره‌های صافِ خلوت ۴۰۵
+        # با open/open15 نابود می‌شدند (تعریف آن‌ها موقعیتی است، نه همسایگی)
+        if _boxadd.any():
+            GLASS_F |= _boxadd
+            print(f"glass box fill re-applied: {int(_boxadd.sum())} faces immune", flush=True)
     # 🔧 v5r3 — پرکردن حفره‌های بدنه‌رنگِ محصورِ داخل شیشه (رگه‌های قرمز داخل پنجرهٔ پراید)
     # اجزای همبندِ غیرشیشه‌ای که «همهٔ» فیس‌هایشان همسایهٔ شیشه دارند = رگهٔ محصور داخل پنجره
     # (بدنهٔ اصلی فیس‌های دور از شیشه دارد → واجد شرایط نیست → دست نمی‌خورد)
@@ -262,9 +286,13 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
                 GLASS_F[_comp == _r] = True
                 _filled += _sz
         print(f"glass hole fill: {_filled} faces in {len(_cand)} comps", flush=True)
+    # 🔧 v0.2.60 — زیربدنهٔ تیره فقط: کف واقعی (ny کم) یا گوشهٔ سپرها؛
+    # قبلاً تا ny 0.42 وسط بدنه دندانهٔ سیاه می‌ساخت (شکایت «توری پاره»)
     PLASTIC_F = ((ny < cfg.get("low_ny", 0.26)) & ((nz > cfg.get("plastic_nz_hi", 0.90)) | (nz < cfg.get("plastic_nz_lo", 0.10))) & ~GLASS_F) | \
                 ((ny < cfg["rocker_ny"]) & (np.abs(fn[:, 1]) < 0.5) & ~GLASS_F) | \
-                ((fn[:, 1] < -0.62) & (ny < 0.42) & ~GLASS_F)
+                ((fn[:, 1] < -0.62) & ((ny < cfg.get("under_ny", 0.18)) |
+                                       (nz > cfg.get("plastic_nz_hi", 0.90) - 0.08) |
+                                       (nz < cfg.get("plastic_nz_lo", 0.10) + 0.08)) & ~GLASS_F)
     # حذف اسپیک‌های پراکندهٔ پلاستیک (۱ دور open)
     if PLASTIC_F.sum() > 0:
         PLASTIC_F = PLASTIC_F & (PLASTIC_F[nn0].sum(axis=1) >= 3)
@@ -409,6 +437,95 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
                     GLASS_F[_m] = True
                     _vf += _sz
             print(f"glass vein fill: {_vf} faces in {len(_sizesV)} comps (glass={int(GLASS_F.sum())})", flush=True)
+    # 🔧 v0.2.60 — مورفولوژی open/close روی گراف همجواری، برای مرزهای «بدون توری‌پاره»:
+    #   open  = فرسایش + اتساع  → دندانه‌های موی ۱-۲فیسِ بیرون‌زده حذف می‌شوند
+    #   close = اتساع + فرسایش  → شکاف‌های موی داخل ناحیه پر می‌شوند
+    # گاردها: کلاس‌های prot دست‌نخورده؛ اتساعِ شیشه از پل بین دو پنجرهٔ جدا عبور نمی‌کند؛
+    # عملیات فقط داخل جعبهٔ ny/nz گسترده مجاز است (خزش به سقف/کف ممنوع).
+    if (GLASS_F.sum() > 0 or PLASTIC_F.sum() > 0) and cfg.get("label_morph", True):
+        from collections import defaultdict as _dd2
+        _faM = np.asarray(trimesh.Trimesh(Vm, F, process=False).face_adjacency)
+        _adjM = _dd2(list)
+        for _a, _b in _faM:
+            _adjM[int(_a)].append(int(_b))
+            _adjM[int(_b)].append(int(_a))
+        _protM = GRILLE_F | HEAD_F | TAIL_F | PLATE_F | STRIPE_F | BED_F
+
+        def _ufs_comps(_m):
+            _par = np.arange(len(F))
+            def _fnd(a):
+                while _par[a] != a:
+                    _par[a] = _par[_par[a]]
+                    a = _par[a]
+                return a
+            for _a2, _b2 in _faM:
+                if _m[_a2] and _m[_b2]:
+                    _ra, _rb = _fnd(int(_a2)), _fnd(int(_b2))
+                    if _ra != _rb:
+                        _par[_ra] = _rb
+            return np.array([_fnd(i) if _m[i] else -1 for i in range(len(F))]), _fnd
+
+        def _erode(_m, _allow, _ties=True):
+            _out = _m.copy()
+            for _i in np.where(_m)[0]:
+                if _protM[_i] or not _allow[_i]:
+                    continue
+                _nbs = _adjM.get(int(_i), ())
+                if not _nbs:
+                    continue
+                _r = sum(1 for _n in _nbs if _m[_n]) / len(_nbs)
+                if _r < 0.5 or (_ties and _r == 0.5):
+                    _out[_i] = False
+            return _out
+
+        def _dilate(_m, _allow, _bridge, _ties=True):
+            _out = _m.copy()
+            _comp, _fnd = _ufs_comps(_m) if _bridge else (None, None)
+            for _i in np.where(~_m)[0]:
+                if _protM[_i] or not _allow[_i]:
+                    continue
+                _nbs = _adjM.get(int(_i), ())
+                if not _nbs:
+                    continue
+                _r = sum(1 for _n in _nbs if _m[_n]) / len(_nbs)
+                if _r > 0.5 or (_ties and _r == 0.5):
+                    if _bridge:
+                        _cs = {_fnd(int(_n)) for _n in _nbs if _m[_n]}
+                        _cs.discard(-1)
+                        if len(_cs) >= 2:
+                            continue
+                    _out[_i] = True
+            return _out
+
+        # --- شیشه: ۲× (open + close) — فقط اگر ماسک ضخیم باشد؛
+        # شیشهٔ نازک/جعبه‌ای (۴۰۵/نیسان) با فرسایش پاره می‌شود → گارد تطبیقی
+        _gA = (ny > gny0 - 0.10) & (ny < min(gny1 + 0.10, 0.96)) & \
+              (nz > gnz0 - 0.10) & (nz < min(gnz1 + 0.10, 0.90))
+        _g0 = int(GLASS_F.sum())
+        _probe = _erode(GLASS_F, _gA) if GLASS_F.sum() > 0 else GLASS_F
+        if GLASS_F.sum() > 0 and int(_probe.sum()) >= 0.85 * _g0:
+            for _ in range(2):
+                _e = _erode(GLASS_F, _gA)
+                _o = _dilate(_e, _gA, True)          # open
+                _c = _dilate(_o, _gA, True)          # close: اتساع
+                GLASS_F = _erode(_c, _gA)            # close: فرسایش
+            print(f"glass morph open+close: {_g0} → {int(GLASS_F.sum())}", flush=True)
+        else:
+            print(f"glass morph SKIPPED (thin mask {_g0}, erode keeps "
+                  f"{int(_probe.sum()) if GLASS_F.sum() > 0 else 0})", flush=True)
+
+        # --- پلاستیک: ۲× open — دندانه‌های سیاه رکاب/قوس چرخ حذف می‌شوند (با گارد نازک) ---
+        _pA = ((ny < cfg.get("low_ny", 0.26) + 0.12) | (fn[:, 1] < -0.5)) & ~GLASS_F & ~_protM
+        _p0 = int(PLASTIC_F.sum())
+        _pprobe = _erode(PLASTIC_F, _pA) if PLASTIC_F.sum() > 0 else PLASTIC_F
+        if PLASTIC_F.sum() > 0 and int(_pprobe.sum()) >= 0.80 * _p0:
+            for _ in range(2):
+                _e = _erode(PLASTIC_F, _pA)
+                PLASTIC_F = _dilate(_e, _pA, False)
+            print(f"plastic morph open: {_p0} → {int(PLASTIC_F.sum())}", flush=True)
+        else:
+            print(f"plastic morph SKIPPED (thin mask {_p0})", flush=True)
+
     return {"glass": GLASS_F, "plastic": PLASTIC_F, "tire": TIRE_F, "grille": GRILLE_F,
             "head": HEAD_F, "plate": PLATE_F, "tail": TAIL_F, "bed": BED_F, "stripe": STRIPE_F,
             "ny": ny, "fn": fn, "fc": fc}
@@ -450,7 +567,7 @@ def split_wheels(V: np.ndarray, F: np.ndarray, tire_f: np.ndarray):
         comps = tgraph.connected_components(fa_edges, nodes=np.where(tire_f)[0], min_len=1)
     except Exception as e:
         print("split: adjacency failed:", e, flush=True)
-        return None
+        return None, []
     bmin, bmax = V.min(0), V.max(0)
     ext = np.maximum(bmax - bmin, 1e-6)
     cx = 0.5 * (bmin[0] + bmax[0])
@@ -518,6 +635,7 @@ def split_wheels(V: np.ndarray, F: np.ndarray, tire_f: np.ndarray):
                 print(f"  fallback {key}: disc faces={len(fb[0]['faces'])} dia={fb[0]['dia']:.1f}", flush=True)
 
     anchors: dict[tuple, list] = {}
+    _meta_by_key: dict[tuple, tuple] = {}
     for key, items in buckets.items():
         anchor = max(items, key=lambda t: len(t["faces"]))
         af = np.asarray(anchor["faces"], np.int64)
@@ -535,17 +653,21 @@ def split_wheels(V: np.ndarray, F: np.ndarray, tire_f: np.ndarray):
                     (np.abs(cc[:, 0] - wx) <= 0.40 * dia)
             keep.extend(np.asarray(cd["faces"])[dmask].tolist())
         anchors[key] = keep
+        _meta_by_key[key] = (wx, wy, wz, dia)
 
     if len(anchors) != 4 or any(len(v) < 60 for v in anchors.values()):
         print(f"split: anchors={ {k: len(v) for k, v in anchors.items()} } → single mesh", flush=True)
-        return None
+        return None, []
     wheel_of_face = np.full(len(F), -1, np.int64)
+    wmeta = []
     wi = 0
     for key in sorted(anchors.keys()):
         wheel_of_face[np.asarray(anchors[key], np.int64)] = wi
+        wx, wy, wz, dia = _meta_by_key[key]
+        wmeta.append({"cx": wx, "cy": wy, "cz": wz, "dia": dia})
         wi += 1
     print(f"split: wheel sizes={[len(v) for v in anchors.values()]}", flush=True)
-    return wheel_of_face
+    return wheel_of_face, wmeta
 
 
 # ---------- رنگ بدنه ----------
@@ -590,40 +712,47 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
         col[head_m] = np.array(cfg["head"], np.float32) * (1 - 0.15 * cavb[head_m])[:, None]
     if tail_m.any():
         col[tail_m] = np.array(cfg["tail"], np.float32) * (1 - 0.15 * cavb[tail_m])[:, None]
-    # 🔧 v5r14b — فِیتر مرز چراغ عقب (سراسری): چراغ مش جدا است؛ حلقهٔ مرزی در بدنه ترکیب می‌شود
+    # 🔧 v5r14b — فِیتر مرز چراغ عقب (سراسری): چراغ مش جدا است؛ حلقهٔ مرزی در بدنه نرم می‌شود
+    # 🔧 v0.2.60 — ۰٫۴۵→۰٫۱۵ و فقط ≥۲همسایهٔ چراغ: قبلاً لکهٔ قرمزِ روشنِ پهن می‌ساخت
     _feG = M.get("tail_feather")
     if _feG is not None and not bool(tail_m.all()):
         _fe = _feG[fidx] & (~tail_m) & (~grille_m) & (~head_m) & (~plate_m) & (~glass_m) & (~plastic_m)
         if _fe.any():
-            col[_fe] = 0.55 * col[_fe] + 0.45 * np.array(cfg["tail"], np.float32)[None, :]
+            col[_fe] = 0.85 * col[_fe] + 0.15 * np.array(cfg["tail"], np.float32)[None, :]
             print(f"tail feather: {int(_fe.sum())} faces", flush=True)
     # ۳) شیشه: گرادیان آسمان — بالا روشن‌تر (بازتاب)، پایین تیره
     if glass_m.any():
         gny0, gny1 = cfg["glass_ny"]
         t = np.clip((ny[glass_m] - gny0) / max(gny1 - gny0, 1e-6), 0, 1) ** 1.2
         g0 = np.array(cfg["glass"], np.float32)
-        g1 = np.clip(np.array(cfg["glass"], np.float32) * np.array([2.3, 2.4, 2.6], np.float32), 0, 1)
+        g1 = np.clip(np.array(cfg["glass"], np.float32) * np.array([1.55, 1.65, 1.80], np.float32), 0, 1)
         col[glass_m] = g0[None, :] * (1 - t)[:, None] + g1[None, :] * t[:, None]
 
-    # ۴) حاشیهٔ تریم دور شیشه — فقط در باند شیشه و کمی پایین‌تر (لبهٔ سقف خط تیره نگیرد)
-    UP = np.abs(fn[:, 1]) >= 0.60
-    ny_top = cfg["glass_ny"][1] + 0.04
-    below_band = ny <= ny_top
+    # ۴) 🔧 v0.2.60 — حذف حلقهٔ تریم دور شیشه (trim1/trim2):
+    # حلقهٔ ۱-۲فیسِ تیره روی مش نویزی AI مثل «توری پاره» دیده می‌شد (شکایت اصلی کاربر).
+    # حالا مرز شیشه/بدنه فقط با هموارسازی gzone + بیک AA نرم می‌شود — مثل درز کارخانه.
     prot = grille_m | head_m | tail_m | plate_m | stripe_m | bed_m | glass_m
-    t1v = trim1 & ~prot & ~UP & below_band
-    t2v = trim2 & ~prot & ~UP & ~t1v & below_band
-    if t1v.any():
-        col[t1v] = 0.70 * col[t1v] + 0.30 * TRIM_LIN[None, :]
-    if t2v.any():
-        col[t2v] = 0.88 * col[t2v] + 0.12 * TRIM_LIN[None, :]
 
-    # ۵) صاف‌سازی مرز شیشه/بدنه — فقط در نوار مرزی
+    # ۵) صاف‌سازی مرز کلاس‌ها — فقط در نوار مرزی
     # 🔑 نواحی محافظت‌شده (چراغ/پلاک/grille/نوار) وارد هموارسازی نمی‌شوند — وگرنه
     # رنگ شیشه/بدنه داخل چراغ‌ها می‌بَرد (سرریز چراغ عقب ۴۰۵)
+    # 🔧 v0.2.60 — مرز پلاستیک/پلاک هم وارد هموارسازی شد: دندانهٔ سیاه رکاب/سپر و
+    # لبهٔ پارهٔ پلاک با گرادیان نرم به بدنه می‌رسد (خواندن مثل سایه، نه توری پاره)
     gzone = glass_m | (trim1 & ~prot) | (trim2 & ~prot)
+    loc = -np.ones(len(_FULL_F), np.int64)
+    loc[fidx] = np.arange(n)
+    _nonbody = glass_m | plastic_m | grille_m | head_m | tail_m | plate_m | bed_m | stripe_m | M["tire"][fidx]
+    _pbnd = 0
+    for i in np.where(plastic_m | plate_m)[0]:
+        g = int(fidx[i])
+        for nb in _NBRs.get(g, ()):
+            li = loc[nb]
+            if li >= 0 and not _nonbody[li]:
+                gzone[i] = True
+                _pbnd += 1
+                break
+    print(f"plastic/plate boundary smoothing: {_pbnd} faces", flush=True)
     if gzone.sum() > 0:
-        loc = -np.ones(len(_FULL_F), np.int64)
-        loc[fidx] = np.arange(n)
         for _rnd in range(2):
             sums = np.zeros((n, 3), np.float32)
             cnts = np.zeros(n, np.float32)
@@ -643,25 +772,24 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
         gny0, gny1 = cfg["glass_ny"]
         t = np.clip((ny[glass_m] - gny0) / max(gny1 - gny0, 1e-6), 0, 1) ** 1.2
         g0 = np.array(cfg["glass"], np.float32)
-        g1 = np.clip(g0 * np.array([2.3, 2.4, 2.6], np.float32), 0, 1)
+        g1 = np.clip(g0 * np.array([1.55, 1.65, 1.80], np.float32), 0, 1)
         col[glass_m] = g0[None, :] * (1 - t)[:, None] + g1[None, :] * t[:, None]
 
     # قفل متریال‌های حساس پس از هموارسازی: هموارسازی نباید رنگ لاستیک/تریم را به بدنه بکشد.
     # 🔑 قفل فقط خارج از prot — چراغ/پلاک/grille نباید رنگ لاستیک محیط بگیرند
+    # 🔧 v0.2.60 — لاستیک فقط داخل دیسک چرخ‌ها؛ لبِ گلگیر دیگر سیاهِ دندانه‌دار نمی‌شود
+    # (🔒 حلقه‌های lock1/lock2 با حذف تریم حذف شدند — دور پنجره بدنهٔ رنگی می‌ماند)
     tire_m = M["tire"][fidx] & ~prot
-    lock1 = trim1 & ~prot
-    lock2 = trim2 & ~prot
+    _tk = M.get("tire_keep")
+    if _tk is not None:
+        tire_m &= _tk[fidx]
     if tire_m.any():
         col[tire_m] = np.array(cfg["tire"], np.float32) * (1.0 - 0.28 * cavb[tire_m])[:, None]
-    if lock1.any():
-        col[lock1] = 0.70 * np.array(cfg["plastic"], np.float32) + 0.30 * TRIM_LIN
-    if lock2.any():
-        # 🔑 بدون مؤلفهٔ بدنه — وگرنه بعد از بازرنگ گاراژ حلقهٔ دور پنجره با رنگ کهنه می‌ماند
-        col[lock2] = 0.85 * np.array(cfg["plastic"], np.float32) + 0.15 * TRIM_LIN
 
     # تریم و لاستیک نواحی مستقل‌اند و نباید COLOR_0 بدنه روی آن‌ها ضرب شود.
+    # 🔧 v0.2.60 — trim1/trim2 دیگر کلاس جدا نیستند → دور پنجره هم بدنهٔ بازرنگ‌پذیر است
     body_region = ~(glass_m | plastic_m | grille_m | head_m | tail_m | plate_m |
-                    bed_m | stripe_m | trim1 | trim2 | tire_m)
+                    bed_m | stripe_m | tire_m)
     alpha = np.where(body_region, 1.0, 0.99).astype(np.float32)
     # 🔑 تکسچر جدا: بدنه = سفید×سایه (رنگ فقط در COLOR_0 — وگرنه ضربِ دوباره تیره می‌کند)
     tex_col = col.copy()
@@ -697,7 +825,7 @@ def set_gltf_mats_v5(path: str):
     g = GLTF2().load(path)
     for mesh in g.meshes:
         nm = mesh.name or "funnycar_paint"
-        rough = 0.85 if "tire" in nm else (0.3 if "light" in nm else 0.5)
+        rough = 0.85 if "tire" in nm else (0.5 if "light" in nm else 0.5)
         for prim in mesh.primitives:
             tex_ref = None
             if prim.material is not None and prim.material < len(g.materials):
@@ -786,6 +914,61 @@ def bake_body_texture(uv_vert: np.ndarray, ft: np.ndarray, fcol_lin: np.ndarray,
     return Image.fromarray(arr, "RGB")
 
 
+def bake_body_texture_aa(uv_vert: np.ndarray, ft: np.ndarray, fcol_lin: np.ndarray,
+                         size: int = 1024, ss: int = 4):
+    """🔧 v0.2.60 — بیک با فراسرمپل ss× (شکایت کاربر: مرز رنگ مثل توری پاره).
+    ۱) رستر per-face در size*ss (۴۰۹۶) — دندانه‌های رستر زیرِ تکستکسل می‌روند
+    ۲) EDT پرکردن حاشیهٔ چارت‌ها در رزولوشن بالا — کشِ رنگِ عرضی حذف می‌شود
+    ۳) داون‌سمپل BOX → مرز کلاس‌ها ۱-۲تکسلیِ نرم (مثل خط لاستیک کارخانه)
+    ۴) despeckle: فقط اجزای همبند کوچکِ اوت‌لایر (تا ۱۲تکسل) — خطوط باریک تریم
+       و لبه‌های AA (اجزای بزرگ/کشیده) دست‌نخورده می‌مانند"""
+    from PIL import Image, ImageDraw
+    from scipy import ndimage
+    S = size * ss
+    img = Image.new("RGB", (S, S), (40, 40, 44))
+    cm = Image.new("L", (S, S), 0)
+    dr = ImageDraw.Draw(img)
+    drc = ImageDraw.Draw(cm)
+    cols8 = (lin_to_srgb(fcol_lin) * 255.0).astype(np.uint8)
+    uvpx = np.clip(uv_vert, 0, 1) * S
+    for fi in range(len(ft)):
+        tri = uvpx[ft[fi]]
+        pts = [(float(tri[0, 0]), float(tri[0, 1])),
+               (float(tri[1, 0]), float(tri[1, 1])),
+               (float(tri[2, 0]), float(tri[2, 1]))]
+        c = (int(cols8[fi, 0]), int(cols8[fi, 1]), int(cols8[fi, 2]))
+        dr.polygon(pts, fill=c)
+        drc.polygon(pts, fill=255)
+    arr = np.asarray(img).copy()
+    cov = np.asarray(cm) > 0
+    del img, cm, dr, drc
+    if (~cov).any():
+        idx = ndimage.distance_transform_edt(~cov, return_distances=False, return_indices=True)
+        arr = arr[idx[0], idx[1]]
+        del idx
+    del cov
+    lo = Image.fromarray(arr, "RGB").resize((size, size), Image.BOX)
+    del arr
+    a = np.asarray(lo).copy()
+    for _ in range(2):
+        lum = a.mean(axis=2)
+        med = ndimage.median_filter(lum, size=3)
+        bad = np.abs(lum.astype(np.int16) - med.astype(np.int16)) > 42
+        if not bad.any():
+            break
+        lab, nlab = ndimage.label(bad)
+        if nlab == 0:
+            break
+        sizes = np.bincount(lab.ravel())[1:]
+        small_ids = np.where(sizes <= 12)[0] + 1
+        small = np.isin(lab, small_ids)
+        if not small.any():
+            break
+        med_rgb = np.stack([ndimage.median_filter(a[:, :, ch], size=3) for ch in range(3)], axis=2)
+        a[small] = med_rgb[small]
+    return Image.fromarray(a, "RGB")
+
+
 def faces_to_vcol4(faces, fcol, alpha_f, nverts):
     vcol = np.zeros((nverts, 3), np.float32)
     vcnt = np.zeros(nverts, np.float32)
@@ -813,6 +996,19 @@ if os.environ.get("PROBE"):
     _side = (M["ny"] > 0.55) & (M["ny"] < 0.65) & (np.abs(M["fn"][:, 0]) > 0.7)
     print(f"PROBE vertical-side faces={int(_side.sum())} glass={int((M['glass'] & _side).sum())} "
           f"plastic={int((M['plastic'] & _side).sum())}", flush=True)
+if os.environ.get("PROBE405"):
+    _fcP = M["fc"]
+    _nzP = (_fcP[:, 2] - _fcP[:, 2].min()) / np.ptp(_fcP[:, 2])
+    _nyP = M["ny"]
+    _wb = (np.abs(M["fn"][:, 0]) > 0.75) & (_nyP > 0.50) & (_nyP < 0.67) & \
+          (_nzP > 0.30) & (_nzP < 0.70)
+    print(f"PROBE405 window-band faces={int(_wb.sum())} glass={int((M['glass'] & _wb).sum())} "
+          f"plastic={int((M['plastic'] & _wb).sum())} tire={int((M['tire'] & _wb).sum())} "
+          f"head={int((M['head'] & _wb).sum())} tail={int((M['tail'] & _wb).sum())}", flush=True)
+    _tw = (np.abs(M["fn"][:, 0]) > 0.4) & (np.abs(M["fn"][:, 0]) < 0.8) & (M["fn"][:, 1] > 0.75) & \
+          (_nyP > 0.62) & (_nyP < 0.90) & (_nzP > 0.25) & (_nzP < 0.75)
+    print(f"PROBE405 tilted-window faces={int(_tw.sum())} glass={int((M['glass'] & _tw).sum())} "
+          f"plastic={int((M['plastic'] & _tw).sum())}", flush=True)
 
 # حاشیهٔ تریم دور شیشه — روی همسایگی فیس‌های مش کامل (قبل از تفکیک)
 from collections import defaultdict
@@ -842,14 +1038,28 @@ for _a, _b in _fa:
         _tsG[_a] += 1
     if M["tail"][_a]:
         _tsG[_b] += 1
-M["tail_feather"] = _tsG >= 1
+# 🔧 v0.2.60 — فقط ≥۲همسایهٔ چراغ (حلقهٔ تنگ؛ قبلاً لکهٔ پهن قرمز می‌ساخت)
+M["tail_feather"] = _tsG >= 2
 _NBRs = _nbrs  # برای صاف‌سازی مرز در paint_body
 
 cav, conv = cavity_face(V, F)
 print(f"cavity: mean={cav.mean():.3f} p90={np.percentile(cav, 90):.3f}", flush=True)
 
-wof = split_wheels(V, F, M["tire"])
+wof, wmeta = split_wheels(V, F, M["tire"])
 nF = len(F)
+# 🔧 v0.2.60 — لاستیک واقعی فقط داخل دیسک چرخ‌ها (۳۳٪ سخاوتمندتر از دیسک انکر):
+# لبِ گلگیر/قوس چرخ که در جعبهٔ tire_ny/tire_nx می‌افتد ولی خارج دیسک است → بدنهٔ رنگی
+if wmeta:
+    _fcentV = V[F].mean(axis=1)
+    tire_keep = np.zeros(nF, bool)
+    for _w in wmeta:
+        tire_keep |= (np.sqrt((_fcentV[:, 1] - _w["cy"]) ** 2 + (_fcentV[:, 2] - _w["cz"]) ** 2) <= 0.80 * _w["dia"]) & \
+                     (np.abs(_fcentV[:, 0] - _w["cx"]) <= 0.55 * _w["dia"])
+    print(f"tire_keep: {int(tire_keep.sum())} faces in {len(wmeta)} wheel discs "
+          f"(tire mask was {int(M['tire'].sum())})", flush=True)
+else:
+    tire_keep = np.ones(nF, bool)
+M["tire_keep"] = tire_keep
 if wof is not None:
     parts_faces = [("body", np.where(wof < 0)[0])] + [(f"wheel_{w}", np.where(wof == w)[0]) for w in range(4)]
 else:
@@ -959,8 +1169,11 @@ for name, fidx in parts_faces:
         # 🔑 رستر باید با همان UVهایی باشد که در GLB نهایی اکسپورت می‌شوند = xatlas native —
         # (uv_vert برای trimesh فلیپ است؛ اکسپورتر خودش برمی‌گرداند → نهایی = native)
         uv_draw = np.stack([uvc[:, 0], uvc[:, 1]], axis=1)
-        # رستر تکسچر (رنگ per-face → پیکسل)
-        img = bake_body_texture(uv_draw, ft, tex_col, 1024)
+        # رستر تکسچر (رنگ per-face → پیکسل) — 🔧 v0.2.60 نسخهٔ AA فراسرمپل‌شده
+        import time as _t
+        _t0 = _t.time()
+        img = bake_body_texture_aa(uv_draw, ft, tex_col, 1024, ss=4)
+        print(f"texture AA bake: {_t.time() - _t0:.1f}s", flush=True)
         if os.environ.get("DEBUG_TEX"):
             # نقشهٔ کلاس‌ها: بدنه=قرمز، شیشه=آبی، پلاستیک=سبز، تریم۱=زرد، تریم۲=نارنجی،
             # چراغ=سفید، پلاک=فیروزه‌ای، grille=بنفش

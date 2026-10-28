@@ -1,6 +1,6 @@
 #!/bin/bash
 # render_car.sh <car> <prefix> [spins] — agent-browser render of car views
-export AGENT_BROWSER_SESSION="v0248diag"
+export AGENT_BROWSER_SESSION="v06x_${RANDOM}"
 cd /home/z/my-project
 CAR=${1:-police}
 PREFIX=${2:-v0248_$CAR}
