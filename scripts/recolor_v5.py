@@ -526,6 +526,13 @@ def zone_masks(Vm: np.ndarray, F: np.ndarray):
         else:
             print(f"plastic morph SKIPPED (thin mask {_p0})", flush=True)
 
+    # 🔧 v0.2.61 — جزیره‌های تک‌افتادهٔ شیشه روی بدنه (سرریز ریز تیره دور شیشه) → بدنه
+    if GLASS_F.sum() > 0:
+        _g7 = GLASS_F[nn0].sum(axis=1)  # self شامل
+        _iso = int((GLASS_F & (_g7 <= 2)).sum())
+        if _iso:
+            GLASS_F &= _g7 > 2
+            print(f"glass iso demote: -{_iso} faces", flush=True)
     return {"glass": GLASS_F, "plastic": PLASTIC_F, "tire": TIRE_F, "grille": GRILLE_F,
             "head": HEAD_F, "plate": PLATE_F, "tail": TAIL_F, "bed": BED_F, "stripe": STRIPE_F,
             "ny": ny, "fn": fn, "fc": fc}
@@ -766,6 +773,14 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
             ok = cnts > 0
             col[ok] = 0.55 * col[ok] + 0.45 * (sums[ok] / cnts[ok][:, None])
 
+    # 🔧 v0.2.61 — قفل مجدد پلاستیک/پلاک بعد از هموارسازی: ترکیب مرزی، رنگ بدنه را
+    # روی فیس‌های پلاستیک می‌کشد (قرمزِ خُرد شده در تکسچر = «سرریز ریز» کاربر!)
+    # بدنه‌سمتِ مرز نرم می‌ماند؛ خود پلاستیک/پلاک تمیز برمی‌گردد
+    if plastic_m.any():
+        col[plastic_m] = np.array(cfg["plastic"], np.float32) * (1 - 0.25 * cavb[plastic_m])[:, None]
+    if plate_m.any():
+        col[plate_m] = np.array(cfg["plate"], np.float32)
+
     # شیشه بعد از هموارسازی دوباره دقیقاً از گرادیان اصلی گرفته می‌شود؛
     # در غیر این صورت رنگ بدنه/تریم همسایه می‌تواند به شیشه نشت کند.
     if glass_m.any():
@@ -779,10 +794,14 @@ def paint_body(fidx: np.ndarray, M: dict, cav: np.ndarray, conv: np.ndarray):
     # 🔑 قفل فقط خارج از prot — چراغ/پلاک/grille نباید رنگ لاستیک محیط بگیرند
     # 🔧 v0.2.60 — لاستیک فقط داخل دیسک چرخ‌ها؛ لبِ گلگیر دیگر سیاهِ دندانه‌دار نمی‌شود
     # (🔒 حلقه‌های lock1/lock2 با حذف تریم حذف شدند — دور پنجره بدنهٔ رنگی می‌ماند)
-    tire_m = M["tire"][fidx] & ~prot
+    _teff = M.get("tire_eff")
+    tire_m = (_teff[fidx] if _teff is not None else M["tire"][fidx]) & ~prot
     _tk = M.get("tire_keep")
-    if _tk is not None:
+    if _tk is not None and _teff is None:
         tire_m &= _tk[fidx]
+    _well = M.get("well_black")
+    if _well is not None:
+        tire_m |= _well[fidx] & ~prot
     if tire_m.any():
         col[tire_m] = np.array(cfg["tire"], np.float32) * (1.0 - 0.28 * cavb[tire_m])[:, None]
 
@@ -1060,8 +1079,112 @@ if wmeta:
 else:
     tire_keep = np.ones(nF, bool)
 M["tire_keep"] = tire_keep
+
+# 🔧 v0.2.61 — ریشه‌کنی «سرریز ریز» چرخ (شکایت کاربر بعد از v0.2.60):
+#  مراکز چرخ از خود part چرخ (wof) گرفته می‌شوند — نه از انکرور لاستیک split_wheels
+#  (انکرور ممکن است نیمهٔ لاستیک باشد → مرکز/قطر کج → دیسک به پوستهٔ گلگیر نمی‌رسد)
+_wcent = []
+_wdia = []
 if wof is not None:
-    parts_faces = [("body", np.where(wof < 0)[0])] + [(f"wheel_{w}", np.where(wof == w)[0]) for w in range(4)]
+    for _wi in range(len(wmeta)):
+        _wf = np.where(wof == _wi)[0]
+        if len(_wf) < 60:
+            _wcent.append(None)
+            _wdia.append(0.0)
+            continue
+        _wv = V[F[_wf]].reshape(-1, 3)
+        _wmin, _wmax = _wv.min(0), _wv.max(0)
+        _d = float(_wmax[1] - _wmin[1])
+        _wcent.append((float(np.median(_wv[:, 0])),
+                       0.5 * (_wmin[1] + _wmax[1]), 0.5 * (_wmin[2] + _wmax[2])))
+        _wdia.append(_d)
+    print(f"wheel part centers: " + " ".join(
+        f"w{i}=({c[0]:.1f},{c[1]:.1f},{c[2]:.1f})d={d:.1f}" if c else f"w{i}=None"
+        for i, (c, d) in enumerate(zip(_wcent, _wdia))), flush=True)
+else:
+    _wcent = [None] * len(wmeta) if wmeta else []
+    _wdia = [0.0] * len(wmeta) if wmeta else []
+
+#  (ب) دیسک چرخ در body: پوششِ قوس چرخ که پشت لاستیک دیده می‌شود (قرمز با حفره!) +
+#      نیمهٔ پایینِ لاستیک که کلاس پلاستیک گرفته (لکه‌های سفید) → همه سیاهِ لاستیک
+#  (ج) رأی‌گیری در نوار مرزی لاستیک/بدنه — نقطه‌های ۱-۲فیسسی کلاس اشتباه حذف
+# نکته: رینگِ چرخ‌های بی‌رینگ را خود بازی با ensureHubcap نقره‌ای می‌سازد (v0.2.48)
+_claim = np.full(nF, -1, np.int64)
+if _wcent and any(c is not None for c in _wcent):
+    # (ب) دیسک چرخ — پهنای |x| سخاوتمندانه: چرخ داخل‌تر از پوستهٔ گلگیر است!
+    # 🔑 قانون «استوانهٔ چرخ»: هر فیس غیر-prot داخل استوانهٔ تنگ چرخ سیاه می‌شود —
+    # پوستهٔ بیرونی گلگیر (|x−cx| ≈ ۰٫۵۵dia) بیرون استوانه می‌ماند (بدنهٔ سالم)
+    _well = np.zeros(nF, bool)
+    for _c, _d in zip(_wcent, _wdia):
+        if _c is None or _d < 1e-3:
+            continue
+        _cx, _cy, _cz = _c
+        _rhoW = np.sqrt((_fcentV[:, 1] - _cy) ** 2 + (_fcentV[:, 2] - _cz) ** 2)
+        _well |= (_rhoW <= 0.60 * _d) & (np.abs(_fcentV[:, 1] - _cy) <= 0.50 * _d) & \
+                 (np.abs(_fcentV[:, 0] - _cx) <= 0.45 * _d)
+    _well &= wof < 0
+    _well0 = _well.copy()
+    _well &= ~(M["glass"] | M["head"] | M["tail"] | M["plate"] | M["grille"])
+    print(f"well black: raw={int(_well0.sum())} final={int(_well.sum())} "
+          f"(wheel-part faces خودشان سیاه می‌شوند)", flush=True)
+    # 🔍 diag — هیستوگرام کلاس داخل دیسک هر چرخ (فیس‌های body)
+    for _c, _d in zip(_wcent, _wdia):
+        if _c is None or _d < 1e-3:
+            continue
+        _cx, _cy, _cz = _c
+        _rhoD = np.sqrt((_fcentV[:, 1] - _cy) ** 2 + (_fcentV[:, 2] - _cz) ** 2)
+        _dm = (wof < 0) & (_rhoD <= 0.55 * _d) & (np.abs(_fcentV[:, 0] - _cx) <= 0.60 * _d)
+        _cls = {
+            "tire": int((M["tire"] & _dm).sum()),
+            "plastic": int((M["plastic"] & _dm).sum()),
+            "glass": int((M["glass"] & _dm).sum()),
+            "head": int((M["head"] & _dm).sum()),
+            "tail": int((M["tail"] & _dm).sum()),
+            "plate": int((M["plate"] & _dm).sum()),
+            "grille": int((M["grille"] & _dm).sum()),
+        }
+        _clssum = sum(_cls.values())
+        print(f"  disc diag @{_cx:.0f}: body-faces={int(_dm.sum())} classes={_cls} "
+              f"plain-body={int(_dm.sum()) - _clssum}", flush=True)
+    # (ج) رأی‌گیری نوار مرزی — فقط فیس‌های body (مراکز part-محور)
+    _teff = (M["tire"] & tire_keep).copy()
+    _band = np.zeros(nF, bool)
+    for _c, _d in zip(_wcent, _wdia):
+        if _c is None or _d < 1e-3:
+            continue
+        _cx, _cy, _cz = _c
+        _rhoB = np.sqrt((_fcentV[:, 1] - _cy) ** 2 + (_fcentV[:, 2] - _cz) ** 2)
+        _band |= (_rhoB >= 0.42 * _d) & (_rhoB <= 0.68 * _d) & \
+                 (np.abs(_fcentV[:, 0] - _cx) <= 0.60 * _d)
+    if wof is not None:
+        _band &= wof < 0
+    _prot_vote = M["glass"] | M["plastic"] | M["grille"] | M["head"] | M["tail"] | M["plate"]
+    for _ in range(2):
+        _tc = np.zeros(nF, np.int32)
+        for _i in np.where(_band)[0]:
+            _c = 0
+            for _nb in _NBRs.get(int(_i), ()):
+                _c += 1 if _teff[_nb] else 0
+            _tc[_i] = _c
+        _dem = _band & _teff & (_tc < 3)
+        _pro = _band & ~_teff & ~_prot_vote & (_tc >= 6)
+        if not (_dem.any() or _pro.any()):
+            break
+        _teff[_dem] = False
+        _teff[_pro] = True
+        print(f"tire boundary vote: demote={int(_dem.sum())} promote={int(_pro.sum())}", flush=True)
+    M["tire_eff"] = _teff
+else:
+    _well = np.zeros(nF, bool)
+M["well_black"] = _well
+
+if wof is not None:
+    _bf = np.where((wof < 0) & (_claim < 0))[0]
+    parts_faces = [("body", _bf)]
+    for _wi in range(len(wmeta)):
+        _wf = np.where(wof == _wi)[0]
+        _cf = np.where(_claim == _wi)[0]
+        parts_faces.append((f"wheel_{_wi}", np.concatenate([_wf, _cf]) if len(_cf) else _wf))
 else:
     parts_faces = [("body", np.arange(nF))]
 

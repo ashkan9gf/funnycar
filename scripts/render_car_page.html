@@ -1,5 +1,12 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>car render</title></head>
 <body>
-<script type="module" src="./render_car_bundle.js"></script>
+<script>
+  var q = new URLSearchParams(location.search);
+  var s = document.createElement('script');
+  var b = q.get('zoompage') === '1' ? './render_car_zoom_bundle.js' : (q.get('rawpage') === '1' ? './render_raw_bundle.js' : './render_car_bundle.js');
+  s.type = 'module';
+  s.src = b + '?v=' + Date.now();
+  document.body.appendChild(s);
+</script>
 </body></html>
