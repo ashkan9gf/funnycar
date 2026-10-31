@@ -723,21 +723,25 @@ let skyDomeTex: THREE.CanvasTexture | null = null;
 export function getSkyDomeTexture(): THREE.CanvasTexture {
   if (skyDomeTex) return skyDomeTex;
   const { c, ctx } = makeCanvas(512, 256);
+  // 🔑 v0.2.62 — آبی از ~۲۰ درجه بالای افق شروع می‌شود (قبلاً فقط سرِ گنبد آبی بود
+  // و دوربین تعقیبی همیشه فقط نوار شیریِ افق را می‌دید)
   const grad = ctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0.0, '#2f6fae'); // آبی عمیق بالا
-  grad.addColorStop(0.35, '#5da4d6');
-  grad.addColorStop(0.62, '#a8d3e8');
-  grad.addColorStop(0.82, '#e8ddb5'); // غبار گرم افق
-  grad.addColorStop(1.0, '#f2d9a8'); // طلایی نزدیک زمین
+  grad.addColorStop(0.00, '#1c5fae'); // آبی عمیق سِنیت
+  grad.addColorStop(0.30, '#3a89c9');
+  grad.addColorStop(0.58, '#66abd8');
+  grad.addColorStop(0.78, '#9ecbe4');
+  grad.addColorStop(0.92, '#c8dce2'); // آبیِ کمرنده تا خود افق
+  grad.addColorStop(0.965, '#e4dcc0'); // غبار گرم فقط باریک‌ترین نوار افق
+  grad.addColorStop(1.00, '#ecdcae'); // طلایی زمین
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 512, 256);
   // هاله خورشید (بالا-راست نیم‌کره)
-  const sg = ctx.createRadialGradient(360, 70, 8, 360, 70, 90);
-  sg.addColorStop(0, 'rgba(255,244,214,0.95)');
-  sg.addColorStop(0.25, 'rgba(255,224,160,0.55)');
+  const sg = ctx.createRadialGradient(360, 70, 8, 360, 70, 110);
+  sg.addColorStop(0, 'rgba(255,246,220,0.98)');
+  sg.addColorStop(0.22, 'rgba(255,228,165,0.60)');
   sg.addColorStop(1, 'rgba(255,214,140,0)');
   ctx.fillStyle = sg;
-  ctx.fillRect(240, 0, 240, 170);
+  ctx.fillRect(230, 0, 250, 190);
   // چند ابر نرم دوردست
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
   for (const [cx, cy, rw] of [[90, 62, 60], [150, 78, 44], [430, 110, 52], [250, 95, 40]] as const) {
@@ -892,12 +896,17 @@ export function getBuildingFacade(type: 'apartment' | 'shop' | 'home' | 'garage'
   const CH = 704;
   const { c, ctx } = makeCanvas(CW, CH);
   const { c: ec, ctx: ectx } = makeCanvas(CW, CH);
+  // 🔑 v0.2.62 — نقشهٔ زبری: شیشهٔ پنجره صاف (تیره = رافنس کم) → خورشید/آسمان واقعاً
+  // روی پنجره‌ها هایلایت می‌اندازد؛ دیوار زبر (روشن). بدون هزینهٔ هندسهٔ اضافه.
+  const { c: rc, ctx: rctx } = makeCanvas(CW, CH);
 
   // ---------- پس‌زمینه دیوار + لکه‌های عمر ----------
   ctx.fillStyle = pal.wall;
   ctx.fillRect(0, 0, CW, CH);
   ectx.fillStyle = '#000000';
   ectx.fillRect(0, 0, CW, CH);
+  rctx.fillStyle = '#e9e9e9'; // دیوار: زبر (~۰٫۹۱)
+  rctx.fillRect(0, 0, CW, CH);
   for (let i = 0; i < 60; i++) {
     ctx.fillStyle = `rgba(${rng() > 0.5 ? '255,255,255' : '60,50,40'},${0.02 + rng() * 0.045})`;
     const sw = 14 + rng() * 70;
@@ -924,6 +933,11 @@ export function getBuildingFacade(type: 'apartment' | 'shop' | 'home' | 'garage'
     // قاب
     ctx.fillStyle = pal.trim;
     ctx.fillRect(x - 5, y - 5, w + 10, h + 10);
+    // 🔑 v0.2.62 — شیشه در نقشهٔ زبری صاف می‌شود (قاب + شیشه)
+    rctx.fillStyle = '#d9d9d9'; // قاب تریم: کمی صاف‌تر از دیوار
+    rctx.fillRect(x - 5, y - 5, w + 10, h + 10);
+    rctx.fillStyle = '#484848'; // شیشه: رافنس ~۰٫۲۸
+    rctx.fillRect(x, y, w, h);
     // شیشه
     if (lit > 0) {
       // نور داخلی — روی رنگ + روی emissive
@@ -1019,6 +1033,9 @@ export function getBuildingFacade(type: 'apartment' | 'shop' | 'home' | 'garage'
     dg.addColorStop(1, '#6d93a8');
     ctx.fillStyle = dg;
     ctx.fillRect(CW * 0.06, gy + 18, dispW, groundH - 42);
+    // 🔑 v0.2.62 — ویترین هم شیشهٔ صاف (هایلایت آسمان)
+    rctx.fillStyle = '#3e3e3e';
+    rctx.fillRect(CW * 0.06, gy + 18, dispW, groundH - 42);
     // اجناس داخل ویترین (طنز بصری)
     ctx.fillStyle = 'rgba(50,40,30,0.35)';
     for (let s = 0; s < 5; s++) ctx.fillRect(CW * 0.06 + 12 + s * dispW / 5.4, gy + groundH - 46, 20, 26);
@@ -1066,13 +1083,16 @@ export function getBuildingFacade(type: 'apartment' | 'shop' | 'home' | 'garage'
 
   const colorTex = toTex(c);
   const emissiveTex = toTex(ec);
+  const roughTex = toTex(rc);
   const material = new THREE.MeshStandardMaterial({
     map: colorTex,
     emissiveMap: emissiveTex,
     emissive: new THREE.Color('#ffffff'),
     emissiveIntensity: 0.85,
-    roughness: 0.86,
-    metalness: 0.04,
+    roughness: 1.0, // 🔑 از roughnessMap خوانده می‌شود (شیشه صاف / دیوار زبر)
+    roughnessMap: roughTex,
+    metalness: 0.06,
+    envMapIntensity: 0.6,
   });
   const pair: BuildingFacadePair = { color: colorTex, emissive: emissiveTex, material };
   buildingFacadeCache.set(key, pair);

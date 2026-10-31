@@ -11,7 +11,6 @@
  */
 
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { AssetManager } from '../core/AssetManager';
 import type { Camera } from '../core/Camera';
@@ -104,13 +103,15 @@ function parseColor(c: string): { color: THREE.Color; alpha: number } {
 // Shared geometry/materials avoid per-building GPU-resource churn in the endless city.
 // Shared façade materials; details are merged into three meshes per building.
 // Day/night palette constants are shared to avoid allocating colors in the render loop.
-const SKY_DAY = new THREE.Color('#eaf2f8');
+// 🔑 v0.2.62 — AAA-pass: آسمان آبی‌تر (فیل هِمی آبی از بالا)، غبار افق کم‌رنگ‌تر،
+// خورشید پررنگ‌تر — کنتراست نور مستقیم/محیطی مثل بازی‌های آرکید مدرن
+const SKY_DAY = new THREE.Color('#bcd8ee');
 const SKY_NIGHT = new THREE.Color('#18243d');
-const GROUND_DAY = new THREE.Color('#c9a97a');
+const GROUND_DAY = new THREE.Color('#b39c76');
 const GROUND_NIGHT = new THREE.Color('#18202c');
-const FOG_DAY = new THREE.Color('#e6dcc4');
+const FOG_DAY = new THREE.Color('#d9ded3');
 const FOG_NIGHT = new THREE.Color('#202a3b');
-const SUN_DAY = new THREE.Color('#ffdfb0');
+const SUN_DAY = new THREE.Color('#ffe3b8');
 const SUN_DUSK = new THREE.Color('#ff8b55');
 const ROAD_DAY_TINT = new THREE.Color('#ffffff');
 const ROAD_NIGHT_TINT = new THREE.Color('#aab8d0');
@@ -275,12 +276,14 @@ function getShadowQualityProfile(
   const highEnd = cores >= 8 && memory !== null && memory >= 8 && maxTextureSize >= 8192;
 
   if (lowEnd) {
-    return { mapSize: 1024, refreshEvery: 4, normalBias: 0.022, radius: 1.25 };
+    // 🔑 v0.2.62 — با کادر ±۲۱۵ حتی نقشهٔ ۱۰۲۴ هم ۰٫۴۲ واحد/تکسل می‌شود؛ ۱۵۳۶ + شعاع کمتر
+    // = سایهٔ خوانا روی گوشی‌های ضعیف، بدون پرش محسوس هزینه (refreshEvery ۴ حفظ شد)
+    return { mapSize: 1536, refreshEvery: 4, normalBias: 0.016, radius: 1.0 };
   }
   if (highEnd) {
-    return { mapSize: 2048, refreshEvery: 2, normalBias: 0.014, radius: 1.75 };
+    return { mapSize: 2048, refreshEvery: 2, normalBias: 0.010, radius: 1.2 };
   }
-  return { mapSize: 2048, refreshEvery: 3, normalBias: 0.018, radius: 1.5 };
+  return { mapSize: 2048, refreshEvery: 3, normalBias: 0.012, radius: 1.1 };
 }
 
 export class WorldRenderer3D {
@@ -503,7 +506,8 @@ export class WorldRenderer3D {
     this.octx = octx;
 
     // ---------- فاز CINEMATIC: گنبد آسمان + مه گرم غبار افق تهران ----------
-    this.scene.fog = new THREE.Fog('#e6dcc4', 1300, RENDER3D.fogFar);
+    // 🔑 v0.2.62 — میدان میانی شارپ: مه دیرتر شروع می‌شود (قبلاً از ~۹۵۰ همه‌چیز شیری می‌شد)
+    this.scene.fog = new THREE.Fog('#d9ded3', 1650, RENDER3D.fogFar);
     this.buildSkyDome();
     this.buildClouds();
 
@@ -514,41 +518,49 @@ export class WorldRenderer3D {
     this.r3.toneMapping = THREE.ACESFilmicToneMapping;
     this.r3.toneMappingExposure = 1.2;
 
-    // نور محیطی مبتنی بر PMREM: بازتاب نرم روی رنگ خودروها و سطوح PBR —
+    // نور محیطی مبتنی بر PMREM: 🔑 v0.2.62 — محیط از خود آسمان بازی (نه استودیوی خاکستری):
+    // بازتاب آبیِ آسمان روی سقف/شیشهٔ خودرو + گرمای زمین از پایین = حس «بیرون» واقعی
     // یک‌بار در boot ساخته می‌شود، صفر هزینهٔ هر-فریم؛ روی موبایل هم فعال می‌ماند
-    // (سایه‌ها دست‌نخورده — برخلاف شاخهٔ کاربر که سایهٔ موبایل را کور می‌کرد)
     const pmrem = new THREE.PMREMGenerator(this.r3);
-    const studio = new RoomEnvironment();
-    this.environmentTarget = pmrem.fromScene(studio, 0.04);
+    const envScene = new THREE.Scene();
+    const envDome = new THREE.Mesh(
+      new THREE.SphereGeometry(90, 32, 18, 0, Math.PI * 2, 0, Math.PI * 0.62),
+      new THREE.MeshBasicMaterial({ map: getSkyDomeTexture(), side: THREE.BackSide }),
+    );
+    envScene.add(envDome);
+    const envGround = new THREE.Mesh(
+      new THREE.CircleGeometry(80, 24),
+      new THREE.MeshBasicMaterial({ color: '#8f7f60' }),
+    );
+    envGround.rotation.x = -Math.PI / 2;
+    envGround.position.y = -26;
+    envScene.add(envGround);
+    this.environmentTarget = pmrem.fromScene(envScene, 0.05);
     this.scene.environment = this.environmentTarget.texture;
-    this.scene.environmentIntensity = 0.82;
+    this.scene.environmentIntensity = 0.6;
+    envDome.geometry.dispose(); (envDome.material as THREE.Material).dispose();
+    envGround.geometry.dispose(); (envGround.material as THREE.Material).dispose();
     pmrem.dispose();
-    studio.traverse((obj) => {
-      const mesh = obj as THREE.Mesh;
-      if (mesh.geometry) mesh.geometry.dispose();
-      const mat = (mesh as unknown as { material?: THREE.Material | THREE.Material[] }).material;
-      if (Array.isArray(mat)) mat.forEach((mm) => mm.dispose());
-      else if (mat) mat.dispose();
-    });
 
     // نور: خورشید طلایی با سایه‌های بلند + آسمان روشن
+    // 🔑 v0.2.62 — نسبت خورشید/محیط بالاتر = سایه‌های خوانا و رنگ‌های اشباع‌تر
     this.hemi = new THREE.HemisphereLight(SKY_DAY, GROUND_DAY, RENDER3D.hemiIntensity);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight('#ffdfb0', RENDER3D.sunIntensity);
+    this.sun = new THREE.DirectionalLight('#ffe3b8', RENDER3D.sunIntensity);
     this.sun.castShadow = true;
-    // 🔑 PERF-4 (لگ حین رانندگی): کادر قبلی ±۶۲۰ با نقشهٔ ۱۰۲۴ — حین رانندگی صدها
-    // سایه‌انداز دور و بر داخل shadow pass رندر می‌شدند و تراکم تکسل فقط ۰٫۸۳/واحد بود.
-    // حالا کادر ±۳۳۰ دور ماشین + نقشهٔ ۲۰۴۸ → سایهٔ «شارپ‌تر» (کیفیت بالاتر) با کسری از هزینه.
+    // 🔑 PERF-4 + v0.2.62: کادر ±۳۳۰ دور ماشین بود (۰٫۳۲ واحد/تکسل) — سایهٔ ماشین
+    // مِه‌مانند بود. حالا ±۲۱۵ با نقشهٔ ۲۰۴۸ روی همهٔ رده‌ها → تراکم ۰٫۲۱ واحد/تکسل،
+    // سایهٔ خوانا؛ شعاع PCF کمتر = لبهٔ تمیز. refreshEvery همان بودجهٔ موبایل را حفظ می‌کند.
     const shadowProfile = getShadowQualityProfile(gl);
     this.shadowRefreshEvery = shadowProfile.refreshEvery;
     this.shadowRefreshDefault = shadowProfile.refreshEvery;
     this.sun.shadow.mapSize.set(shadowProfile.mapSize, shadowProfile.mapSize);
-    this.sun.shadow.camera.left = -330;
-    this.sun.shadow.camera.right = 330;
-    this.sun.shadow.camera.top = 330;
-    this.sun.shadow.camera.bottom = -330;
-    this.sun.shadow.camera.near = 100;
-    this.sun.shadow.camera.far = 1800;
+    this.sun.shadow.camera.left = -215;
+    this.sun.shadow.camera.right = 215;
+    this.sun.shadow.camera.top = 215;
+    this.sun.shadow.camera.bottom = -215;
+    this.sun.shadow.camera.near = 80;
+    this.sun.shadow.camera.far = 1500;
     this.sun.shadow.bias = -0.0006;
     this.sun.shadow.normalBias = shadowProfile.normalBias;
     this.sun.shadow.radius = shadowProfile.radius;
@@ -2507,11 +2519,12 @@ export class WorldRenderer3D {
       this.playerHeadlightSpill.scale.set(beamScale, 1, beamScale);
     }
     // Contact shadows read most clearly in daylight and soften naturally at night.
+    // 🔑 v0.2.62 — کمی پررنگ‌تر تا خودرو «روی زمین بنشیند»
     if (this.playerContactShadow) {
-      (this.playerContactShadow.material as THREE.MeshBasicMaterial).opacity = 0.12 + easedDay * 0.16;
+      (this.playerContactShadow.material as THREE.MeshBasicMaterial).opacity = 0.18 + easedDay * 0.18;
     }
     if (this.trafficContactShadows) {
-      (this.trafficContactShadows.material as THREE.MeshBasicMaterial).opacity = 0.10 + easedDay * 0.14;
+      (this.trafficContactShadows.material as THREE.MeshBasicMaterial).opacity = 0.15 + easedDay * 0.16;
     }
     if (this.starField) (this.starField.material as THREE.PointsMaterial).opacity = nightVisibility * 0.92;
     if (this.moon) (this.moon.material as THREE.MeshBasicMaterial).opacity = nightVisibility * 0.96;
@@ -2519,7 +2532,9 @@ export class WorldRenderer3D {
 
     this.hemi.color.lerpColors(SKY_NIGHT, SKY_DAY, easedDay);
     this.hemi.groundColor.lerpColors(GROUND_NIGHT, GROUND_DAY, easedDay);
-    this.hemi.intensity = RENDER3D.hemiIntensity * (0.34 + easedDay * 0.66);
+    // 🔑 v0.2.62 — هِمی کمتر (۰٫۳۴→۰٫۳۰ کف شب / ۰٫۶۶→۰٫۵۲ روز): سایه‌ها عمق می‌گیرند،
+    // جبرانش با خورشید قوی‌تر و محیط آسمانی
+    this.hemi.intensity = RENDER3D.hemiIntensity * (0.30 + easedDay * 0.52);
 
     // Warm sunrise/sunset, cool night ambience, full warm daylight.
     const dusk = Math.max(0, 1 - Math.abs(daylight - 0.22) / 0.22) * (daylight > 0 ? 1 : 0);
@@ -2529,7 +2544,8 @@ export class WorldRenderer3D {
     const fog = this.scene.fog;
     if (fog instanceof THREE.Fog) {
       fog.color.lerpColors(FOG_NIGHT, FOG_DAY, easedDay);
-      fog.near = 920 + easedDay * 380;
+      // 🔑 v0.2.62 — شروع مه دیرتر (میدان میانی شارپ) و رنگ‌های کم‌زردتر
+      fog.near = 1450 + easedDay * 380;
       fog.far = RENDER3D.fogFar;
     }
 
@@ -2549,8 +2565,10 @@ export class WorldRenderer3D {
       glow.color.copy(SUN_NIGHT).lerp(SUN_DAY, easedDay).lerp(SUN_DUSK, dusk * 0.55);
     }
 
-    this.scene.environmentIntensity = 0.48 + easedDay * 0.34;
-    this.r3.toneMappingExposure = 0.82 + easedDay * 0.38;
+    this.scene.environmentIntensity = 0.34 + easedDay * 0.30;
+    // 🔑 v0.2.62 — اکسپوزر روزانه ۱٫۲۰→۱٫۰۸: ACES با نور قوی‌تر کنتراست می‌گیرد،
+    // شست‌وشوی شیریِ فریم حذف می‌شود
+    this.r3.toneMappingExposure = 0.84 + easedDay * 0.24;
 
     // 🔑 v0.2.49 — تاریِ باران روی همهٔ نورها (بعد از محاسبات شب/روز)
     if (this.rainFactor > 0.002) {
@@ -3608,7 +3626,7 @@ export class WorldRenderer3D {
 
     // ---------- نور خورشید دنبال بازیکن — زاویه پایین‌تر = سایه‌های بلند سینمایی ----------
     // 🔑 PERF-4: snap به شبکهٔ تکسل (۶۶۰/۲۰۴۸) — نقشهٔ سایه با حرکت ماشین «نلرزد»
-    const sunSnap = 660 / 2048;
+    const sunSnap = 430 / 2048; // 🔑 v0.2.62 — snap با کادر جدید (۴۳۰=عرض کادر سایه)
     const sunX = Math.round(car.x / sunSnap) * sunSnap;
     const sunZ = Math.round(car.y / sunSnap) * sunSnap;
     const cyclePhase = (t % 360) / 360;

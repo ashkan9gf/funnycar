@@ -330,13 +330,14 @@ export function assembleCarFromGLB(
         if (/glass|window|windshield|windscreen/.test(materialName)) {
           // Vehicle glazing: tighter highlights and a subtle clearcoat without
           // forcing transparency on assets whose GLB author intentionally omitted it.
+          // 🔑 v0.2.62 — شیشهٔ براق‌تر با بازتاب آسمان
           const glazing = new THREE.MeshPhysicalMaterial();
           Object.assign(glazing, material);
-          glazing.roughness = Math.max(0.12, Math.min(0.3, material.roughness));
+          glazing.roughness = Math.max(0.08, Math.min(0.22, material.roughness));
           glazing.metalness = Math.min(0.06, material.metalness);
-          glazing.clearcoat = 0.42;
-          glazing.clearcoatRoughness = 0.16;
-          glazing.envMapIntensity = 1.25;
+          glazing.clearcoat = 0.75;
+          glazing.clearcoatRoughness = 0.08;
+          glazing.envMapIntensity = 1.55;
           material.dispose();
           return glazing;
         }
@@ -353,15 +354,17 @@ export function assembleCarFromGLB(
         } else {
           // Automotive paint: physical clearcoat adds a restrained lacquer highlight.
           // Preserve all imported maps, vertex colors and base material parameters.
+          // 🔑 v0.2.62 — لاک کاری واقعی: کلیرکوت قوی‌تر + رافنس پایین‌تر = هایلایت آینه‌ای
+          // نرم روی بدنه (قبلاً ۰٫۱۲–۰٫۳۲ بود و بدنه مات دیده می‌شد)
           const paint = new THREE.MeshPhysicalMaterial();
           // Copy only properties present on the imported Standard material;
           // Object.assign leaves Physical-only defaults intact when absent.
           Object.assign(paint, material);
-          paint.clearcoat = /paint|body|car|exterior|кузов/i.test(materialName) ? 0.32 : 0.12;
-          paint.clearcoatRoughness = 0.28;
-          paint.roughness = Math.max(0.3, Math.min(0.68, material.roughness));
-          paint.metalness = Math.max(0, Math.min(0.28, material.metalness));
-          paint.envMapIntensity = 1.15;
+          paint.clearcoat = /paint|body|car|exterior|кузов/i.test(materialName) ? 0.95 : 0.55;
+          paint.clearcoatRoughness = 0.12;
+          paint.roughness = Math.max(0.20, Math.min(0.5, material.roughness));
+          paint.metalness = Math.max(0, Math.min(0.12, material.metalness));
+          paint.envMapIntensity = 1.35;
           material.dispose();
           return paint;
         }

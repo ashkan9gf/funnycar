@@ -484,12 +484,12 @@ export const RENDER3D = {
   /** نرمی پیگرد موقعیت */
   camPosLerp: 6.5,
   /** مه و رنگ آسمان (نقشه بزرگ — دورتر) */
-  fogNear: 1000,
+  fogNear: 1450,
   fogFar: 3300,
   skyColor: '#AEDCEB',
-  /** نور */
-  sunIntensity: 1.42,
-  hemiIntensity: 0.92,
+  /** نور — 🔑 v0.2.62 AAA-pass: خورشید قوی‌تر + هِمی کمتر = کنتراست و سایهٔ خوانا */
+  sunIntensity: 1.95,
+  hemiIntensity: 0.74,
   /** سقف رد لاستیک و ذرات در حالت سه‌بعدی (Pool) */
   skidMax: 180,
   particleMax: 140,
