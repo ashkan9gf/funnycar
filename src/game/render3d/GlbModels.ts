@@ -18,6 +18,32 @@ import { VEHICLE_SPECS, FIXED_COLORS, VEHICLE_COLORS } from './vehicleGeometry';
  * (ضربِ رنگ، بدنهٔ بیک‌شده را تیره می‌کند — باگ سرمه‌ای نیسان/۴۰۵)
  * رنگ گاراژ به‌جای تینت، رأس‌های α=۱ (ناحیهٔ بدنه) را در setPlayerPaint عوض می‌کند */
 export const BAKED_PAINT = new Set<string>(['player', 'pride', 'nissan', 'tiba', 'peugeot405', 'samand', 'taxi', 'police', 'renault4', 'vintage', 'challenger']);
+
+/**
+ * 🔑 v0.2.63 — بازرنگ رأسی مدل بیک‌شده (اشتراکی بین گاراژ و پیش‌نمایش فروشگاه).
+ * رأس‌های COLOR_0 با α≥۰٫۹۹۵ = بدنهٔ رنگ‌پذیر → rgb = رنگ جدید؛
+ * شیشه/لاستیک/چراغ/پلاک (α=۰٫۹۹) دست‌نخورده — همان منطق setPlayerPaint
+ * ولی برای هر مدل دلخواه (پیش‌نمایش گاراژ بدون تینت متریال).
+ */
+export function repaintBakedModelVerts(group: THREE.Object3D, hex: string): boolean {
+  if (typeof hex !== 'string' || !hex.startsWith('#')) return false;
+  const c = new THREE.Color(hex); // خطی — همان فضای COLOR_0
+  let changed = false;
+  group.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh || !mesh.isMesh) return;
+    const attr = mesh.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+    if (!attr || attr.itemSize !== 4) return;
+    for (let i = 0; i < attr.count; i++) {
+      if (attr.getW(i) >= 0.995) {
+        attr.setXYZ(i, c.r, c.g, c.b);
+        changed = true;
+      }
+    }
+    if (changed) attr.needsUpdate = true;
+  });
+  return changed;
+}
 import { BUILDING_VARIANTS_PER_TYPE } from './cityGeometry';
 
 /**
@@ -712,12 +738,16 @@ export function assembleCarFromGLB(
     // 🔑 v0.2.41: رنگ بدنه مدل واقعی — درخواست کاربر «ماشین‌هایی که مدل دارن با بدنه رنگی متفاوت»
     // متریال‌های بدنه رنگ می‌شوند: بی‌تکسچر = رنگ کامل، تکسچردار = تینت orig×رنگ
     // سفیدِ پیش‌فرض (±۸٪) = بدون تینت تا ظاهر اصلی مدل حفظ شود
+    // 🔑 v0.2.63 — مدل‌های بیک‌شدهٔ AI (BAKED_PAINT): رنگ فابریک از قبل در COLOR_0 رأس‌های
+    // بدنه (α=۱) هست. ضربِ material.color = «دوبار رنگ» (بدنهٔ تیرهٔ اشتباه) + رنگ‌شدن
+    // تکسل‌های تیرهٔ شیشه/پلاستیک («لکهٔ سیاه روی کابین» — شکایت کاربر). برای این مدل‌ها
+    // رنگ‌آمیزی فقط از مسیر بازنویسی COLOR_0 (repaintBakedModelVerts / setPlayerPaint).
     const paintColor = new THREE.Color(bodyColor);
     const nearWhite =
       Math.abs(paintColor.r - 1) < 0.08 &&
       Math.abs(paintColor.g - 1) < 0.08 &&
       Math.abs(paintColor.b - 1) < 0.08;
-    if (!nearWhite) {
+    if (!nearWhite && !BAKED_PAINT.has(variant)) {
       for (const pm of paintMats) pm.mat.color.copy(pm.orig).multiply(paintColor);
     }
 

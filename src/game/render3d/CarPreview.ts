@@ -15,7 +15,7 @@
 
 import * as THREE from 'three';
 import { buildCar3D, type CarVariant } from './CarFactory3D';
-import { GlbLibrary, assembleCarFromGLB, pickBodyColor } from './GlbModels';
+import { GlbLibrary, assembleCarFromGLB, pickBodyColor, BAKED_PAINT, repaintBakedModelVerts } from './GlbModels';
 
 const PREVIEW_W = 384;
 const PREVIEW_H = 232;
@@ -130,11 +130,18 @@ export function renderCarPreviewAsync(variant: CarVariant, paintHex: string | nu
       const scene = await previewGlb.loadCar(variant, false);
       if (!scene || !ensurePreviewStage()) return null;
       const url = captureCar(() => {
+        // 🔑 v0.2.63 — مدل‌های بیک‌شده: رنگ = بازنویسی COLOR_0 (بدون تینت متریال؛
+        // ضرب متریال شیشه/پلاستیک را هم رنگ می‌کرد = «لکهٔ سیاه» در پیش‌نمایش فروشگاه)
+        const baked = BAKED_PAINT.has(variant);
+        const hexForPaint = baked ? undefined : (paintHex ?? pickBodyColor(variant));
         const model = assembleCarFromGLB(variant, scene, {
           external: true,
-          bodyColor: paintHex ?? pickBodyColor(variant),
+          bodyColor: hexForPaint,
         });
         if (!model) return null;
+        if (baked && paintHex && paintHex !== '#f4f4f0') {
+          repaintBakedModelVerts(model.group, paintHex);
+        }
         model.group.rotation.y = -0.62;
         return model.group;
       });
@@ -211,11 +218,18 @@ export function renderCarPreviewSpin(variant: CarVariant, paintHex: string | nul
         const scene = await previewGlb.loadCar(variant, false);
         if (scene) {
           frames = captureSpin(() => {
+            // 🔑 v0.2.63 — بازرنگ رأسی برای مدل‌های بیک‌شده (بدون تینت متریال)
+            const baked = BAKED_PAINT.has(variant);
+            const hexForPaint = baked ? undefined : (paintHex ?? pickBodyColor(variant));
             const model = assembleCarFromGLB(variant, scene, {
               external: true,
-              bodyColor: paintHex ?? pickBodyColor(variant),
+              bodyColor: hexForPaint,
             });
-            return model ? model.group : null;
+            if (!model) return null;
+            if (baked && paintHex && paintHex !== '#f4f4f0') {
+              repaintBakedModelVerts(model.group, paintHex);
+            }
+            return model.group;
           });
         }
       } catch {

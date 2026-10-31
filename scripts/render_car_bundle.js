@@ -30933,11 +30933,11 @@ function assembleCarFromGLB(variant, srcScene, opts = {}) {
         if (/glass|window|windshield|windscreen/.test(materialName)) {
           const glazing = new MeshPhysicalMaterial;
           Object.assign(glazing, material);
-          glazing.roughness = Math.max(0.12, Math.min(0.3, material.roughness));
+          glazing.roughness = Math.max(0.08, Math.min(0.22, material.roughness));
           glazing.metalness = Math.min(0.06, material.metalness);
-          glazing.clearcoat = 0.42;
-          glazing.clearcoatRoughness = 0.16;
-          glazing.envMapIntensity = 1.25;
+          glazing.clearcoat = 0.75;
+          glazing.clearcoatRoughness = 0.08;
+          glazing.envMapIntensity = 1.55;
           material.dispose();
           return glazing;
         }
@@ -30952,11 +30952,11 @@ function assembleCarFromGLB(variant, srcScene, opts = {}) {
         } else {
           const paint = new MeshPhysicalMaterial;
           Object.assign(paint, material);
-          paint.clearcoat = /paint|body|car|exterior|кузов/i.test(materialName) ? 0.32 : 0.12;
-          paint.clearcoatRoughness = 0.28;
-          paint.roughness = Math.max(0.3, Math.min(0.68, material.roughness));
-          paint.metalness = Math.max(0, Math.min(0.28, material.metalness));
-          paint.envMapIntensity = 1.15;
+          paint.clearcoat = /paint|body|car|exterior|кузов/i.test(materialName) ? 0.95 : 0.55;
+          paint.clearcoatRoughness = 0.12;
+          paint.roughness = Math.max(0.2, Math.min(0.5, material.roughness));
+          paint.metalness = Math.max(0, Math.min(0.12, material.metalness));
+          paint.envMapIntensity = 1.35;
           material.dispose();
           return paint;
         }
@@ -31242,7 +31242,7 @@ function assembleCarFromGLB(variant, srcScene, opts = {}) {
       bodyMat = new MeshToonMaterial({ color: bodyColor, gradientMap: getGradient() });
     const paintColor = new Color(bodyColor);
     const nearWhite = Math.abs(paintColor.r - 1) < 0.08 && Math.abs(paintColor.g - 1) < 0.08 && Math.abs(paintColor.b - 1) < 0.08;
-    if (!nearWhite) {
+    if (!nearWhite && !BAKED_PAINT.has(variant)) {
       for (const pm of paintMats)
         pm.mat.color.copy(pm.orig).multiply(paintColor);
     }

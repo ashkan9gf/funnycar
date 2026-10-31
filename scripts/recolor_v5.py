@@ -71,34 +71,35 @@ if KEY in ("player", "pride"):
     cfg["glass_flood_depth"] = 12
 
 
+# 🔧 v0.2.63 — محور ۴۰۵ کانونی شد (طول=Z، بینی=−Z) — تمام مقادیر قدیمی روی محور
+# جابه‌جا (طول=X) اندازه‌گیری شده بودند و بی‌معنا می‌شوند. حالا مثل یک خودروی معمولی:
+# seed با نرمال + باند ارتفاع/طول، سیلاب پیوستگی، بدون جعبهٔ واید (ریشهٔ «شیشه روی صندوق»)
 if KEY == "peugeot405":
-    # 🔧 v5r6: مش ۴۰۵ فرورفتگی پنجره ندارد (نرمال‌های کابین p50 |fn_y|=۰٫۸۹ — سطح صاف!) —
-    # پنجره فقط با موقعیت: جعبهٔ کابین + fn_y خام برای seed شیشهٔ عقب
-    cfg["glass_ny"] = (0.52, 0.86)
-    cfg["glass_nz"] = (0.18, 0.78)
-    cfg["glass_fn_y"] = 0.62
-    cfg["glass_fn_y_raw"] = True
-    cfg["glass_box_fill"] = (0.54, 0.87, 0.20, 0.70)
-    cfg["glass_flood_depth"] = 2  # سیلاب کم — وگرنه از جعبه بیرون می‌زد (خط کمربند)
+    cfg["glass_ny"] = (0.52, 0.88)
+    cfg["glass_nz"] = (0.28, 0.80)
+    cfg["glass_fn_y"] = 0.42
+    cfg.pop("glass_fn_y_raw", None)
+    cfg.pop("glass_box_fill", None)
+    cfg["glass_flood_depth"] = 12
+    cfg["glass_recess_grab"] = 0.90
+    # چراغ‌ها روی مش جدا هستند؛ پنجرهٔ بدنهٔ دورشان: عقب nz<0.08، ارتفاع نور ۴۸-۷۶ از ۱۶۲
+    cfg["tail_r"] = (0.08, 0.30, 0.47)
+    cfg["tail_nx"] = 0.55
+    cfg["head_r"] = (0.90, 0.34, 0.50, 0.60)
 
 # 🔧 v5r14b — چراغ عقبِ تنگ‌تر: پنجرهٔ ny پهن کل گوشهٔ صندوق را قرمز می‌کرد
-# (اندازه‌گیری diag: خوشهٔ چراغ ny p05-p95 — challenger 0.33-0.58, nissan 0.32-0.61, 405 0.32-0.43)
+# (اندازه‌گیری diag: خوشهٔ چراغ ny p05-p95 — challenger 0.33-0.58, nissan 0.32-0.61)
 if KEY == "challenger":
     cfg["tail_r"] = (0.06, 0.37, 0.55)
 if KEY == "nissan":
     cfg["tail_r"] = (0.07, 0.38, 0.56)
-    # 🔧 v0.2.60 — کابین نیسان مثل ۴۰۵ نیمه‌صاف است؛ جعبهٔ موقعیتی پنجرهٔ کابین
-    # (سقف nz ۰٫۵۶-۰٫۷۰ — اندازه‌گیری diag) تا شیشه‌های پراکنده/پاره نشود
+    # 🔧 v0.2.60 — کابین نیسان نیمه‌صاف؛ جعبهٔ موقعیتی پنجرهٔ کابین (اندازه‌گیری diag)
     cfg["glass_box_fill"] = (0.58, 0.90, 0.52, 0.86)
-if KEY == "peugeot405":
-    cfg["tail_r"] = (0.09, 0.32, 0.48)
-    # 🔧 v0.2.60 — شیشهٔ ۴۰۵ خیلی روشن بود (سخابیِ کم‌رنگ → روی بدنهٔ سفید «پنجرهٔ سفید»
-    # دیده می‌شد)؛ طبقه‌بندی درست بود، رنگ غلط بود — همان شیشهٔ کارتونی تیرهٔ player/pride
-    cfg["glass"] = [0.20, 0.27, 0.33]
-    # 🔧 v0.2.60 — جعبهٔ شیشه تنگ بود: پنجره‌های جلو (nz ۰٫۷۵-۰٫۸۸) و ربع‌شیشهٔ عقب
-    # (nz ۰٫۱۲-۰٫۲۵) بیرون جعبه می‌افتادند و «پنجرهٔ سفید» می‌ماندند (اندازه‌گیری diag)
-    cfg["glass_nz"] = (0.10, 0.88)
-    cfg["glass_box_fill"] = (0.54, 0.87, 0.10, 0.88)
+
+
+# 🔧 v0.2.63 — شیشهٔ کارتونی یکدست برای همهٔ خودروها: ۸ خودرو [0.09,0.13,0.17] داشتند
+# (تقریباً سیاه — کابین مثل «لکهٔ سیاه» دیده می‌شد). سرمه‌ایِ متوسط + گرادیان بالا
+cfg["glass"] = [0.22, 0.30, 0.38]
 
 
 # 🔧 v0.2.60 — چراغ عقب تیرهٔ یکسان برای همه: قرمز روشن روی مش نویزی مثل «لکه» دیده می‌شد
@@ -145,6 +146,37 @@ def load_merged(path: str):
     V = np.concatenate(Vs, 0)
     F = np.concatenate(Fs, 0)
     SOURCE_FACE_GROUP = np.concatenate(Gs, 0)
+    # 🔧 v0.2.63 — نرمال‌سازی محور مدل: طول=Z (بینی=−Z)، ارتفاع=Y، عرض=X.
+    # ریشهٔ بیماری ۶ نسخه‌ای ۴۰۵: مدل با طول روی X اکسپورت شده بود → همهٔ
+    # ماسک‌های nz (جعبهٔ شیشه، انتهای پلاستیک، چراغ‌ها) محور عرض را می‌گرفتند
+    # (نوار سیاه دور کمر + شیشه روی صندوق) و در بازی هم پهلو رانندگی می‌کرد.
+    # محورها از خود چرخ‌ها: پخش چرخ در طول ≫ عرض ≫ ارتفاع(≈۰).
+    _wg = [np.asarray(g.vertices, np.float64) for n, g in sc.geometry.items()
+           if str(n).startswith("wheel") and len(g.vertices) > 0]
+    if _wg:
+        _wc = np.vstack([w.mean(0) for w in _wg])
+        _spr = _wc.max(0) - _wc.min(0)
+        _up = int(np.argmin(_spr)); _ln = int(np.argmax(_spr)); _wt = 3 - _up - _ln
+    else:
+        _e = V.max(0) - V.min(0)
+        _ln = int(np.argmax(_e)); _up = int(np.argmin(_e)); _wt = 3 - _ln - _up
+    if (_ln, _up) != (2, 1) and (_ln, _up) == (0, 1):
+        # (x=طول، y=ارتفاع، z=عرض) → چرخش ±۹۰° حول Y (det=+1، بدون آینه)
+        _lm = {str(n): np.asarray(g.vertices, np.float64).mean(0)
+               for n, g in sc.geometry.items() if "light" in str(n) and len(g.vertices) > 0}
+        _hl = _lm.get("headlights_front"); _tl = _lm.get("taillights_rear")
+        _nose_neg = True
+        if _hl is not None and _tl is not None:
+            _nose_neg = float(np.median(_hl[:, _ln])) < float(np.median(_tl[:, _ln]))
+        _out = np.empty_like(V)
+        if _nose_neg:
+            # (x,y,z)→(−z,y,x): بینی(−X)→−Z ✓
+            _out[:, 0] = -V[:, _wt]; _out[:, 1] = V[:, _up]; _out[:, 2] = V[:, _ln]
+        else:
+            # (x,y,z)→(z,y,−x): بینی(+X)→−Z ✓
+            _out[:, 0] = V[:, _wt]; _out[:, 1] = V[:, _up]; _out[:, 2] = -V[:, _ln]
+        print(f"axis canonicalize: len={_ln}→Z up={_up}→Y (nose_neg={_nose_neg}, {len(V)} verts)", flush=True)
+        V = _out
     return V, F
 
 
@@ -1177,6 +1209,33 @@ if _wcent and any(c is not None for c in _wcent):
 else:
     _well = np.zeros(nF, bool)
 M["well_black"] = _well
+
+# 🔧 v0.2.63 — گارد موقعیتی پنجره (سازگار با مش ادغامی player/pride):
+# ریشهٔ «لکهٔ تیرهٔ کابین»: ماسک شیشه تا پایین درها (nz کف 0.10-0.18) پایین می‌آمد و
+# سیلابِ پیوستگی روی مش نویزی به زیر خط کمر سرریز می‌کرد. قانون (فقط محور ارتفاع —
+# برای هر خودرویی کار می‌کند):
+#  (۱) شیشهٔ پهلو (نرمال ⊥ ارتفاع) زیر «خط کمر» = بالای دیسک چرخ ممنوع
+#  (۲) سقف هرگز شیشه نیست: فیس رو‌به‌بالا در ارتفاع سقف
+if M["glass"].any():
+    _fnP = np.asarray(trimesh.Trimesh(V, F, process=False).face_normals)
+    _fcP = V[F].mean(axis=1)
+    _loP, _hiP = V.min(0), V.max(0)
+    _wtY = None
+    for _c, _d in zip(_wcent, _wdia):
+        if _c is not None and _d > 1e-3:
+            _t = _c[1] + 0.55 * _d
+            _wtY = _t if _wtY is None else max(_wtY, _t)
+    if _wtY is None:
+        _wtY = _loP[1] + 0.30 * (_hiP[1] - _loP[1])
+    _floorY = _wtY + 0.30 * (_hiP[1] - _wtY)
+    _sideP = np.abs(_fnP[:, 1]) < 0.45
+    _rooflike = (_fnP[:, 1] > 0.55) & (_fcP[:, 1] > _hiP[1] - 0.115 * (_hiP[1] - _loP[1]))
+    _drop_roof = M["glass"] & _rooflike
+    _drop_low = M["glass"] & _sideP & (_fcP[:, 1] < _floorY)
+    _preG = int(M["glass"].sum())
+    M["glass"][_drop_roof | _drop_low] = False
+    print(f"window geo guard: glass {_preG} -> {int(M['glass'].sum())} "
+          f"(-roof{int(_drop_roof.sum())}, -belowbelt{int(_drop_low.sum())}, floorY={_floorY:.0f})", flush=True)
 
 if wof is not None:
     _bf = np.where((wof < 0) & (_claim < 0))[0]
