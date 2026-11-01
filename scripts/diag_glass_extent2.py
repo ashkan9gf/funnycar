@@ -83,9 +83,12 @@ lamb = np.clip(np.abs(fn @ lightdir), 0, 1) * 0.7 + 0.3
 shaded = np.clip(FC * lamb[:, None] * 1.3, 0, 1)
 
 # adaptive axes: up = argmin(ext) (length > width > height for cars)
-upax = int(np.argmin(ext))
-lnax = int(np.argmax(ext))
-wtax = 3 - upax - lnax
+# 🔑 v0.2.64 — بعد از canonicalize شدن محورها در recolor (v0.2.63)، همهٔ GLBهای
+# بافته‌شده طول را روی Z دارند؛ حدس adaptive برای خودروهای جعبه‌ای بلند (رنو۴:
+# ارتفاع > عرض) محور بالا را اشتباه می‌گرفت و رندر وارونه می‌شد → محور کانونی ثابت
+upax = 1
+lnax = 2
+wtax = 0
 P3d = P3[:, :, [lnax, wtax, upax]]  # display: x=length, y=width, z=up
 ctr = (lo + hi) / 2; r = ext.max() * 0.58
 ctrd = ctr[[lnax, wtax, upax]]

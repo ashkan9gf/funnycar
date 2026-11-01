@@ -12,6 +12,15 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { CinematicPass } from './CinematicPass';
+import {
+  parseColor,
+  addIranianRooftopDetails,
+  addIranianRooftopExtras,
+  createSkidMarkTexture,
+  getShadowQualityProfile,
+  type ShadowQualityProfile,
+} from './worldDetails';
 import type { AssetManager } from '../core/AssetManager';
 import type { Camera } from '../core/Camera';
 import type { Vehicle } from '../entities/Vehicle';
@@ -89,15 +98,6 @@ export interface Draw3DOptions {
 }
 
 interface AmbientBubble { text: string; x: number; y: number; portraitId?: string; ttl: number; maxTtl: number }
-/** 'rgba(...)' یا '#hex' → رنگ + آلفا */
-function parseColor(c: string): { color: THREE.Color; alpha: number } {
-  const m = /rgba?\(([^)]+)\)/.exec(c);
-  if (m) {
-    const p = m[1].split(',').map((s) => parseFloat(s.trim()));
-    return { color: new THREE.Color(p[0] / 255, p[1] / 255, p[2] / 255), alpha: p[3] ?? 1 };
-  }
-  return { color: new THREE.Color(c), alpha: 1 };
-}
 
 // Shared low-cost rooftop props: Iranian water tanks and condenser units.
 // Shared geometry/materials avoid per-building GPU-resource churn in the endless city.
@@ -124,92 +124,7 @@ const MOTO_COLORS = [
   new THREE.Color('#2e6da4'),
   new THREE.Color('#3a3a3a'),
 ] as const;
-const ROOFTOP_BOX_GEO = new THREE.BoxGeometry(1, 1, 1);
-const ROOFTOP_TANK_GEO = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
-const ROOFTOP_BASE_MAT = new THREE.MeshStandardMaterial({ color: '#777b7c', metalness: 0.58, roughness: 0.62 });
-const ROOFTOP_TANK_MAT = new THREE.MeshStandardMaterial({ color: '#356d79', metalness: 0.12, roughness: 0.48 });
-const ROOFTOP_AC_MAT = new THREE.MeshStandardMaterial({ color: '#e7e0d1', metalness: 0.08, roughness: 0.72 });
-const ROOFTOP_DARK_MAT = new THREE.MeshStandardMaterial({ color: '#343a3c', metalness: 0.35, roughness: 0.66 });
-
-function addIranianRooftopDetails(g: THREE.Group, bounds: THREE.Box3, variance: number): void {
-  // Not every building receives every prop: preserve a varied skyline and mobile budget.
-  const size = bounds.getSize(new THREE.Vector3());
-  const width = Math.max(1, size.x);
-  const depth = Math.max(1, size.z);
-  const height = Math.max(1, size.y);
-  const roofY = bounds.max.y;
-  const detailGroup = new THREE.Group();
-  // Typical rooftop water tank on a short metal stand.
-  if (variance % 2 === 0) {
-    const stand = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_BASE_MAT);
-    stand.scale.set(width * 0.105, height * 0.025, depth * 0.105);
-    stand.position.set(bounds.min.x + width * 0.23, roofY + height * 0.012, bounds.min.z + depth * 0.2);
-    const tank = new THREE.Mesh(ROOFTOP_TANK_GEO, ROOFTOP_TANK_MAT);
-    tank.scale.set(width * 0.12, height * 0.17, depth * 0.12);
-    tank.position.set(bounds.min.x + width * 0.23, roofY + height * 0.105, bounds.min.z + depth * 0.2);
-    tank.castShadow = true;
-    detailGroup.add(stand, tank);
-  }
-  // Split AC condensers, a familiar detail on Iranian apartment facades/roofs.
-  if (variance % 3 !== 1) {
-    for (const side of [-1, 1]) {
-      const ac = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_AC_MAT);
-      ac.scale.set(width * 0.095, height * 0.055, depth * 0.09);
-      ac.position.set(bounds.min.x + width * (0.12 + (side > 0 ? 0.52 : 0)), roofY + height * 0.027, bounds.min.z + depth * 0.72);
-      ac.castShadow = true;
-      const vent = new THREE.Mesh(ROOFTOP_BOX_GEO, ROOFTOP_DARK_MAT);
-      vent.scale.set(width * 0.052, height * 0.032, depth * 0.008);
-      vent.position.set(ac.position.x, ac.position.y, ac.position.z + depth * 0.046);
-      detailGroup.add(ac, vent);
-    }
-  }
-  if (detailGroup.children.length) g.add(detailGroup);
-}
-
 const SKID_LIFE = 3.4;
-
-/** One small procedural alpha texture gives tire marks feathered edges without external assets. */
-function createSkidMarkTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return new THREE.CanvasTexture(canvas);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const edge = ctx.createLinearGradient(0, 0, canvas.width, 0);
-  edge.addColorStop(0, 'rgba(0,0,0,0)');
-  edge.addColorStop(0.18, 'rgba(0,0,0,0.45)');
-  edge.addColorStop(0.5, 'rgba(0,0,0,0.72)');
-  edge.addColorStop(0.82, 'rgba(0,0,0,0.45)');
-  edge.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = edge;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // Fade both ends so marks blend into the road instead of ending as hard rectangles.
-  ctx.globalCompositeOperation = 'destination-in';
-  const ends = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  ends.addColorStop(0, 'rgba(0,0,0,0)');
-  ends.addColorStop(0.12, 'rgba(0,0,0,0.75)');
-  ends.addColorStop(0.5, 'rgba(0,0,0,1)');
-  ends.addColorStop(0.88, 'rgba(0,0,0,0.75)');
-  ends.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = ends;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.globalCompositeOperation = 'source-over';
-  // Fine, broken rubber streaks add subtle surface variation.
-  for (let i = 0; i < 9; i++) {
-    const x = 22 + ((i * 17) % 21);
-    const y = 5 + ((i * 29) % 116);
-    ctx.fillStyle = `rgba(0,0,0,${0.05 + (i % 3) * 0.025})`;
-    ctx.fillRect(x, y, 1 + (i % 2), 5 + (i % 4) * 3);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.generateMipmaps = true;
-  return texture;
-}
-
 /** ویزوال یک قطعهٔ فعال — فاز ENDLESS-1 */
 interface ChunkVisual {
   key: string;
@@ -253,39 +168,6 @@ interface Particle3D {
 
 // 🔑 PERF-4: dequantizeGeoNew به GlbModels.ts منتقل شد (اشتراک با mergeTemplateStatics)
 
-/** Device-aware shadow budget: preserve crisp shadows on capable GPUs without forcing
- * a 2048² depth map on low-memory/low-core phones. No GPU renderer-string probing. */
-interface ShadowQualityProfile {
-  mapSize: number;
-  refreshEvery: number;
-  normalBias: number;
-  radius: number;
-}
-
-function getShadowQualityProfile(
-  gl: WebGL2RenderingContext | WebGLRenderingContext,
-): ShadowQualityProfile {
-  const maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 2048;
-  const nav = typeof navigator !== 'undefined' ? navigator : null;
-  const cores = nav?.hardwareConcurrency || 4;
-  const reportedMemory = nav && 'deviceMemory' in nav
-    ? Number((nav as Navigator & { deviceMemory?: number }).deviceMemory)
-    : Number.NaN;
-  const memory = Number.isFinite(reportedMemory) && reportedMemory > 0 ? reportedMemory : null;
-  const lowEnd = cores <= 4 || (memory !== null && memory <= 4) || maxTextureSize < 4096;
-  const highEnd = cores >= 8 && memory !== null && memory >= 8 && maxTextureSize >= 8192;
-
-  if (lowEnd) {
-    // 🔑 v0.2.62 — با کادر ±۲۱۵ حتی نقشهٔ ۱۰۲۴ هم ۰٫۴۲ واحد/تکسل می‌شود؛ ۱۵۳۶ + شعاع کمتر
-    // = سایهٔ خوانا روی گوشی‌های ضعیف، بدون پرش محسوس هزینه (refreshEvery ۴ حفظ شد)
-    return { mapSize: 1536, refreshEvery: 4, normalBias: 0.016, radius: 1.0 };
-  }
-  if (highEnd) {
-    return { mapSize: 2048, refreshEvery: 2, normalBias: 0.010, radius: 1.2 };
-  }
-  return { mapSize: 2048, refreshEvery: 3, normalBias: 0.012, radius: 1.1 };
-}
-
 export class WorldRenderer3D {
   /** Keep the game loop alive through transient Android WebGL context loss. */
   private webglContextLost = false;
@@ -296,7 +178,12 @@ export class WorldRenderer3D {
   private readonly handleWebGLContextRestored = (): void => {
     this.webglContextLost = false;
     this.r3.shadowMap.needsUpdate = true;
+    // 🔑 v0.2.64 — هدف‌های رندر پست‌پروسس بعد از بازیابی context از نو ساخته می‌شوند
+    this.cine?.rebuild();
   };
+
+  /** 🔑 v0.2.64 — پست‌پروسس سینمایی (وینیت + گرید رنگ + بلوم شب) — ماژول جداگانه */
+  private cine: CinematicPass | null = null;
 
   private r3: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -517,6 +404,10 @@ export class WorldRenderer3D {
     // تون‌مپینگ سینمایی سبک GTA (رنگ‌ها غنی‌تر)
     this.r3.toneMapping = THREE.ACESFilmicToneMapping;
     this.r3.toneMappingExposure = 1.2;
+
+    // 🔑 v0.2.64 — زنجیرهٔ سینمایی: بلوم شب + گرید رنگ/وینیت (رده‌بندی کامل داخل ماژول)
+    this.cine = new CinematicPass(this.r3, this.scene, this.cam3);
+    this.cine.setMode(this.getDeviceTier(), this.graphicsQuality);
 
     // نور محیطی مبتنی بر PMREM: 🔑 v0.2.62 — محیط از خود آسمان بازی (نه استودیوی خاکستری):
     // بازتاب آبیِ آسمان روی سقف/شیشهٔ خودرو + گرمای زمین از پایین = حس «بیرون» واقعی
@@ -2067,6 +1958,10 @@ export class WorldRenderer3D {
     // فقط برای خانه/آپارتمان و با پراکندگی قطعی؛ جزئیات سبک‌اند و از منابع مشترک استفاده می‌کنند.
     if ((type === 'home' || type === 'apartment') && variance % 3 !== 1) {
       addIranianRooftopDetails(g, gb, variance);
+    }
+    // 🔑 v0.2.64 — لایهٔ دوم: جان‌پناه (همهٔ خانه/آپارتمان) + دیش ماهواره/آنتن با پراکندگی
+    if (type === 'home' || type === 'apartment') {
+      addIranianRooftopExtras(g, gb, variance);
     }
     // فاز CITY-BEAUTY/IR-SIGNS: مغازه‌ها سایه‌بان راه‌راه + تابلوی اسم اختصاصی
     if (type === 'shop' || type === 'garage') {
@@ -3670,7 +3565,11 @@ export class WorldRenderer3D {
     }
 
     // ---------- رندر ----------
-    if (!this.webglContextLost) this.r3.render(this.scene, this.cam3);
+    if (!this.webglContextLost) {
+      // 🔑 v0.2.64 — زنجیرهٔ سینمایی (بلوم شب + گرید/وینیت)؛ در خطا خودش به رندر مستقیم برمی‌گردد
+      if (this.cine) this.cine.render(this.dayNightFactor, t);
+      else this.r3.render(this.scene, this.cam3);
+    }
 
     // ---------- اورلی (حباب‌ها + فلش هدف) ----------
     this.drawOverlay(opts, t);
@@ -4218,6 +4117,8 @@ export class WorldRenderer3D {
   /** User-selected raster budget. This never changes physics or world detail. */
   setGraphicsQuality(quality: 'performance' | 'balanced' | 'quality'): void {
     this.graphicsQuality = quality;
+    // 🔑 v0.2.64 — ردهٔ پست‌پروسس (بلوم/MSAA) هم با انتخاب کاربر تغییر می‌کند
+    this.cine?.setMode(this.getDeviceTier(), quality);
   }
 
   setPerformanceHint(fps: number): void {
@@ -4280,6 +4181,8 @@ export class WorldRenderer3D {
     const renderW = Math.max(1, Math.round(pixelW * renderScale));
     const renderH = Math.max(1, Math.round(pixelH * renderScale));
     this.r3.setSize(renderW, renderH, false);
+    // 🔑 v0.2.64 — بافر پست‌پروسس هم‌اندازهٔ بافر رندر می‌ماند
+    this.cine?.setSize(renderW, renderH);
     this.overlay.width = pixelW;
     this.overlay.height = pixelH;
     // ابعاد منطقی برای پروجکشن = پیکسل CSS
@@ -4296,6 +4199,7 @@ export class WorldRenderer3D {
   }
 
   dispose(): void {
+    this.cine?.dispose();
     this.r3.domElement.removeEventListener('webglcontextlost', this.handleWebGLContextLost);
     this.r3.domElement.removeEventListener('webglcontextrestored', this.handleWebGLContextRestored);
     // منابع هندسی/متریال ممکن است بین چند Mesh مشترک باشند؛ هر منبع را فقط یک‌بار آزاد کن.
